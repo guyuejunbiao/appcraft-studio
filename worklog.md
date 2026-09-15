@@ -631,3 +631,24 @@ Stage Summary:
 - agent-browser 全链路实测通过：画板渲染/组件点选/就地改文字（星云 App→星云 App Pro 实时生效）/间距滑杆 mt=32/TabBar 一键生成(2 tab)/换图标(73 选项)/Tab 点击聚焦画板(amber ring)/预览整页切换(商城首页↔商品详情)/拖拽连线(Banner→商品详情)/删除组件/保存+刷新持久化(DB tabs=[商城首页(home),商品详情(compass)])
 - tsc 0 错、lint 0 错；三入口（首页卡片/Toolbar 按钮/引导横幅）全部验证可达
 - 遗留小项：②icon 选择点击的 option 偶发落空（title 匹配选择器问题，功能本身正常）可后续打磨；free 布局画板内选中热区按 x/y/w/h 估算，复杂绝对定位页面可回编辑器精调
+
+---
+Task ID: 29
+Agent: main
+Task: 修复用户反馈「无限画布拖动页面有 bug」（截图显示画板拖动后重叠错乱）
+
+Work Log:
+- 根因定位（3 个）：①InfiniteCanvas Artboard 拖动 onMove 读取**被拖画板自身**的 getBoundingClientRect()，而 rect 随 setFlowPos 每帧变化，形成 X←A−X−d 自反馈振荡映射 → 画板疯狂抖动、松手落点随机（用户截图的元凶）②每次 pointermove 都 commit()（deepClone 全量快照进历史）→ 拖 1 秒几十条撤销记录、撤销一次只回退 1px ③FlowEditor 节点拖拽用 onPointerLeave 直接丢弃拖拽状态（鼠标移出视口节点卡住）+ 同样每帧压历史
+- store.ts：新增 pushHistory()（手动压一条快照）+ setFlowPosLive(id,x,y)（set 直改 + dirty，不进历史）
+- InfiniteCanvas Artboard：拖动改 delta 方案——pointerdown 时闭包快照起点屏幕坐标 (sx,sy) + 画板起始世界坐标 (ox,oy)，move 中 ox+dx/zoom（不再读任何会动的 rect）；监听器在 pointerdown 内**同步注册**（首帧前快速拖动不丢事件，此前 useEffect 版本在合成事件同 tick 派发时会丢 move——测试中实际踩到）；3px 阈值防误触；超阈值才 pushHistory 一次（整段拖动 = 一条可撤销记录）
+- FlowEditor 节点拖拽：同一模式升级（delta + 同步注册 window listener + 阈值 + 一次历史），删除 onPointerLeave 丢拖拽逻辑；「自动布局」按钮从 N 次 setFlowPos（N 条历史）改为 pushHistory + 批量 setState（一条历史）
+- 新增「整理」按钮（InfiniteCanvas 顶栏，LayoutGrid 图标）：画板按 defaultPos 网格一键重排（pushHistory + 批量更新），旧 bug 拖乱布局后可一键恢复，撤销可回退
+- agent-browser 实测全过：①zoom100% 拖 (120,80)→flow(200,160) 分毫不差 ②undo→(80,80)/redo→(200,160) ③位移 (1,1) 不触发历史（阈值生效）④zoom50% 拖屏幕 (100,50)→世界 (200,100)→(280,180) 换算精确 ⑤FlowEditor 节点拖 (150,90) 精确、一条历史 ⑥连线拖拽命中目标弹对话框（无回归）⑦保存后 DB flowX/flowY 确认、刷新恢复 ⑧整理按钮网格重排 + undo 回退 ✓；测试数据已全部还原
+- tsc 0 错、lint 0 错、dev.log 无错误
+
+Stage Summary:
+- 核心教训：拖拽实现严禁在 onMove 中读取被拖动元素自身的 rect（自反馈振荡）；标准 delta 方案 = pointerdown 快照起点（屏幕 + 世界坐标）+ move 中 origin + delta/zoom；监听器必须在 pointerdown 内同步注册（useEffect 版本有时序空洞）
+- 副作用修复：拖动历史从每帧一条变为整段一条；FlowEditor 拖拽出视口不再卡死
+- 新产物：store.pushHistory/setFlowPosLive（可复用的「轻量实时更新 + 一次性历史」模式）；无限画布「整理」按钮
+- 用户截图项目（cmu0uxwnj0000nnttypdo5pqz，4 页）DB 中位置当前无重叠，如视觉仍乱可在画布顶栏点「整理」一键恢复
+- 建议下一阶段：①画板拖动时视口边缘自动平移（auto-pan）②画板磁吸对齐线 ③双击 chrome 重命名与拖动的手势区分已做阈值，可再加长按提示

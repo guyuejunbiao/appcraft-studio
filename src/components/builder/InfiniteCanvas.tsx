@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, GitBranch, Home, Layers3, MousePointerClick, Pencil, Plus, Trash2,
+  ArrowLeft, GitBranch, Home, Layers3, LayoutGrid, MousePointerClick, Pencil, Plus, Trash2,
   Undo2, Redo2, ZoomIn, ZoomOut, Maximize2, Save, PanelBottom, Type,
   ArrowUpDown, Search, ChevronDown, ChevronUp, Loader2, X, ChevronRight,
 } from 'lucide-react';
@@ -256,10 +256,10 @@ function Artboard({
   onLinkStart: (pageId: string, e: React.PointerEvent) => void;
 }) {
   const tabs = useBuilder((s) => s.tabs);
-  const setFlowPos = useBuilder((s) => s.setFlowPos);
+  const setFlowPosLive = useBuilder((s) => s.setFlowPosLive);
   const updatePage = useBuilder((s) => s.updatePage);
   const boardRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<{ dx: number; dy: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(page.name);
 
@@ -270,31 +270,33 @@ function Artboard({
   const isFree = page.layout === 'free' && page.components.every((c) => typeof c.x === 'number');
   const visible = page.components.filter((w) => !w.hidden);
 
-  /* 拖动画板位置（按住 chrome 条；坐标按 zoom 还原） */
+  /* 拖动画板位置（按住 chrome 条；delta 方案：起点快照 + 屏幕位移 / zoom，修复自反馈坐标错乱）。
+     监听器在 pointerdown 内同步注册：快速拖动（首帧前）也不丢 move 事件 */
   const startDrag = (e: React.PointerEvent) => {
-    if (linkDragging) return;
-    const rect = boardRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setDragging({
-      dx: (e.clientX - rect.left) / zoom,
-      dy: (e.clientY - rect.top) / zoom,
-    });
-  };
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: PointerEvent) => {
-      const rect = boardRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setFlowPos(page.id, (e.clientX - rect.left) / zoom - dragging.dx, (e.clientY - rect.top) / zoom - dragging.dy);
+    if (linkDragging || renaming || e.button !== 0) return;
+    const s = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y, pushed: false };
+    setDragging(true);
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - s.sx;
+      const dy = ev.clientY - s.sy;
+      if (!s.pushed) {
+        /* 位移超阈值才算真正拖动：此刻压一次历史（整段拖动 = 一条可撤销记录） */
+        if (Math.abs(dx) + Math.abs(dy) < 3) return;
+        s.pushed = true;
+        useBuilder.getState().pushHistory();
+      }
+      setFlowPosLive(page.id, s.ox + dx / zoom, s.oy + dy / zoom);
     };
-    const onUp = () => setDragging(null);
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp, { once: true });
-    return () => {
+    const onUp = () => {
+      setDragging(false);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
-  }, [dragging, page.id, setFlowPos, zoom]);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
 
   return (
     <div
@@ -675,6 +677,17 @@ export function InfiniteCanvas() {
     setView('editor');
   };
 
+  /* 一键整理：画板按网格重排（旧版拖拽 bug 弄乱布局后可一键恢复） */
+  const tidyCanvas = () => {
+    if (pages.length === 0) return;
+    useBuilder.getState().pushHistory();
+    useBuilder.setState({
+      pages: pages.map((p, i) => ({ ...p, flowX: defaultPos(i).x, flowY: defaultPos(i).y })),
+      dirty: true,
+    });
+    toast.success('画板已按网格整理');
+  };
+
   /* 选中组件快捷操作 */
   const selPage = selWidget?.page;
   const selDef = selWidget ? getWidget(selWidget.widget.type) : null;
@@ -725,6 +738,9 @@ export function InfiniteCanvas() {
             {tabs.length > 0 && (
               <span className="ml-1 rounded-full bg-violet-100 px-1.5 text-[10px] font-bold text-violet-600">{tabs.length}</span>
             )}
+          </Button>
+          <Button variant="outline" size="sm" onClick={tidyCanvas} title="把所有画板按网格重新排列（拖乱后一键恢复）">
+            <LayoutGrid className="size-4" /> <span className="hidden lg:inline">整理</span>
           </Button>
           <Button variant="outline" size="sm" className="hidden md:flex" onClick={() => setManagerOpen(true)}>
             页面管理

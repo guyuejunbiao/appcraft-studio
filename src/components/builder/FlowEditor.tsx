@@ -181,10 +181,11 @@ export function FlowEditor() {
   const setView = useBuilder((s) => s.setView);
   const setCurrentPage = useBuilder((s) => s.setCurrentPage);
   const addPage = useBuilder((s) => s.addPage);
-  const setFlowPos = useBuilder((s) => s.setFlowPos);
+  const setFlowPosLive = useBuilder((s) => s.setFlowPosLive);
   const removeConnection = useBuilder((s) => s.removeConnection);
 
-  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
+  /** 正在拖拽的节点 id（位移用闭包内起点快照 + delta 计算，不读会动的 rect） */
+  const [drag, setDrag] = useState<string | null>(null);
   /** 正在拖拽的连线：源页固定，坐标跟随指针（内容坐标系） */
   const [linkDrag, setLinkDrag] = useState<{ fromPageId: string; fx: number; fy: number; x: number; y: number } | null>(null);
   /** 新建连接对话框（拖拽落点预填） */
@@ -220,13 +221,7 @@ export function FlowEditor() {
   }, [linkDrag, pages, positions]);
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (drag) {
-      const board = boardRef.current?.getBoundingClientRect();
-      if (!board) return;
-      setFlowPos(drag.id, e.clientX - board.left - drag.dx, e.clientY - board.top - drag.dy);
-      return;
-    }
-    /* 兜底：未启用指针捕获时（触屏外）也跟随更新连线 */
+    /* 兜底：未启用指针捕获时（触屏外）也跟随更新连线（节点拖拽监听在 pointerdown 内同步注册） */
     if (linkDrag) {
       const rect = contentRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -279,9 +274,13 @@ export function FlowEditor() {
             variant="outline"
             size="sm"
             onClick={() => {
-              pages.forEach((p, i) => {
-                setFlowPos(p.id, 80 + (i % 3) * 340, 80 + Math.floor(i / 3) * 280);
+              /* 一次历史 + 批量落位（避免 N 次 commit 产生 N 条撤销记录） */
+              useBuilder.getState().pushHistory();
+              useBuilder.setState({
+                pages: pages.map((p, i) => ({ ...p, flowX: 80 + (i % 3) * 340, flowY: 80 + Math.floor(i / 3) * 280 })),
+                dirty: true,
               });
+              toast.success('已自动布局');
             }}
           >
             <Wand2 className="size-4" /> 自动布局
@@ -304,7 +303,7 @@ export function FlowEditor() {
         className="relative min-h-0 flex-1 overflow-auto bg-dot thin-scroll"
         onPointerMove={onPointerMove}
         onPointerUp={finishLink}
-        onPointerLeave={() => { setDrag(null); setLinkDrag(null); }}
+        onPointerLeave={() => { setLinkDrag(null); }}
       >
         <div
           ref={contentRef}
@@ -403,20 +402,35 @@ export function FlowEditor() {
                 key={p.id}
                 className={`group/node absolute select-none rounded-2xl border-2 bg-white shadow-lg transition-shadow ${
                   p.isHome ? 'border-amber-400' : 'border-white'
-                } ${drag?.id === p.id ? 'shadow-2xl' : 'hover:shadow-xl'} ${
+                } ${drag === p.id ? 'shadow-2xl' : 'hover:shadow-xl'} ${
                   isHoverTarget ? 'ring-4 ring-orange-400/60 border-orange-400' : ''
                 }`}
                 style={{ left: positions[p.id].x, top: positions[p.id].y, width: NODE_W, height: NODE_H }}
                 onPointerDown={(e) => {
-                  /* 连线拖拽中忽略节点拖拽 */
-                  if (linkDrag) return;
-                  const board = boardRef.current?.getBoundingClientRect();
-                  if (!board) return;
-                  setDrag({
-                    id: p.id,
-                    dx: e.clientX - board.left - positions[p.id].x,
-                    dy: e.clientY - board.top - positions[p.id].y,
-                  });
+                  /* 连线拖拽中忽略节点拖拽；监听器同步注册（快速拖动不丢事件），
+                     阈值防误触 + 整段拖动只压一条历史（无缩放，屏幕位移 = 世界位移） */
+                  if (linkDrag || e.button !== 0) return;
+                  const s = { sx: e.clientX, sy: e.clientY, ox: positions[p.id].x, oy: positions[p.id].y, pushed: false };
+                  setDrag(p.id);
+                  const onMove = (ev: PointerEvent) => {
+                    const dx = ev.clientX - s.sx;
+                    const dy = ev.clientY - s.sy;
+                    if (!s.pushed) {
+                      if (Math.abs(dx) + Math.abs(dy) < 3) return;
+                      s.pushed = true;
+                      useBuilder.getState().pushHistory();
+                    }
+                    setFlowPosLive(p.id, s.ox + dx, s.oy + dy);
+                  };
+                  const onUp = () => {
+                    setDrag(null);
+                    window.removeEventListener('pointermove', onMove);
+                    window.removeEventListener('pointerup', onUp);
+                    window.removeEventListener('pointercancel', onUp);
+                  };
+                  window.addEventListener('pointermove', onMove);
+                  window.addEventListener('pointerup', onUp);
+                  window.addEventListener('pointercancel', onUp);
                 }}
                 onDoubleClick={() => {
                   setCurrentPage(p.id);

@@ -124,6 +124,10 @@ interface BuilderState {
   updatePage: (id: string, patch: Partial<PageData>) => void;
   removePage: (id: string) => void;
   setFlowPos: (id: string, x: number, y: number) => void;
+  /** 手动压一条撤销快照（配合 setFlowPosLive：拖动开始时压一次，整段拖动 = 一条历史） */
+  pushHistory: () => void;
+  /** 画布拖拽专用：实时更新画板位置但不进撤销历史（避免每帧快照） */
+  setFlowPosLive: (id: string, x: number, y: number) => void;
   /* ===== App 级底部导航（TabBar）=====
    * 与组件库 fn.tabbar 不同：项目级导航，每个标签绑定一整页，点击换根切换。
    * 不进撤销历史（与主题同级的项目设置），变更即标脏随保存持久化。 */
@@ -990,6 +994,21 @@ export const useBuilder = create<BuilderState>((set, get) => {
       commit(({ pages }) => ({
         pages: pages.map((p) => (p.id === id ? { ...p, flowX: x, flowY: y } : p)),
       }));
+    },
+
+    pushHistory() {
+      const { pages, connections, past } = get();
+      set({
+        past: [...past.slice(-MAX_HISTORY), { pages: deepClone(pages), connections: deepClone(connections) }],
+        future: [],
+      });
+    },
+
+    setFlowPosLive(id, x, y) {
+      set({
+        pages: get().pages.map((p) => (p.id === id ? { ...p, flowX: x, flowY: y } : p)),
+        dirty: true,
+      });
     },
 
     /* ==================== App 级底部导航（TabBar） ==================== */
