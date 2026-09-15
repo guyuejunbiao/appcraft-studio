@@ -10,7 +10,7 @@ import {
   Home, LayoutGrid, Compass, UserRound, Settings, BookUser,
   Minus, Plus, Search, X,
 } from 'lucide-react';
-import { useInteractionBus } from '@/lib/interaction-bus';
+import { useInteractionBus, useChannelDefault } from '@/lib/interaction-bus';
 import type { InteractiveCtx } from '@/lib/widget-types';
 
 /* ------------------------------------------------------------------ */
@@ -21,6 +21,8 @@ export function LoginTabsInteractive({ props }: InteractiveCtx) {
   const value = useInteractionBus((s) => s.values[channel]);
   const setBus = useInteractionBus((s) => s.set);
   const active = value ?? String(props.active ?? 'left');
+  /* 频道默认值：保证初始「选中项」与密码/验证码框的显隐联动同步（修复初始密码框消失） */
+  useChannelDefault(channel, String(props.active ?? 'left'));
 
   return (
     <div className="w-chip flex rounded-full p-1" style={{ borderRadius: '999px' }}>
@@ -622,6 +624,8 @@ export function FnTabbarInteractive({ props, tabNav }: InteractiveCtx) {
     const a = Math.round(Number(props.active) || 0);
     return Math.max(0, Math.min(Math.max(tabs.length - 1, 0), a));
   });
+  /* 频道默认值：初始选中项同步到总线（订阅 tab 频道显隐的组件初始即可见） */
+  useChannelDefault(channel, String(active));
 
   const switchTab = (i: number) => {
     if (i === active) return;
@@ -690,6 +694,8 @@ export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
   const [active, setActive] = useState(() =>
     CHAT_TABS_I.some((t) => t.key === props.active) ? String(props.active) : 'msg'
   );
+  /* 频道默认值：初始选中项同步到总线 */
+  useChannelDefault(channel, active);
 
   const switchTab = (key: string) => {
     if (key === active) return;
@@ -741,6 +747,8 @@ export function QtyStepperInteractive({ props }: InteractiveCtx) {
   const setBus = useInteractionBus((s) => s.set);
   const channel = String(props.channel || 'qty');
   const [count, setCount] = useState(() => Math.max(1, Math.min(99, Math.round(Number(props.value) || 1))));
+  /* 频道默认值：初始数量同步到总线 */
+  useChannelDefault(channel, String(count));
 
   const clamp = (n: number) => Math.max(1, Math.min(99, n));
   const apply = (n: number) => {
@@ -796,6 +804,11 @@ export function SkuSelectInteractive({ props }: InteractiveCtx) {
   const versions = useMemo(() => splitListI(props.versions), [props.versions]);
   const [ci, setCi] = useState(0);
   const [vi, setVi] = useState(0);
+  /* 频道默认值：初始选中 SKU 同步到总线（格式与 pick 一致） */
+  useChannelDefault(
+    channel,
+    [colors[0] ?? '', versions[0] ?? ''].filter(Boolean).join(' · ')
+  );
 
   const pick = (row: 'c' | 'v', i: number) => {
     const nextCi = row === 'c' ? i : ci;

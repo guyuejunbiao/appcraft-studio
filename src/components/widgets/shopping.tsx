@@ -98,7 +98,7 @@ export const widgets: WidgetDef[] = [
     name: 'SKU 选择',
     desc: '颜色 / 版本规格 chips',
     icon: Palette,
-    defaultProps: { colors: '月光白,曜石黑,晨曦粉', versions: '标准版,高配版' },
+    defaultProps: { colors: '月光白,曜石黑,晨曦粉', versions: '标准版,高配版', channel: 'sku' },
     fields: [
       { key: 'colors', label: '颜色', type: 'textarea', placeholder: '逗号分隔' },
       { key: 'versions', label: '版本', type: 'textarea', placeholder: '逗号分隔' },
@@ -147,7 +147,7 @@ export const widgets: WidgetDef[] = [
     name: '数量步进器',
     desc: '购买数量 + 圆形加减按钮',
     icon: Minus,
-    defaultProps: { label: '购买数量', value: 1 },
+    defaultProps: { label: '购买数量', value: 1, channel: 'qty' },
     fields: [
       { key: 'label', label: '左侧文案', type: 'text' },
       { key: 'value', label: '数量', type: 'number', min: 1, max: 99, step: 1 },

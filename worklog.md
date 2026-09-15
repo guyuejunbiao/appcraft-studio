@@ -652,3 +652,25 @@ Stage Summary:
 - 新产物：store.pushHistory/setFlowPosLive（可复用的「轻量实时更新 + 一次性历史」模式）；无限画布「整理」按钮
 - 用户截图项目（cmu0uxwnj0000nnttypdo5pqz，4 页）DB 中位置当前无重叠，如视觉仍乱可在画布顶栏点「整理」一键恢复
 - 建议下一阶段：①画板拖动时视口边缘自动平移（auto-pan）②画板磁吸对齐线 ③双击 chrome 重命名与拖动的手势区分已做阈值，可再加长按提示
+
+---
+Task ID: 30
+Agent: main
+Task: 修复用户反馈「密码登录 bug」（tab 选中「密码登录」但密码框空白/消失）+ 全面排查同类问题
+
+Work Log:
+- 根因（两个叠加）：①【代码 bug】预览交互总线（interaction-bus）初始 values={}，LoginTabs 视觉选中态用 props.active 兜底显示「密码登录」，但订阅方（password-input showValue='left'）的 busVisible 判定 undefined !== 'left' → 密码框初始被隐藏。同类问题波及全部 5 个「频道源头」组件（FnTabbar/ChatTabbar/QtyStepper/SkuSelect 均只在点击时写 bus，初始选中态与联动订阅方脱节）②【数据缺陷】用户项目（s4hz7o）「登录页」有 login-tabs + password 但没有 sms-input，点「短信登录」后页面无验证码框可显示
+- interaction-bus.ts：①新增 useChannelDefault(channel, value)——频道未写入时响应式写入默认值（预览「重置」清空总线后也自动恢复默认），5 个源头组件全部挂载 ②busVisible 增加兜底：channel 从未被写入（undefined）时恒显示（防御页面上没有频道源头组件的孤立配置）
+- interactive.tsx：LoginTabs/FnTabbar/ChatTabbar/QtyStepper/SkuSelect 五组件接 useChannelDefault（SkuSelect 默认值格式与 pick 一致：colors[0] · versions[0]）
+- 调试基建：interaction-bus 暴露 window.__acBus（与 InfiniteCanvas 的 __acStore 同模式的只读检查钩子）
+- 数据修复：往 s4hz7o「登录页」password-input 之后插入 sms-input 实例（channel=loginMode, showValue=right，uid 格式与 store 一致），tab 切换真正可用；确认 Page.components 为 String JSON 存储，写回格式无损
+- shopping.tsx：sku-select/qty-stepper 的 defaultProps 补 channel 默认值（fields↔defaultProps 对齐，冒烟脚本发现的既有不一致）
+- agent-browser 全链路实测：①初始密码框显示+验证码隐藏 ②切「短信登录」验证码框出现/密码隐藏 ③切回反转 ④密码输入+眼睛明密文切换（password→text）⑤验证码 60s 倒计时 + 1.1s 自动填充 284616（首次误报是测试选择器抓到手机号框，同为 numeric input）⑥登录按钮 loading→成功 ⑦微信第三方唤起全流程（splash→授权页拒绝/同意授权→返回）⑧「重置」后 bus 自动恢复 {loginMode:'left'}、密码框回归 ⑨画布静态渲染 2×密码框+3×验证码框正常
+- 143 组件全量冒烟（render(defaultProps)/render({})/fields↔defaultProps 对齐）+ 4 组 busVisible 单测 ALL PASS；tsc 0 错、lint 0 错、dev.log 无错误
+
+Stage Summary:
+- 核心教训：「视觉默认值」与「总线默认值」必须同源——凡是「组件 A 的状态驱动组件 B 显隐」的联动，A 挂载时必须把初始状态写入总线（useChannelDefault 模式），且订阅方对「频道未激活」要恒显示兜底，双保险缺一不可
+- busVisible(undefined) 恒显示兜底的语义：孤立配置（页面上没有频道源头）永不隐藏——宁可多显示不可凭空消失
+- 用户截图的「空白框」解释：密码框 return null 后该位置留空 + 用户标注红框，非独立空组件
+- 修复后用户项目需重新打开预览验证（数据已直接落库，进编辑器/预览即生效）
+- 建议下一阶段：①「联动频道」配置可视化（画布中用虚线连接 channel 源与订阅方，降低理解门槛）②跨页面 bus 状态残留问题（注册页无 tabs 但被 loginMode 控制，可考虑页面切换时可选重置频道）③模板市场补充「登录页」黄金模板的组件完整性校验（tabs 与联动输入框成组校验）
