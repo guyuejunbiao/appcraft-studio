@@ -132,6 +132,19 @@ export interface AppTab {
   icon: string;
 }
 
+/**
+ * App 级底部导航（TabBar）的整体样式（项目级）。
+ * 空字段 = 使用默认（图标+文字、激活主题色、自适应底色）。
+ */
+export interface TabBarStyle {
+  /** 展示模式：both 图标+文字（默认）/ icon 仅图标大图标模式 */
+  mode?: 'both' | 'icon';
+  /** 激活色；空 = 跟随主题主色 var(--p) */
+  activeColor?: string;
+  /** 底色风格：auto 明暗自适应（默认）/ light 白色 / dark 深色 / primary 主题色沉浸 */
+  bg?: 'auto' | 'light' | 'dark' | 'primary';
+}
+
 /** 项目主题（UI/UX 自定义） */
 export interface ThemeConfig {
   primary: string;
@@ -141,6 +154,8 @@ export interface ThemeConfig {
   icon?: string;
   /** 应用图标背景色；空 = 跟随主题色渐变 */
   iconBG?: string;
+  /** App 级底部导航（TabBar）整体样式；空 = 全默认 */
+  tabStyle?: TabBarStyle;
 }
 
 export const DEFAULT_THEME: ThemeConfig = {
@@ -148,6 +163,16 @@ export const DEFAULT_THEME: ThemeConfig = {
   radius: 'md',
   dark: false,
 };
+
+/** 读取 TabBar 样式（带默认值兜底） */
+export function tabBarStyleOf(theme: ThemeConfig | undefined | null): Required<Pick<TabBarStyle, 'mode' | 'bg'>> & { activeColor?: string } {
+  const s = theme?.tabStyle ?? {};
+  return {
+    mode: s.mode ?? 'both',
+    bg: s.bg ?? 'auto',
+    activeColor: s.activeColor || undefined,
+  };
+}
 
 export interface ProjectData {
   id: string;

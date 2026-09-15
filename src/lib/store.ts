@@ -142,6 +142,8 @@ interface BuilderState {
     patch: Partial<Pick<ConnectionData, 'fromWidgetId' | 'toPageId' | 'animation' | 'slot'>>
   ) => void;
   updateTheme: (patch: Partial<ThemeConfig>) => void;
+  /** 更新 App 级 TabBar 样式（存 theme.tabStyle，画板/预览实时生效） */
+  setTabStyle: (patch: Partial<import('./types').TabBarStyle>) => void;
   undo: () => void;
   redo: () => void;
   save: () => Promise<boolean>;
@@ -1086,6 +1088,18 @@ export const useBuilder = create<BuilderState>((set, get) => {
       if (!project) return;
       set({
         project: { ...project, theme: { ...project.theme, ...patch } },
+        dirty: true,
+      });
+    },
+
+    setTabStyle(patch) {
+      const { project } = get();
+      if (!project) return;
+      set({
+        project: {
+          ...project,
+          theme: { ...project.theme, tabStyle: { ...project.theme.tabStyle, ...patch } },
+        },
         dirty: true,
       });
     },
