@@ -674,3 +674,27 @@ Stage Summary:
 - 用户截图的「空白框」解释：密码框 return null 后该位置留空 + 用户标注红框，非独立空组件
 - 修复后用户项目需重新打开预览验证（数据已直接落库，进编辑器/预览即生效）
 - 建议下一阶段：①「联动频道」配置可视化（画布中用虚线连接 channel 源与订阅方，降低理解门槛）②跨页面 bus 状态残留问题（注册页无 tabs 但被 loginMode 控制，可考虑页面切换时可选重置频道）③模板市场补充「登录页」黄金模板的组件完整性校验（tabs 与联动输入框成组校验）
+
+---
+Task ID: 31
+Agent: main
+Task: 修复用户反馈「登录界面逻辑混乱」（截图：短信登录tab下密码框位置留大空白 / 密码登录tab下密码框+验证码框同时显示）+ 登录联动全链路逻辑修复
+
+Work Log:
+- 用户 6 张截图逐一定位（截图 1/5=预览短信模式、2/6=预览密码模式、3/4=无限画布画板），DB 读真实数据确认 3 个根因：
+  ①【空洞】用户项目（s4hz7o）登录页为 free 布局：password y=392、sms y=448（Task 30 数组插入的遗留）——预览切「短信登录」隐藏密码框后，验证码框仍停在 y=448 → 手机号(336)与验证码框之间留 56px 空洞（截图 1/5）
+  ②【画板不同步】无限画布画板为纯静态渲染（interactive=false 不做总线显隐）→ 编辑器里密码框+验证码框永远同时显示（截图 3/4 的「逻辑错乱」）
+  ③【跨页串扰】总线为全局单例：登录页切「短信」→ loginMode='right' 残留，进注册页预览会把注册页密码框（showValue=left）错误隐藏（Task 30 遗留风险项，本轮实锤）
+- 修复①数据：s4hz7o 登录页 sms-input y 448→392（与密码框同槽位互斥）；根治手段见③
+- 修复②canvasLive 模式：WidgetRenderer/WidgetInner 新增 canvasLive prop——画板内应用总线显隐 + canvasInteractive 标志的组件（login.login-tabs）挂载 Interactive 实现，编辑画板内点击「密码登录/短信登录」即可实时切换互斥组件显隐（所见即所得）；InfiniteCanvas 两个分支（free/flow）与 Canvas.tsx（WidgetInner free 分支 + WidgetRenderer flow 分支）全部接入
+- 修复③作用域隔离：interaction-bus 增加 BusScopeProvider（value=页面 id），总线 key 变为 `${pageId}::${channel}`；新增 useChannelValue/useChannelSetter/useBusScope hooks，useChannelDefault 内部作用域化（签名不变）；interactive.tsx 五个源头组件（LoginTabs/FnTabbar/ChatTabbar/QtyStepper/SkuSelect）全部换用；PreviewPlayer（value=current.id）与 InfiniteCanvas（value=page.id）逐页包裹——多画板同屏/跨页跳转联动状态彻底互不串扰
+- 预防性修复：store.addWidget/addWidgetToPage 增加 slotPartnerOf——free 布局添加互斥组件（defaultProps 含 channel+showValue）时自动检测同频道不同 showValue 的搭档，直接落到同一 x/y/w 槽位（新加验证码框自动与密码框重叠成互斥槽，永不产生空洞）；widget-types 新增 canvasInteractive 字段
+- templates.ts：登录注册模板登录页补充 sms-input（此前模板缺验证码框，用户项目数据缺陷的源头）
+- agent-browser 实测 12 项全过：画布默认态（密码显示/验证码隐藏/bus=left）→ 画板内点「短信登录」（验证码出现在 392 槽位与密码框完全同位、无空洞/bus=right）→ 切回（反转）→ 注册页画板 3 输入框齐全（无串扰；注意副标题"自动创建账号"含"创建账号"曾造成误判）→ 预览默认（336+392）→ 预览短信模式（336+392 紧贴，空洞消除）→ 注册页预览 3 输入框齐全（无坐标回退流式布局正确）→ 回登录页状态重置 → 验证码 60s 倒计时+1.1s 自动回填 284616 → 商城项目渲染正常 → 第三项目独立作用域 seed 正常 → dev.log 无错误
+- tsc 0 错、lint 0 错；提交 ef4ad39（9 文件）+ gitignore 清理
+
+Stage Summary:
+- 核心教训：①free 布局的「条件显隐」必须配合同槽位互斥（不同 y 的互斥组件隐藏后必然留洞）——现在添加时自动同槽 ②编辑画板（静态渲染）与预览的行为差异本身就是用户眼中的 bug——「联动类」组件应在编辑态就可见即所得 ③全局单例总线在多页面/多画板同屏场景必须作用域化，否则状态跨页泄漏
+- 用户新体验：编辑器画板内直接点登录方式切换 tab 即可预览两种形态；预览切「短信登录」验证码框紧贴手机号框
+- 遗留观察：用户浏览器若仍开着旧编辑会话，自动保存可能用旧数据（sms y=448）覆盖 DB 修复——重新打开项目即恢复正确数据（store 已有 slot-sharing 兜底）
+- 建议下一阶段：①QuickEditor/属性面板对配置了 channel+showValue 的组件显示「联动显示」徽标+搭档提示 ②画板中互斥槽位组件加虚线叠加指示 ③「重置」按钮语义扩展到画布
