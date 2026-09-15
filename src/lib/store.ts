@@ -5,11 +5,11 @@ import {
   DEFAULT_THEME, deepClone, uid,
   type ProjectData, type ProjectSummary, type PublishSummary,
   type PageData, type ConnectionData, type WidgetInstance, type ThemeConfig, type AppSnapshot,
-  type PresetData, type WidgetStyleClip,
+  type PresetData, type WidgetStyleClip, type AppTab,
 } from './types';
 import { getWidget } from '@/components/widgets/registry';
 
-export type BuilderView = 'home' | 'editor' | 'flow' | 'preview';
+export type BuilderView = 'home' | 'editor' | 'flow' | 'canvas' | 'preview';
 
 interface HistorySnap {
   pages: PageData[];
@@ -33,6 +33,8 @@ interface BuilderState {
   project: ProjectData | null;
   pages: PageData[];
   connections: ConnectionData[];
+  /** App 级底部导航（项目级，每页底部自动出现） */
+  tabs: AppTab[];
   currentPageId: string | null;
   selectedWidgetId: string | null;
   /** 多选集合（含 selectedWidgetId；Shift 点选/框选/批量操作） */
@@ -122,6 +124,16 @@ interface BuilderState {
   updatePage: (id: string, patch: Partial<PageData>) => void;
   removePage: (id: string) => void;
   setFlowPos: (id: string, x: number, y: number) => void;
+  /* ===== App 级底部导航（TabBar）=====
+   * 与组件库 fn.tabbar 不同：项目级导航，每个标签绑定一整页，点击换根切换。
+   * 不进撤销历史（与主题同级的项目设置），变更即标脏随保存持久化。 */
+  setTabs: (tabs: AppTab[]) => void;
+  addTab: (tab: AppTab) => void;
+  updateTab: (id: string, patch: Partial<Omit<AppTab, 'id'>>) => void;
+  removeTab: (id: string) => void;
+  moveTab: (id: string, toIndex: number) => void;
+  /** 向指定页面追加组件（无限画布画板内「+」添加；自由布局自动堆叠落位） */
+  addWidgetToPage: (pageId: string, type: string) => void;
   addConnection: (c: Omit<ConnectionData, 'id' | 'action'>) => void;
   removeConnection: (id: string) => void;
   /** 编辑已有连接：改触发组件/目标页/转场动画（流程图连接标签点击编辑） */
@@ -182,6 +194,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
     project: null,
     pages: [],
     connections: [],
+    tabs: [],
     currentPageId: null,
     selectedWidgetId: null,
     selectedIds: [],
@@ -222,7 +235,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
 
     async deleteProject(id) {
       await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-      if (get().project?.id === id) set({ project: null, pages: [], connections: [], currentPageId: null });
+      if (get().project?.id === id) set({ project: null, pages: [], connections: [], tabs: [], currentPageId: null });
       await get().loadHome();
     },
 
@@ -244,6 +257,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
         project: data,
         pages: data.pages,
         connections: data.connections,
+        tabs: Array.isArray(data.tabs) ? data.tabs : [],
         currentPageId: home?.id || data.pages[0]?.id || null,
         selectedWidgetId: null,
         selectedIds: [],
@@ -976,6 +990,68 @@ export const useBuilder = create<BuilderState>((set, get) => {
       }));
     },
 
+    /* ==================== App 级底部导航（TabBar） ==================== */
+
+    setTabs(tabs) {
+      set({ tabs, dirty: true });
+    },
+
+    addTab(tab) {
+      set({ tabs: [...get().tabs, tab], dirty: true });
+    },
+
+    updateTab(id, patch) {
+      set({ tabs: get().tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)), dirty: true });
+    },
+
+    removeTab(id) {
+      set({ tabs: get().tabs.filter((t) => t.id !== id), dirty: true });
+    },
+
+    moveTab(id, toIndex) {
+      const list = [...get().tabs];
+      const from = list.findIndex((t) => t.id === id);
+      if (from < 0) return;
+      const [item] = list.splice(from, 1);
+      const adj = from < toIndex ? toIndex - 1 : toIndex;
+      list.splice(Math.max(0, Math.min(adj, list.length)), 0, item);
+      set({ tabs: list, dirty: true });
+    },
+
+    /** 向指定页面追加组件（无限画布画板内「+」添加）：流式追加尾部，自由布局自动堆叠落位 */
+    addWidgetToPage(pageId, type) {
+      const page = get().pages.find((p) => p.id === pageId);
+      if (!page) return;
+      const def = getWidget(type);
+      if (!def) return;
+      const w: WidgetInstance = {
+        id: uid(),
+        type,
+        props: deepClone(def.defaultProps),
+        width: 'full',
+        align: 'left',
+        mt: 0,
+        mb: 8,
+      };
+      if (page.layout === 'free') {
+        const fullW = def.fullBleed ? 375 : 355;
+        const maxBottom = page.components.reduce(
+          (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
+          0
+        );
+        w.x = def.fullBleed ? 0 : 10;
+        w.y = maxBottom + 12;
+        w.w = fullW;
+      }
+      commit(({ pages }) => ({
+        pages: pages.map((p) =>
+          p.id === pageId ? { ...p, components: [...p.components, w] } : p
+        ),
+      }));
+      /* 选中落在该页的新组件（后续就地编辑直接生效于该页） */
+      set({ currentPageId: pageId, selectedWidgetId: w.id, selectedIds: [w.id] });
+    },
+
     addConnection(c) {
       if (c.fromPageId === c.toPageId) return;
       const conn: ConnectionData = { id: uid(), action: 'click', ...c };
@@ -1045,7 +1121,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
     },
 
     async save() {
-      const { project, pages, connections, saving } = get();
+      const { project, pages, connections, tabs, saving } = get();
       if (!project || saving) return false;
       set({ saving: true });
       try {
@@ -1058,6 +1134,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
             theme: project.theme,
             pages,
             connections,
+            tabs,
           }),
         });
         if (!res.ok) throw new Error('save failed');
@@ -1110,7 +1187,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
 
     /** 导出当前项目为 JSON 文件下载 */
     exportProject() {
-      const { project, pages, connections } = get();
+      const { project, pages, connections, tabs } = get();
       if (!project) return;
       const payload = {
         app: 'AppCraft Studio',
@@ -1121,6 +1198,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
         theme: project.theme,
         pages,
         connections,
+        tabs,
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

@@ -1,7 +1,7 @@
 import {
   Search, GalleryHorizontal, Image as ImageIcon, Megaphone, LayoutGrid, Heading1,
   ShoppingBag, Shirt, Coffee, Gamepad2, Headphones, Gift, Watch, Smartphone,
-  Grid2x2, Plus, Flame, TicketPercent, Crown, ChevronRight,
+  Grid2x2, Plus, Flame, TicketPercent, Ticket, Crown, ChevronRight,
 } from 'lucide-react';
 import type { WidgetDef } from '@/lib/widget-types';
 import { SearchInputInteractive } from './interactive';
@@ -253,16 +253,20 @@ export const widgets: WidgetDef[] = [
   {
     type: 'mall.flash-sale',
     category: 'mall',
-    name: '限时秒杀',
-    desc: '倒计时 + 横排秒杀商品位',
+    name: '限时秒杀横条',
+    desc: '标题 + 时:分 倒计时色块 + 横排秒杀商品位',
     icon: Flame,
-    defaultProps: { title: '限时秒杀', time: '02:45:36' },
+    defaultProps: { title: '限时秒杀', hours: '02', minutes: '45' },
     fields: [
       { key: 'title', label: '标题', type: 'text' },
-      { key: 'time', label: '倒计时', type: 'text', placeholder: '时:分:秒' },
+      { key: 'hours', label: '倒计时 · 时', type: 'text', placeholder: '如 02' },
+      { key: 'minutes', label: '倒计时 · 分', type: 'text', placeholder: '如 45' },
     ],
     render: (p) => {
-      const parts = String(p.time || '02:45:36').split(':');
+      /* 时 / 分均取两位数字（容忍 '2 h' 之类写法，非法按 0） */
+      const pad2 = (v: unknown) =>
+        String(Math.min(99, Math.max(0, Math.round(Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0)))).padStart(2, '0');
+      const blocks = [pad2(p.hours), pad2(p.minutes)];
       const prices = ['29', '99', '59'];
       const originals = ['69', '199', '129'];
       return (
@@ -272,9 +276,9 @@ export const widgets: WidgetDef[] = [
               <Flame className="size-4" style={{ color: 'var(--p)' }} />
               <span className="text-[15px] font-extrabold">{p.title}</span>
             </div>
-            {/* 倒计时块（黑底白字） */}
+            {/* 倒计时色块（时 : 分，黑底白字） */}
             <div className="flex items-center gap-1">
-              {parts.map((t, i) => (
+              {blocks.map((t, i) => (
                 <span key={i} className="flex items-center gap-1">
                   {i > 0 && <span className="text-[10px] font-bold opacity-40">:</span>}
                   <span className="rounded-md bg-zinc-900 px-1.5 py-1 font-mono text-[11px] font-bold leading-none text-white">{t}</span>
@@ -282,7 +286,7 @@ export const widgets: WidgetDef[] = [
               ))}
             </div>
           </div>
-          {/* 横排 3 个秒杀商品位 */}
+          {/* 横排 3 个秒杀商品位（图块 + 主色价格） */}
           <div className="mt-3 grid grid-cols-3 gap-2">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i}>
@@ -347,6 +351,47 @@ export const widgets: WidgetDef[] = [
         </div>
       </div>
     ),
+  },
+  {
+    type: 'mall.coupon-row',
+    category: 'mall',
+    name: '优惠券横条',
+    desc: '2~3 张迷你票券：面额大字主色 + 门槛 + 虚线分隔 + 领取按钮',
+    icon: Ticket,
+    defaultProps: { amount: '50,30,20', threshold: '199,99,59' },
+    fields: [
+      { key: 'amount', label: '面额（逗号分隔）', type: 'textarea', placeholder: '如 50,30,20，取前 3 张' },
+      { key: 'threshold', label: '使用门槛（逗号分隔）', type: 'textarea', placeholder: '与面额一一对应，如 199,99,59' },
+    ],
+    render: (p) => {
+      const amounts = splitList(p.amount).slice(0, 3);
+      const thresholds = splitList(p.threshold);
+      const list = amounts.length ? amounts : ['50', '30', '20'];
+      return (
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${list.length}, minmax(0, 1fr))` }}>
+          {list.map((amt, i) => (
+            <div key={`${amt}-${i}`} className="w-card px-2 py-2.5 text-center" style={{ borderRadius: 'var(--pr)' }}>
+              {/* 面额大字（主色） */}
+              <div className="font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+                <span className="text-[10px]">¥</span>
+                <span className="text-lg">{amt}</span>
+              </div>
+              {/* 门槛小字 */}
+              <div className="mt-1 truncate text-[9px] leading-none opacity-45">满 {thresholds[i] ?? '0'} 可用</div>
+              {/* 虚线撕票分隔 + 领取按钮（主色圆角） */}
+              <div className="mt-2 border-t border-dashed w-line pt-2">
+                <span
+                  className="block py-1 text-[10px] font-bold leading-none"
+                  style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+                >
+                  领取
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    },
   },
   {
     type: 'mall.brand-row',

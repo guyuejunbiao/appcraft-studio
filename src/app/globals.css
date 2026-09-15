@@ -182,3 +182,11 @@
 .thin-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ===== App 级底部导航（TabBar）表面（明暗自适应，放在 .pd 屏内自动切换） ===== */
+.app-tabbar {
+  background: rgba(255, 255, 255, 0.88);
+}
+.pd .app-tabbar {
+  background: rgba(24, 24, 30, 0.88);
+}

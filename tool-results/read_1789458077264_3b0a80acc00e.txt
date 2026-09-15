@@ -1,0 +1,1375 @@
+     1→'use client';
+     2→
+     3→import { create } from 'zustand';
+     4→import {
+     5→  DEFAULT_THEME, deepClone, uid,
+     6→  type ProjectData, type ProjectSummary, type PublishSummary,
+     7→  type PageData, type ConnectionData, type WidgetInstance, type ThemeConfig, type AppSnapshot,
+     8→  type PresetData, type WidgetStyleClip,
+     9→} from './types';
+    10→import { getWidget } from '@/components/widgets/registry';
+    11→
+    12→export type BuilderView = 'home' | 'editor' | 'flow' | 'preview';
+    13→
+    14→interface HistorySnap {
+    15→  pages: PageData[];
+    16→  connections: ConnectionData[];
+    17→}
+    18→
+    19→/** 复制/粘贴剪贴板（会话级，跨页面也可粘贴） */
+    20→let widgetClipboard: { type: string; props: Record<string, any>; width?: WidgetInstance['width']; align?: WidgetInstance['align'] } | null = null;
+    21→
+    22→/** 样式刷剪贴板（会话级，跨页面可用） */
+    23→let styleClipboard: (WidgetStyleClip & { fromType?: string }) | null = null;
+    24→
+    25→interface BuilderState {
+    26→  view: BuilderView;
+    27→  /* 首页数据 */
+    28→  projects: ProjectSummary[];
+    29→  publishes: PublishSummary[];
+    30→  homeLoading: boolean;
+    31→  homeLoaded: boolean;
+    32→  /* 当前项目 */
+    33→  project: ProjectData | null;
+    34→  pages: PageData[];
+    35→  connections: ConnectionData[];
+    36→  currentPageId: string | null;
+    37→  selectedWidgetId: string | null;
+    38→  /** 多选集合（含 selectedWidgetId；Shift 点选/框选/批量操作） */
+    39→  selectedIds: string[];
+    40→  dirty: boolean;
+    41→  saving: boolean;
+    42→  lastSavedAt: string | null;
+    43→  /* 拖拽/批量编辑期间的临时快照（合并为一条历史） */
+    44→  batchSnap: HistorySnap | null;
+    45→  /* 上架 */
+    46→  publishOpen: boolean;
+    47→  previewSnapshot: (AppSnapshot & { version: number }) | null;
+    48→  /* 组件市场（我的组合） */
+    49→  presets: PresetData[];
+    50→  presetsLoaded: boolean;
+    51→  /* 历史 */
+    52→  past: HistorySnap[];
+    53→  future: HistorySnap[];
+    54→  /* 动作 */
+    55→  loadHome: () => Promise<void>;
+    56→  createProject: (name: string, description: string, templateId: string) => Promise<void>;
+    57→  deleteProject: (id: string) => Promise<void>;
+    58→  renameProject: (id: string, name: string) => Promise<void>;
+    59→  openProject: (id: string) => Promise<void>;
+    60→  setView: (v: BuilderView) => void;
+    61→  addWidget: (type: string, index?: number, rect?: { x: number; y: number; w: number }) => void;
+    62→  moveWidget: (id: string, toIndex: number) => void;
+    63→  removeWidget: (id: string) => void;
+    64→  /** 批量删除（一条历史；联动清理相关连接） */
+    65→  removeWidgets: (ids: string[]) => void;
+    66→  duplicateWidget: (id: string) => void;
+    67→  /** 批量复制：返回新 id 列表（一条历史，整体错开 16px） */
+    68→  duplicateWidgets: (ids: string[]) => string[];
+    69→  /** 复制组件到剪贴板（Ctrl+C） */
+    70→  copyWidget: (id: string) => void;
+    71→  /** 粘贴剪贴板组件（Ctrl+V）；自由布局错开 12px，流式追加到末尾；返回是否真的粘贴了 */
+    72→  pasteWidget: () => boolean;
+    73→  /** 图层置顶/置底/上移一层/下移一层（数组序即层叠序，流式下置顶置底等于移到末尾/开头） */
+    74→  reorderWidget: (id: string, pos: 'front' | 'back' | 'up' | 'down') => void;
+    75→  updateWidget: (id: string, patch: Partial<WidgetInstance>) => void;
+    76→  updateWidgetProps: (id: string, props: Record<string, any>) => void;
+    77→  /** 自由布局：更新位置/大小（transient=true 时不记录历史，用于拖拽过程） */
+    78→  setWidgetRect: (id: string, rect: Partial<Pick<WidgetInstance, 'x' | 'y' | 'w' | 'h'>>, transient?: boolean) => void;
+    79→  /** 多选批量更新矩形（组拖拽用，transient 同上） */
+    80→  setWidgetsRects: (map: Record<string, Partial<Pick<WidgetInstance, 'x' | 'y' | 'w' | 'h'>>>, transient?: boolean) => void;
+    81→  /** 多选对齐（选择集包围盒）：left/hcenter/right/top/vcenter/bottom */
+    82→  alignWidgets: (mode: 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom') => void;
+    83→  /** 多选等间距分布（需要画布测量尺寸，sizes 缺省用存储 h/w） */
+    84→  distributeWidgets: (axis: 'h' | 'v', sizes?: Record<string, { w?: number; h?: number }>) => void;
+    85→  /** 一键整理（对标 m3e-canvas Tidy）：通栏贴边、其余按行归位 16px 间距堆叠；sizes 为画布实测尺寸；一条历史可撤销 */
+    86→  tidyPage: (sizes?: Record<string, { w?: number; h?: number }>) => void;
+    87→  /** 多选统一宽度/高度：以主选中组件（面板当前显示的）为基准；measured 提供实测尺寸（自适应高度组件用） */
+    88→  unifyWidgetsSize: (dim: 'w' | 'h', measured?: Record<string, { w?: number; h?: number }>) => void;
+    89→  /** 多选批量补丁（任意实例字段，一次历史，锁定组件跳过） */
+    90→  patchWidgets: (map: Record<string, Partial<WidgetInstance>>) => void;
+    91→  /** 样式刷：复制组件外观（透明度/阴影/边距/宽度对齐），跨页面可用 */
+    92→  copyWidgetStyle: (id: string) => boolean;
+    93→  /** 样式刷：把剪贴板外观粘贴到给定组件（一次历史，锁定跳过）；返回应用数量 */
+    94→  pasteWidgetStyle: (ids: string[]) => number;
+    95→  /** 样式刷剪贴板是否有内容（供 UI 置灰） */
+    96→  hasStyleClip: () => boolean;
+    97→  /** 批量编辑：拖拽/缩放开始时调用，结束时 endBatch 合并为一条历史 */
+    98→  beginBatch: () => void;
+    99→  endBatch: () => void;
+   100→  /** 流式 → 自由布局迁移（rects 由画布测量后传入，记录历史） */
+   101→  convertToFreeLayout: (rects: Record<string, { x: number; y: number; w: number }>) => void;
+   102→  /** 旧数据自动升级为自由布局（不记历史，用户无感知迁移） */
+   103→  migrateToFree: (pageId: string, rects?: Record<string, { x: number; y: number; w: number }>) => void;
+   104→  select: (id: string | null, additive?: boolean) => void;
+   105→  /** 框选/批量设置选中集合（同时更新 primary） */
+   106→  selectMany: (ids: string[]) => void;
+   107→  /** 清空多选（保留 primary 不变或一并清空） */
+   108→  clearMulti: () => void;
+   109→  /** 编组：把多选组件绑为一组（返回组 id；单选/含锁定成员时为空操作） */
+   110→  groupWidgets: (ids: string[]) => string | null;
+   111→  /** 解组：清除这些组件的编组标记（组内仅剩 1 个时自动清掉孤组） */
+   112→  ungroupWidgets: (ids: string[]) => void;
+   113→  /** 选择整组：若 id 属于某组，返回全组成员 id（含自己） */
+   114→  groupMembersOf: (id: string) => string[] | null;
+   115→  setCurrentPage: (id: string) => void;
+   116→  addPage: () => void;
+   117→  duplicatePage: (id: string) => void;
+   118→  /** 页面拖拽排序：把页面移到目标下标（数组序即标签序） */
+   119→  movePage: (id: string, toIndex: number) => void;
+   120→  /** 设为主页：转移 isHome 标记（原主页自动让位） */
+   121→  setHomePage: (id: string) => void;
+   122→  updatePage: (id: string, patch: Partial<PageData>) => void;
+   123→  removePage: (id: string) => void;
+   124→  setFlowPos: (id: string, x: number, y: number) => void;
+   125→  addConnection: (c: Omit<ConnectionData, 'id' | 'action'>) => void;
+   126→  removeConnection: (id: string) => void;
+   127→  /** 编辑已有连接：改触发组件/目标页/转场动画（流程图连接标签点击编辑） */
+   128→  updateConnection: (
+   129→    id: string,
+   130→    patch: Partial<Pick<ConnectionData, 'fromWidgetId' | 'toPageId' | 'animation' | 'slot'>>
+   131→  ) => void;
+   132→  updateTheme: (patch: Partial<ThemeConfig>) => void;
+   133→  undo: () => void;
+   134→  redo: () => void;
+   135→  save: () => Promise<boolean>;
+   136→  setPublishOpen: (b: boolean) => void;
+   137→  publish: (name: string, description: string) => Promise<number | null>;
+   138→  openPublishPreview: (publishId: string) => Promise<void>;
+   139→  exitPublishPreview: () => void;
+   140→  exportProject: () => void;
+   141→  importProject: (payload: unknown) => Promise<boolean>;
+   142→  /** 拉取组件市场列表 */
+   143→  loadPresets: () => Promise<void>;
+   144→  /** 把选中的组件存为可复用组合；返回保存结果（失败为 null） */
+   145→  savePreset: (name: string, icon: string, ids: string[]) => Promise<PresetData | null>;
+   146→  deletePreset: (id: string) => Promise<void>;
+   147→  /** 插入组合到当前页面（自由布局还原相对位置 / 流式逐个追加）；anchor 给定时以释放点为组合原点 */
+   148→  insertPreset: (preset: PresetData, anchor?: { x: number; y: number }) => void;
+   149→  /** 重命名/换图标组件市场资源（乐观更新，失败回滚） */
+   150→  renamePreset: (id: string, patch: { name?: string; icon?: string }) => Promise<boolean>;
+   151→  /** 收藏/取消收藏组件市场资源（meta.starred，乐观更新失败回滚） */
+   152→  togglePresetStar: (id: string) => Promise<boolean>;
+   153→  /** 把整页存为页面模板（保留绝对坐标 + 背景 + 布局） */
+   154→  savePagePreset: (name: string, icon: string, pageId: string) => Promise<PresetData | null>;
+   155→  /** 从页面模板创建新页面（重生成组件 id，自动切换到新页） */
+   156→  addPageFromTemplate: (preset: PresetData) => void;
+   157→}
+   158→
+   159→const MAX_HISTORY = 60;
+   160→
+   161→export const useBuilder = create<BuilderState>((set, get) => {
+   162→  /** 提交一次变更：记录历史 + 标脏 */
+   163→  const commit = (fn: (s: { pages: PageData[]; connections: ConnectionData[] }) => Partial<BuilderState>) => {
+   164→    const { pages, connections, past } = get();
+   165→    const snap: HistorySnap = { pages: deepClone(pages), connections: deepClone(connections) };
+   166→    set({
+   167→      past: [...past.slice(-MAX_HISTORY), snap],
+   168→      future: [],
+   169→      dirty: true,
+   170→      ...fn({ pages, connections }),
+   171→    });
+   172→  };
+   173→
+   174→  const currentPage = () => get().pages.find((p) => p.id === get().currentPageId);
+   175→
+   176→  return {
+   177→    view: 'home',
+   178→    projects: [],
+   179→    publishes: [],
+   180→    homeLoading: false,
+   181→    homeLoaded: false,
+   182→    project: null,
+   183→    pages: [],
+   184→    connections: [],
+   185→    currentPageId: null,
+   186→    selectedWidgetId: null,
+   187→    selectedIds: [],
+   188→    dirty: false,
+   189→    saving: false,
+   190→    lastSavedAt: null,
+   191→    batchSnap: null,
+   192→    publishOpen: false,
+   193→    previewSnapshot: null,
+   194→    presets: [],
+   195→    presetsLoaded: false,
+   196→    past: [],
+   197→    future: [],
+   198→
+   199→    async loadHome() {
+   200→      set({ homeLoading: true });
+   201→      try {
+   202→        const [projects, publishes] = await Promise.all([
+   203→          fetch('/api/projects').then((r) => r.json()),
+   204→          fetch('/api/publishes').then((r) => r.json()),
+   205→        ]);
+   206→        set({ projects, publishes, homeLoaded: true });
+   207→      } finally {
+   208→        set({ homeLoading: false });
+   209→      }
+   210→    },
+   211→
+   212→    async createProject(name, description, templateId) {
+   213→      const res = await fetch('/api/projects', {
+   214→        method: 'POST',
+   215→        headers: { 'Content-Type': 'application/json' },
+   216→        body: JSON.stringify({ name, description, templateId }),
+   217→      });
+   218→      const { id } = await res.json();
+   219→      await get().loadHome();
+   220→      await get().openProject(id);
+   221→    },
+   222→
+   223→    async deleteProject(id) {
+   224→      await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+   225→      if (get().project?.id === id) set({ project: null, pages: [], connections: [], currentPageId: null });
+   226→      await get().loadHome();
+   227→    },
+   228→
+   229→    async renameProject(id, name) {
+   230→      const { projects } = get();
+   231→      set({ projects: projects.map((p) => (p.id === id ? { ...p, name } : p)) });
+   232→      if (get().project?.id === id) {
+   233→        set({ project: { ...get().project!, name } });
+   234→        get().save();
+   235→      }
+   236→    },
+   237→
+   238→    async openProject(id) {
+   239→      const res = await fetch(`/api/projects/${id}`);
+   240→      if (!res.ok) return;
+   241→      const data: ProjectData = await res.json();
+   242→      const home = data.pages.find((p) => p.isHome);
+   243→      set({
+   244→        project: data,
+   245→        pages: data.pages,
+   246→        connections: data.connections,
+   247→        currentPageId: home?.id || data.pages[0]?.id || null,
+   248→        selectedWidgetId: null,
+   249→        selectedIds: [],
+   250→        dirty: false,
+   251→        saving: false,
+   252→        lastSavedAt: null,
+   253→        past: [],
+   254→        future: [],
+   255→        previewSnapshot: null,
+   256→        view: 'editor',
+   257→      });
+   258→    },
+   259→
+   260→    setView(v) {
+   261→      set({ view: v });
+   262→      if (v === 'home') {
+   263→        get().loadHome();
+   264→      }
+   265→    },
+   266→
+   267→    addWidget(type, index, rect) {
+   268→      const page = currentPage();
+   269→      if (!page) return;
+   270→      const def = getWidget(type);
+   271→      if (!def) return;
+   272→      const w: WidgetInstance = {
+   273→        id: uid(),
+   274→        type,
+   275→        props: deepClone(def.defaultProps),
+   276→        width: 'full',
+   277→        align: 'left',
+   278→        mt: 0,
+   279→        mb: 8,
+   280→      };
+   281→      /* 自由布局：按落点/智能位置放置（不钳制，可摆到首屏以下，画布自动增高） */
+   282→      if (page.layout === 'free') {
+   283→        const fullW = def.fullBleed ? 375 : 355;
+   284→        const maxBottom = page.components.reduce(
+   285→          (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
+   286→          0
+   287→        );
+   288→        w.x = rect?.x ?? (def.fullBleed ? 0 : 10);
+   289→        w.y = rect?.y ?? maxBottom + 12;
+   290→        w.w = rect?.w ?? fullW;
+   291→        w.x = Math.max(0, Math.min(w.x ?? 0, 375 - (w.w ?? fullW)));
+   292→      }
+   293→      commit(({ pages }) => ({
+   294→        pages: pages.map((p) =>
+   295→          p.id === page.id
+   296→            ? {
+   297→                ...p,
+   298→                components: index === undefined
+   299→                  ? [...p.components, w]
+   300→                  : [...p.components.slice(0, index), w, ...p.components.slice(index)],
+   301→              }
+   302→            : p
+   303→        ),
+   304→      }));
+   305→      set({ selectedWidgetId: w.id, selectedIds: [w.id] });
+   306→    },
+   307→
+   308→    moveWidget(id, toIndex) {
+   309→      const page = currentPage();
+   310→      if (!page) return;
+   311→      commit(({ pages }) => ({
+   312→        pages: pages.map((p) => {
+   313→          if (p.id !== page.id) return p;
+   314→          const from = p.components.findIndex((c) => c.id === id);
+   315→          if (from < 0) return p;
+   316→          const list = [...p.components];
+   317→          const [item] = list.splice(from, 1);
+   318→          const target = from < toIndex ? toIndex - 1 : toIndex;
+   319→          list.splice(Math.max(0, Math.min(target, list.length)), 0, item);
+   320→          return { ...p, components: list };
+   321→        }),
+   322→      }));
+   323→    },
+   324→
+   325→    removeWidget(id) {
+   326→      const page = currentPage();
+   327→      if (!page) return;
+   328→      commit(({ pages, connections }) => ({
+   329→        pages: pages.map((p) => (p.id === page.id ? { ...p, components: p.components.filter((c) => c.id !== id) } : p)),
+   330→        connections: connections.filter((c) => !(c.fromPageId === page.id && c.fromWidgetId === id)),
+   331→      }));
+   332→      if (get().selectedWidgetId === id) set({ selectedWidgetId: null });
+   333→      set({ selectedIds: get().selectedIds.filter((x) => x !== id) });
+   334→    },
+   335→
+   336→    removeWidgets(ids) {
+   337→      const page = currentPage();
+   338→      if (!page) return;
+   339→      const set2 = new Set(ids);
+   340→      commit(({ pages, connections }) => ({
+   341→        pages: pages.map((p) => (p.id === page.id ? { ...p, components: p.components.filter((c) => !set2.has(c.id) || c.locked) } : p)),
+   342→        connections: connections.filter((c) => !(c.fromPageId === page.id && set2.has(c.fromWidgetId))),
+   343→      }));
+   344→      const remaining = get().pages.find((p) => p.id === page.id)?.components.map((c) => c.id) ?? [];
+   345→      set({
+   346→        selectedIds: get().selectedIds.filter((x) => remaining.includes(x)),
+   347→        selectedWidgetId: remaining.includes(get().selectedWidgetId ?? '') ? get().selectedWidgetId : null,
+   348→      });
+   349→    },
+   350→
+   351→    duplicateWidget(id) {
+   352→      const [copyId] = get().duplicateWidgets([id]);
+   353→      if (copyId) set({ selectedWidgetId: copyId, selectedIds: [copyId] });
+   354→    },
+   355→
+   356→    duplicateWidgets(ids) {
+   357→      const page = currentPage();
+   358→      if (!page || ids.length === 0) return [];
+   359→      const OFFSET = 16;
+   360→      const srcList = page.components;
+   361→      const pairs = ids
+   362→        .map((id) => srcList.find((c) => c.id === id))
+   363→        .filter((c): c is WidgetInstance => !!c && !c.locked)
+   364→        .map((src) => {
+   365→          const copy: WidgetInstance = { ...deepClone(src), id: uid() };
+   366→          if (page.layout === 'free') {
+   367→            const cw = copy.w ?? 355;
+   368→            copy.x = Math.max(0, Math.min((copy.x ?? 0) + OFFSET, Math.max(0, 375 - cw)));
+   369→            copy.y = (copy.y ?? 0) + OFFSET;
+   370→          }
+   371→          return { srcId: src.id, clone: copy };
+   372→        });
+   373→      if (pairs.length === 0) return [];
+   374→      const created = pairs.map((p) => p.clone.id);
+   375→      commit(({ pages }) => ({
+   376→        pages: pages.map((p) => {
+   377→          if (p.id !== page.id) return p;
+   378→          const list = [...p.components];
+   379→          /* 倒序插入：插在各自源组件后面，保持图层相对顺序 */
+   380→          for (let i = pairs.length - 1; i >= 0; i--) {
+   381→            const idx = list.findIndex((c) => c.id === pairs[i].srcId);
+   382→            list.splice(idx >= 0 ? idx + 1 : list.length, 0, pairs[i].clone);
+   383→          }
+   384→          return { ...p, components: list };
+   385→        }),
+   386→      }));
+   387→      set({ selectedWidgetId: created[created.length - 1], selectedIds: created });
+   388→      return created;
+   389→    },
+   390→
+   391→    copyWidget(id) {
+   392→      const page = currentPage();
+   393→      if (!page) return;
+   394→      const src = page.components.find((c) => c.id === id);
+   395→      if (!src) return;
+   396→      widgetClipboard = { type: src.type, props: deepClone(src.props), width: src.width, align: src.align };
+   397→    },
+   398→
+   399→    pasteWidget() {
+   400→      if (!widgetClipboard) return false;
+   401→      const page = currentPage();
+   402→      if (!page) return false;
+   403→      const def = getWidget(widgetClipboard.type);
+   404→      if (!def) return false;
+   405→      const w: WidgetInstance = {
+   406→        id: uid(),
+   407→        type: widgetClipboard.type,
+   408→        props: deepClone(widgetClipboard.props),
+   409→        width: widgetClipboard.width ?? 'full',
+   410→        align: widgetClipboard.align ?? 'left',
+   411→        mt: 0,
+   412→        mb: 8,
+   413→      };
+   414→      if (page.layout === 'free') {
+   415→        const fullW = def.fullBleed ? 375 : 355;
+   416→        const maxBottom = page.components.reduce(
+   417→          (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
+   418→          0
+   419→        );
+   420→        w.x = def.fullBleed ? 0 : 10;
+   421→        w.y = maxBottom + 12;
+   422→        w.w = fullW;
+   423→      }
+   424→      commit(({ pages }) => ({
+   425→        pages: pages.map((p) => (p.id === page.id ? { ...p, components: [...p.components, w] } : p)),
+   426→      }));
+   427→      set({ selectedWidgetId: w.id, selectedIds: [w.id] });
+   428→      return true;
+   429→    },
+   430→
+   431→    reorderWidget(id, pos) {
+   432→      const page = currentPage();
+   433→      if (!page) return;
+   434→      commit(({ pages }) => ({
+   435→        pages: pages.map((p) => {
+   436→          if (p.id !== page.id) return p;
+   437→          const from = p.components.findIndex((c) => c.id === id);
+   438→          if (from < 0) return p;
+   439→          const list = [...p.components];
+   440→          const [item] = list.splice(from, 1);
+   441→          if (pos === 'front') list.push(item);
+   442→          else if (pos === 'back') list.unshift(item);
+   443→          else if (pos === 'up') list.splice(Math.min(from + 1, list.length), 0, item);
+   444→          else list.splice(Math.max(from - 1, 0), 0, item);
+   445→          return { ...p, components: list };
+   446→        }),
+   447→      }));
+   448→    },
+   449→
+   450→    updateWidget(id, patch) {
+   451→      const page = currentPage();
+   452→      if (!page) return;
+   453→      commit(({ pages }) => ({
+   454→        pages: pages.map((p) =>
+   455→          p.id === page.id
+   456→            ? { ...p, components: p.components.map((c) => (c.id === id ? { ...c, ...patch } : c)) }
+   457→            : p
+   458→        ),
+   459→      }));
+   460→    },
+   461→
+   462→    updateWidgetProps(id, props) {
+   463→      const page = currentPage();
+   464→      if (!page) return;
+   465→      commit(({ pages }) => ({
+   466→        pages: pages.map((p) =>
+   467→          p.id === page.id
+   468→            ? { ...p, components: p.components.map((c) => (c.id === id ? { ...c, props: { ...c.props, ...props } } : c)) }
+   469→            : p
+   470→        ),
+   471→      }));
+   472→    },
+   473→
+   474→    setWidgetRect(id, rect, transient = false) {
+   475→      const page = currentPage();
+   476→      if (!page) return;
+   477→      const patchPages = (pages: PageData[]) =>
+   478→        pages.map((p) =>
+   479→          p.id === page.id
+   480→            ? { ...p, components: p.components.map((c) => (c.id === id ? { ...c, ...rect } : c)) }
+   481→            : p
+   482→        );
+   483→      if (transient) {
+   484→        set({ pages: patchPages(get().pages), dirty: true });
+   485→      } else {
+   486→        commit(({ pages }) => ({ pages: patchPages(pages) }));
+   487→      }
+   488→    },
+   489→
+   490→    setWidgetsRects(map, transient = false) {
+   491→      const page = currentPage();
+   492→      if (!page) return;
+   493→      const patchPages = (pages: PageData[]) =>
+   494→        pages.map((p) =>
+   495→          p.id === page.id
+   496→            ? { ...p, components: p.components.map((c) => (map[c.id] ? { ...c, ...map[c.id] } : c)) }
+   497→            : p
+   498→        );
+   499→      if (transient) {
+   500→        set({ pages: patchPages(get().pages), dirty: true });
+   501→      } else {
+   502→        commit(({ pages }) => ({ pages: patchPages(pages) }));
+   503→      }
+   504→    },
+   505→
+   506→    alignWidgets(mode) {
+   507→      const page = currentPage();
+   508→      if (!page || page.layout !== 'free') return;
+   509→      const { selectedIds } = get();
+   510→      if (selectedIds.length < 2) return;
+   511→      const comps = page.components.filter((c) => selectedIds.includes(c.id) && !c.locked);
+   512→      if (comps.length < 2) return;
+   513→      const rects = comps.map((c) => ({
+   514→        id: c.id,
+   515→        x: c.x ?? 0,
+   516→        y: c.y ?? 0,
+   517→        w: c.w ?? 355,
+   518→        h: c.h ?? 56,
+   519→      }));
+   520→      const minX = Math.min(...rects.map((r) => r.x));
+   521→      const maxX = Math.max(...rects.map((r) => r.x + r.w));
+   522→      const minY = Math.min(...rects.map((r) => r.y));
+   523→      const maxY = Math.max(...rects.map((r) => r.y + r.h));
+   524→      const map: Record<string, Partial<Pick<WidgetInstance, 'x' | 'y'>>> = {};
+   525→      for (const r of rects) {
+   526→        if (mode === 'left') map[r.id] = { x: minX };
+   527→        else if (mode === 'right') map[r.id] = { x: maxX - r.w };
+   528→        else if (mode === 'hcenter') map[r.id] = { x: Math.round((minX + maxX) / 2 - r.w / 2) };
+   529→        else if (mode === 'top') map[r.id] = { y: minY };
+   530→        else if (mode === 'bottom') map[r.id] = { y: maxY - r.h };
+   531→        else if (mode === 'vcenter') map[r.id] = { y: Math.round((minY + maxY) / 2 - r.h / 2) };
+   532→      }
+   533→      get().setWidgetsRects(map);
+   534→    },
+   535→
+   536→    distributeWidgets(axis, sizes) {
+   537→      const page = currentPage();
+   538→      if (!page || page.layout !== 'free') return;
+   539→      const { selectedIds } = get();
+   540→      if (selectedIds.length < 3) return;
+   541→      const comps = page.components.filter((c) => selectedIds.includes(c.id) && !c.locked);
+   542→      if (comps.length < 3) return;
+   543→      const items = comps
+   544→        .map((c) => ({
+   545→          id: c.id,
+   546→          x: c.x ?? 0,
+   547→          y: c.y ?? 0,
+   548→          w: sizes?.[c.id]?.w ?? c.w ?? 355,
+   549→          h: sizes?.[c.id]?.h ?? c.h ?? 56,
+   550→        }))
+   551→        .sort((a, b) => (axis === 'h' ? a.x - b.x : a.y - b.y));
+   552→      const first = items[0];
+   553→      const last = items[items.length - 1];
+   554→      if (axis === 'h') {
+   555→        const span = last.x + last.w - first.x;
+   556→        const totalW = items.reduce((s, r) => s + r.w, 0);
+   557→        const gap = (span - totalW) / (items.length - 1);
+   558→        if (!isFinite(gap) || gap < 0) return;
+   559→        const map: Record<string, Partial<Pick<WidgetInstance, 'x' | 'y'>>> = {};
+   560→        let cursor = first.x;
+   561→        for (const r of items) {
+   562→          if (r.id !== first.id && r.id !== last.id) map[r.id] = { x: Math.round(cursor) };
+   563→          cursor += r.w + gap;
+   564→        }
+   565→        get().setWidgetsRects(map);
+   566→      } else {
+   567→        const span = last.y + last.h - first.y;
+   568→        const totalH = items.reduce((s, r) => s + r.h, 0);
+   569→        const gap = (span - totalH) / (items.length - 1);
+   570→        if (!isFinite(gap) || gap < 0) return;
+   571→        const map: Record<string, Partial<Pick<WidgetInstance, 'x' | 'y'>>> = {};
+   572→        let cursor = first.y;
+   573→        for (const r of items) {
+   574→          if (r.id !== first.id && r.id !== last.id) map[r.id] = { y: Math.round(cursor) };
+   575→          cursor += r.h + gap;
+   576→        }
+   577→        get().setWidgetsRects(map);
+   578→      }
+   579→    },
+   580→
+   581→    /* 一键整理（对标 m3e-canvas Tidy）：编组聚成单元 → 按行分组 → 通栏贴边、
+   582→       其余从顶部边距起按 16px 行距归位堆叠；一条 commit 一条历史可撤销 */
+   583→    tidyPage(sizes) {
+   584→      const page = currentPage();
+   585→      if (!page || page.layout !== 'free') return;
+   586→      const movable = page.components.filter(
+   587→        (c) => !c.locked && !c.hidden && typeof c.x === 'number' && typeof c.y === 'number'
+   588→      );
+   589→      if (movable.length === 0) return;
+   590→      const dim = (c: WidgetInstance) => ({
+   591→        w: sizes?.[c.id]?.w ?? c.w ?? 355,
+   592→        h: sizes?.[c.id]?.h ?? c.h ?? 56,
+   593→      });
+   594→
+   595→      /* 编组聚合成单元（成员保持相对偏移整组移动），散件各自成单元 */
+   596→      const groupsMap = new Map<string, WidgetInstance[]>();
+   597→      const singles: WidgetInstance[] = [];
+   598→      for (const c of movable) {
+   599→        if (c.group) {
+   600→          const arr = groupsMap.get(c.group) ?? [];
+   601→          arr.push(c);
+   602→          groupsMap.set(c.group, arr);
+   603→        } else singles.push(c);
+   604→      }
+   605→      type Unit = { x: number; y: number; w: number; h: number; members: { id: string; dx: number; dy: number }[] };
+   606→      const units: Unit[] = singles.map((c) => {
+   607→        const d = dim(c);
+   608→        return { x: c.x ?? 0, y: c.y ?? 0, w: d.w, h: d.h, members: [{ id: c.id, dx: 0, dy: 0 }] };
+   609→      });
+   610→      for (const members of groupsMap.values()) {
+   611→        if (members.length === 0) continue;
+   612→        const dims = members.map((m) => ({ m, d: dim(m) }));
+   613→        const minX = Math.min(...dims.map(({ m }) => m.x ?? 0));
+   614→        const minY = Math.min(...dims.map(({ m }) => m.y ?? 0));
+   615→        const maxR = Math.max(...dims.map(({ m, d }) => (m.x ?? 0) + d.w));
+   616→        const maxB = Math.max(...dims.map(({ m, d }) => (m.y ?? 0) + d.h));
+   617→        units.push({
+   618→          x: minX,
+   619→          y: minY,
+   620→          w: maxR - minX,
+   621→          h: maxB - minY,
+   622→          members: dims.map(({ m }) => ({ id: m.id, dx: (m.x ?? 0) - minX, dy: (m.y ?? 0) - minY })),
+   623→        });
+   624→      }
+   625→
+   626→      /* 按 y（再按 x）排序 → 行分组：与当前行首单元 y 差 < 28px 视为同一视觉行 */
+   627→      units.sort((a, b) => a.y - b.y || a.x - b.x);
+   628→      const ROW_TOL = 28;
+   629→      const rows: Unit[][] = [];
+   630→      for (const u of units) {
+   631→        const row = rows[rows.length - 1];
+   632→        if (row && Math.abs(u.y - row[0].y) < ROW_TOL) row.push(u);
+   633→        else rows.push([u]);
+   634→      }
+   635→
+   636→      /* 重排：行内从左到右依次排（列距 8），行距 16，起始边距 16；
+   637→         行内总宽超出屏幕（375 - 2×10 边距）则拆为逐行堆叠（通栏自然贴边） */
+   638→      const M = 10;
+   639→      const COL_G = 8;
+   640→      const ROW_G = 16;
+   641→      const SCREEN_W = 375;
+   642→      const map: Record<string, Partial<WidgetInstance>> = {};
+   643→      let cursorY = M + 6;
+   644→      for (const row of rows) {
+   645→        row.sort((a, b) => a.x - b.x);
+   646→        const totalW = row.reduce((acc, u) => acc + u.w, 0) + COL_G * (row.length - 1);
+   647→        if (totalW <= SCREEN_W - M * 2) {
+   648→          const rowH = Math.max(...row.map((u) => u.h));
+   649→          let cx = M;
+   650→          for (const u of row) {
+   651→            for (const m of u.members) map[m.id] = { x: Math.round(cx + m.dx), y: Math.round(cursorY + m.dy) };
+   652→            cx += u.w + COL_G;
+   653→          }
+   654→          cursorY += rowH + ROW_G;
+   655→        } else {
+   656→          for (const u of row) {
+   657→            for (const m of u.members) map[m.id] = { x: Math.round(M + m.dx), y: Math.round(cursorY + m.dy) };
+   658→            cursorY += u.h + ROW_G;
+   659→          }
+   660→        }
+   661→      }
+   662→      get().patchWidgets(map);
+   663→    },
+   664→
+   665→    unifyWidgetsSize(dim, measured) {
+   666→      const page = currentPage();
+   667→      if (!page || page.layout !== 'free') return;
+   668→      const { selectedIds, selectedWidgetId } = get();
+   669→      if (selectedIds.length < 2) return;
+   670→      const comps = page.components.filter((c) => selectedIds.includes(c.id) && !c.locked);
+   671→      if (comps.length < 2) return;
+   672→      /* 基准：主选中组件（属性面板当前显示的）；不在选择集内时取第一个 */
+   673→      const refId = selectedWidgetId && selectedIds.includes(selectedWidgetId) ? selectedWidgetId : comps[0].id;
+   674→      const ref = comps.find((c) => c.id === refId);
+   675→      if (!ref) return;
+   676→      const refVal =
+   677→        dim === 'w'
+   678→          ? ref.w ?? 355
+   679→          : measured?.[ref.id]?.h ?? ref.h ?? undefined;
+   680→      if (refVal === undefined) return;
+   681→      const map: Record<string, Partial<Pick<WidgetInstance, 'x' | 'w' | 'h'>>> = {};
+   682→      for (const c of comps) {
+   683→        if (c.id === refId) continue;
+   684→        if (dim === 'w') {
+   685→          const target = Math.round(refVal);
+   686→          map[c.id] = { w: target, x: Math.max(0, Math.min((c.x ?? 0), 375 - target)) };
+   687→        } else {
+   688→          map[c.id] = { h: Math.round(refVal) };
+   689→        }
+   690→      }
+   691→      get().setWidgetsRects(map);
+   692→    },
+   693→
+   694→    beginBatch() {
+   695→      const { pages, connections } = get();
+   696→      set({ batchSnap: { pages: deepClone(pages), connections: deepClone(connections) } });
+   697→    },
+   698→
+   699→    /** 多选批量补丁（透明度等实例字段）：一次 commit = 一条可撤销历史 */
+   700→    patchWidgets(map) {
+   701→      const page = currentPage();
+   702→      if (!page) return;
+   703→      commit(({ pages }) => ({
+   704→        pages: pages.map((p) =>
+   705→          p.id === page.id
+   706→            ? { ...p, components: p.components.map((c) => (map[c.id] && !c.locked ? { ...c, ...map[c.id] } : c)) }
+   707→            : p
+   708→        ),
+   709→      }));
+   710→    },
+   711→
+   712→    /* ==================== 样式刷 ==================== */
+   713→
+   714→    copyWidgetStyle(id) {
+   715→      const page = currentPage();
+   716→      const w = page?.components.find((c) => c.id === id);
+   717→      if (!w) return false;
+   718→      const clip: WidgetStyleClip & { fromType?: string } = {};
+   719→      if (w.opacity !== undefined) clip.opacity = w.opacity;
+   720→      if (w.shadow) clip.shadow = w.shadow;
+   721→      if (w.mt !== undefined) clip.mt = w.mt;
+   722→      if (w.mb !== undefined) clip.mb = w.mb;
+   723→      if (w.width !== undefined) clip.width = w.width;
+   724→      if (w.align !== undefined) clip.align = w.align;
+   725→      if (w.w !== undefined) clip.w = w.w;
+   726→      clip.fromType = w.type;
+   727→      styleClipboard = clip;
+   728→      return true;
+   729→    },
+   730→
+   731→    pasteWidgetStyle(ids) {
+   732→      const page = currentPage();
+   733→      if (!page || !styleClipboard || ids.length === 0) return 0;
+   734→      const { fromType: _ft, ...style } = styleClipboard;
+   735→      const idSet = new Set(ids);
+   736→      let n = 0;
+   737→      commit(({ pages }) => ({
+   738→        pages: pages.map((p) =>
+   739→          p.id === page.id
+   740→            ? {
+   741→                ...p,
+   742→                components: p.components.map((c) => {
+   743→                  if (!idSet.has(c.id) || c.locked) return c;
+   744→                  n += 1;
+   745→                  return { ...c, ...deepClone(style) };
+   746→                }),
+   747→              }
+   748→            : p
+   749→        ),
+   750→      }));
+   751→      return n;
+   752→    },
+   753→
+   754→    hasStyleClip() {
+   755→      return styleClipboard !== null;
+   756→    },
+   757→
+   758→    endBatch() {
+   759→      const { batchSnap, past } = get();
+   760→      if (!batchSnap) return;
+   761→      set({ past: [...past.slice(-MAX_HISTORY), batchSnap], future: [], batchSnap: null });
+   762→    },
+   763→
+   764→    convertToFreeLayout(rects) {
+   765→      const page = currentPage();
+   766→      if (!page) return;
+   767→      commit(({ pages }) => ({
+   768→        pages: pages.map((p) =>
+   769→          p.id === page.id
+   770→            ? {
+   771→                ...p,
+   772→                layout: 'free',
+   773→                components: p.components.map((c) =>
+   774→                  rects[c.id] ? { ...c, x: rects[c.id].x, y: rects[c.id].y, w: rects[c.id].w } : c
+   775→                ),
+   776→              }
+   777→            : p
+   778→        ),
+   779→      }));
+   780→    },
+   781→
+   782→    /** 旧数据自动升级：不记历史、不打断用户（画布测量后调用） */
+   783→    migrateToFree(pageId, rects) {
+   784→      set({
+   785→        pages: get().pages.map((p) =>
+   786→          p.id === pageId
+   787→            ? {
+   788→                ...p,
+   789→                layout: 'free',
+   790→                components: rects
+   791→                  ? p.components.map((c) => (rects[c.id] ? { ...c, ...rects[c.id] } : c))
+   792→                  : p.components,
+   793→              }
+   794→            : p
+   795→        ),
+   796→        dirty: true,
+   797→      });
+   798→    },
+   799→
+   800→    select(id, additive = false) {
+   801→      if (id === null) {
+   802→        set({ selectedWidgetId: null, selectedIds: [] });
+   803→        return;
+   804→      }
+   805→      if (additive) {
+   806→        const cur = get().selectedIds;
+   807→        const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+   808→        set({
+   809→          selectedIds: next,
+   810→          selectedWidgetId: next[next.length - 1] ?? null,
+   811→        });
+   812→      } else {
+   813→        set({ selectedWidgetId: id, selectedIds: [id] });
+   814→      }
+   815→    },
+   816→
+   817→    selectMany(ids) {
+   818→      set({ selectedIds: ids, selectedWidgetId: ids[ids.length - 1] ?? null });
+   819→    },
+   820→
+   821→    clearMulti() {
+   822→      set({ selectedIds: get().selectedWidgetId ? [get().selectedWidgetId!] : [] });
+   823→    },
+   824→
+   825→    groupWidgets(ids) {
+   826→      const page = currentPage();
+   827→      if (!page || ids.length < 2) return null;
+   828→      const members = page.components.filter((c) => ids.includes(c.id) && !c.locked);
+   829→      if (members.length < 2) return null;
+   830→      /* 已全部同组则不重复建组 */
+   831→      const gids = new Set(members.map((c) => c.group).filter(Boolean) as string[]);
+   832→      if (gids.size === 1 && members.every((c) => c.group)) return members[0].group!;
+   833→      const gid = uid();
+   834→      const idSet = new Set(members.map((c) => c.id));
+   835→      commit(({ pages }) => ({
+   836→        pages: pages.map((p) =>
+   837→          p.id === page.id
+   838→            ? { ...p, components: p.components.map((c) => (idSet.has(c.id) ? { ...c, group: gid } : c)) }
+   839→            : p
+   840→        ),
+   841→      }));
+   842→      set({ selectedWidgetId: members[members.length - 1].id, selectedIds: members.map((c) => c.id) });
+   843→      return gid;
+   844→    },
+   845→
+   846→    ungroupWidgets(ids) {
+   847→      const page = currentPage();
+   848→      if (!page || ids.length === 0) return;
+   849→      const groupIds = new Set(
+   850→        page.components.filter((c) => ids.includes(c.id) && c.group).map((c) => c.group!)
+   851→      );
+   852→      if (groupIds.size === 0) return;
+   853→      commit(({ pages }) => ({
+   854→        pages: pages.map((p) => {
+   855→          if (p.id !== page.id) return p;
+   856→          /* 组内仅剩 1 个成员时，一并清掉孤组标记 */
+   857→          const lonely = new Set<string>();
+   858→          for (const g of groupIds) {
+   859→            const size = p.components.filter((c) => c.group === g).length;
+   860→            const removing = p.components.filter((c) => ids.includes(c.id) && c.group === g).length;
+   861→            if (size - removing <= 1) lonely.add(g);
+   862→          }
+   863→          return {
+   864→            ...p,
+   865→            components: p.components.map((c) =>
+   866→              c.group && (ids.includes(c.id) || lonely.has(c.group)) ? { ...c, group: undefined } : c
+   867→            ),
+   868→          };
+   869→        }),
+   870→      }));
+   871→    },
+   872→
+   873→    groupMembersOf(id) {
+   874→      const page = currentPage();
+   875→      const me = page?.components.find((c) => c.id === id);
+   876→      if (!page || !me?.group) return null;
+   877→      const members = page.components.filter((c) => c.group === me.group && !c.hidden).map((c) => c.id);
+   878→      return members.length > 1 ? members : null;
+   879→    },
+   880→
+   881→    setCurrentPage(id) {
+   882→      set({ currentPageId: id, selectedWidgetId: null, selectedIds: [] });
+   883→    },
+   884→
+   885→    setHomePage(id) {
+   886→      commit(({ pages }) => ({
+   887→        pages: pages.map((p) => (p.isHome || p.id === id ? { ...p, isHome: p.id === id } : p)),
+   888→      }));
+   889→    },
+   890→
+   891→    addPage() {
+   892→      const pid = uid();
+   893→      const count = get().pages.length;
+   894→      commit(({ pages }) => ({
+   895→        pages: [
+   896→          ...pages,
+   897→          {
+   898→            id: pid,
+   899→            name: `页面 ${count + 1}`,
+   900→            background: '#f6f7fb',
+   901→            isHome: pages.length === 0,
+   902→            components: [],
+   903→            /* 新页面默认自由布局：添加组件后即可任意拖放位置 */
+   904→            layout: 'free',
+   905→            flowX: 80 + (count % 3) * 340,
+   906→            flowY: 80 + Math.floor(count / 3) * 280,
+   907→          },
+   908→        ],
+   909→      }));
+   910→      set({ currentPageId: pid, selectedWidgetId: null });
+   911→    },
+   912→
+   913→    duplicatePage(id) {
+   914→      const { pages } = get();
+   915→      const src = pages.find((p) => p.id === id);
+   916→      if (!src) return;
+   917→      const pid = uid();
+   918→      const count = pages.length;
+   919→      commit(({ pages: list }) => ({
+   920→        pages: [
+   921→          ...list,
+   922→          {
+   923→            ...deepClone(src),
+   924→            id: pid,
+   925→            name: `${src.name} 副本`,
+   926→            isHome: false,
+   927→            components: deepClone(src.components).map((c) => ({ ...c, id: uid() })),
+   928→            flowX: 80 + (count % 3) * 340,
+   929→            flowY: 80 + Math.floor(count / 3) * 280,
+   930→          },
+   931→        ],
+   932→      }));
+   933→      set({ currentPageId: pid, selectedWidgetId: null, selectedIds: [] });
+   934→    },
+   935→
+   936→    updatePage(id, patch) {
+   937→      commit(({ pages }) => ({
+   938→        pages: pages.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+   939→      }));
+   940→    },
+   941→
+   942→    movePage(id, toIndex) {
+   943→      commit(({ pages }) => {
+   944→        const from = pages.findIndex((p) => p.id === id);
+   945→        if (from < 0 || toIndex < 0 || toIndex > pages.length || from === toIndex) return { pages };
+   946→        const list = [...pages];
+   947→        const [moved] = list.splice(from, 1);
+   948→        /* toIndex 语义 = 「插到原数组下标 toIndex 的元素之前」，移除后需校正 */
+   949→        const adj = from < toIndex ? toIndex - 1 : toIndex;
+   950→        list.splice(adj, 0, moved);
+   951→        return { pages: list };
+   952→      });
+   953→    },
+   954→
+   955→    removePage(id) {
+   956→      const { pages } = get();
+   957→      if (pages.length <= 1) return;
+   958→      const target = pages.find((p) => p.id === id);
+   959→      if (target?.isHome) {
+   960→        // 主页不可删；先把主页身份转移
+   961→        return;
+   962→      }
+   963→      commit(({ pages, connections }) => ({
+   964→        pages: pages.filter((p) => p.id !== id),
+   965→        connections: connections.filter((c) => c.fromPageId !== id && c.toPageId !== id),
+   966→      }));
+   967→      if (get().currentPageId === id) {
+   968→        const rest = get().pages;
+   969→        set({ currentPageId: rest.find((p) => p.isHome)?.id || rest[0]?.id || null, selectedWidgetId: null, selectedIds: [] });
+   970→      }
+   971→    },
+   972→
+   973→    setFlowPos(id, x, y) {
+   974→      commit(({ pages }) => ({
+   975→        pages: pages.map((p) => (p.id === id ? { ...p, flowX: x, flowY: y } : p)),
+   976→      }));
+   977→    },
+   978→
+   979→    addConnection(c) {
+   980→      if (c.fromPageId === c.toPageId) return;
+   981→      const conn: ConnectionData = { id: uid(), action: 'click', ...c };
+   982→      commit(({ connections }) => ({
+   983→        /* 同组件同槽位替换：一个按钮只有一个跳转行为，重复绑定即改绑 */
+   984→        connections: [
+   985→          ...connections.filter(
+   986→            (x) =>
+   987→              !(
+   988→                x.fromPageId === c.fromPageId &&
+   989→                x.fromWidgetId === c.fromWidgetId &&
+   990→                (x.slot || undefined) === (c.slot || undefined)
+   991→              )
+   992→          ),
+   993→          conn,
+   994→        ],
+   995→      }));
+   996→    },
+   997→
+   998→    removeConnection(id) {
+   999→      commit(({ connections }) => ({ connections: connections.filter((c) => c.id !== id) }));
+  1000→    },
+  1001→
+  1002→    updateConnection(id, patch) {
+  1003→      commit(({ connections }) => ({
+  1004→        connections: connections.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+  1005→      }));
+  1006→    },
+  1007→
+  1008→    updateTheme(patch) {
+  1009→      const { project } = get();
+  1010→      if (!project) return;
+  1011→      set({
+  1012→        project: { ...project, theme: { ...project.theme, ...patch } },
+  1013→        dirty: true,
+  1014→      });
+  1015→    },
+  1016→
+  1017→    undo() {
+  1018→      const { past, pages, connections, future } = get();
+  1019→      if (past.length === 0) return;
+  1020→      const prev = past[past.length - 1];
+  1021→      set({
+  1022→        past: past.slice(0, -1),
+  1023→        future: [{ pages: deepClone(pages), connections: deepClone(connections) }, ...future].slice(0, MAX_HISTORY),
+  1024→        pages: prev.pages,
+  1025→        connections: prev.connections,
+  1026→        dirty: true,
+  1027→        selectedWidgetId: null,
+  1028→        selectedIds: [],
+  1029→      });
+  1030→    },
+  1031→
+  1032→    redo() {
+  1033→      const { future, pages, connections, past } = get();
+  1034→      if (future.length === 0) return;
+  1035→      const next = future[0];
+  1036→      set({
+  1037→        future: future.slice(1),
+  1038→        past: [...past, { pages: deepClone(pages), connections: deepClone(connections) }],
+  1039→        pages: next.pages,
+  1040→        connections: next.connections,
+  1041→        dirty: true,
+  1042→        selectedWidgetId: null,
+  1043→        selectedIds: [],
+  1044→      });
+  1045→    },
+  1046→
+  1047→    async save() {
+  1048→      const { project, pages, connections, saving } = get();
+  1049→      if (!project || saving) return false;
+  1050→      set({ saving: true });
+  1051→      try {
+  1052→        const res = await fetch(`/api/projects/${project.id}`, {
+  1053→          method: 'PUT',
+  1054→          headers: { 'Content-Type': 'application/json' },
+  1055→          body: JSON.stringify({
+  1056→            name: project.name,
+  1057→            description: project.description,
+  1058→            theme: project.theme,
+  1059→            pages,
+  1060→            connections,
+  1061→          }),
+  1062→        });
+  1063→        if (!res.ok) throw new Error('save failed');
+  1064→        set({ dirty: false, lastSavedAt: new Date().toISOString() });
+  1065→        return true;
+  1066→      } catch {
+  1067→        set({ dirty: true });
+  1068→        return false;
+  1069→      } finally {
+  1070→        set({ saving: false });
+  1071→      }
+  1072→    },
+  1073→
+  1074→    setPublishOpen(b) {
+  1075→      set({ publishOpen: b });
+  1076→    },
+  1077→
+  1078→    async publish(name, description) {
+  1079→      const { project } = get();
+  1080→      if (!project) return null;
+  1081→      await get().save();
+  1082→      const res = await fetch(`/api/projects/${project.id}/publish`, {
+  1083→        method: 'POST',
+  1084→        headers: { 'Content-Type': 'application/json' },
+  1085→        body: JSON.stringify({ name, description }),
+  1086→      });
+  1087→      if (!res.ok) return null;
+  1088→      const data = await res.json();
+  1089→      return data.version ?? null;
+  1090→    },
+  1091→
+  1092→    async openPublishPreview(publishId) {
+  1093→      const res = await fetch(`/api/publishes/${publishId}`);
+  1094→      if (!res.ok) return;
+  1095→      const data = await res.json();
+  1096→      if (!data.snapshot) return;
+  1097→      const home = data.snapshot.pages?.find((p: PageData) => p.isHome);
+  1098→      set({
+  1099→        previewSnapshot: { ...data.snapshot, version: data.version },
+  1100→        view: 'preview',
+  1101→        currentPageId: home?.id || data.snapshot.pages?.[0]?.id || null,
+  1102→        selectedWidgetId: null,
+  1103→      });
+  1104→    },
+  1105→
+  1106→    exitPublishPreview() {
+  1107→      const hasProject = !!get().project;
+  1108→      set({ previewSnapshot: null, view: hasProject ? 'editor' : 'home' });
+  1109→    },
+  1110→
+  1111→    /** 导出当前项目为 JSON 文件下载 */
+  1112→    exportProject() {
+  1113→      const { project, pages, connections } = get();
+  1114→      if (!project) return;
+  1115→      const payload = {
+  1116→        app: 'AppCraft Studio',
+  1117→        format: 1,
+  1118→        exportedAt: new Date().toISOString(),
+  1119→        name: project.name,
+  1120→        description: project.description,
+  1121→        theme: project.theme,
+  1122→        pages,
+  1123→        connections,
+  1124→      };
+  1125→      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  1126→      const url = URL.createObjectURL(blob);
+  1127→      const a = document.createElement('a');
+  1128→      a.href = url;
+  1129→      a.download = `${project.name || 'appcraft-project'}.json`;
+  1130→      a.click();
+  1131→      URL.revokeObjectURL(url);
+  1132→    },
+  1133→
+  1134→    /** 导入项目 JSON：创建新项目并打开 */
+  1135→    async importProject(payload) {
+  1136→      try {
+  1137→        const res = await fetch('/api/projects/import', {
+  1138→          method: 'POST',
+  1139→          headers: { 'Content-Type': 'application/json' },
+  1140→          body: JSON.stringify(payload),
+  1141→        });
+  1142→        if (!res.ok) return false;
+  1143→        const { id } = await res.json();
+  1144→        await get().loadHome();
+  1145→        await get().openProject(id);
+  1146→        return true;
+  1147→      } catch {
+  1148→        return false;
+  1149→      }
+  1150→    },
+  1151→
+  1152→    /* ==================== 组件市场（我的组合） ==================== */
+  1153→
+  1154→    async loadPresets() {
+  1155→      try {
+  1156→        const res = await fetch('/api/presets');
+  1157→        if (!res.ok) return;
+  1158→        const data = await res.json();
+  1159→        set({ presets: Array.isArray(data) ? data : [], presetsLoaded: true });
+  1160→      } catch {
+  1161→        set({ presetsLoaded: true });
+  1162→      }
+  1163→    },
+  1164→
+  1165→    async savePreset(name, icon, ids) {
+  1166→      const page = currentPage();
+  1167→      if (!page || ids.length === 0) return null;
+  1168→      const trimmed = name.trim();
+  1169→      if (!trimmed) return null;
+  1170→      /* 按画布顺序提取选中组件，坐标转为组合内相对坐标（去掉 id/锁定/隐藏/编组等运行时标记） */
+  1171→      const picked = page.components
+  1172→        .filter((c) => ids.includes(c.id) && !c.locked)
+  1173→        .map((c) => {
+  1174→          const { id: _id, locked: _l, hidden: _h, group: _g, ...rest } = c;
+  1175→          return rest as WidgetInstance;
+  1176→        });
+  1177→      if (picked.length === 0) return null;
+  1178→      const minX = Math.min(...picked.map((c) => c.x ?? 0));
+  1179→      const minY = Math.min(...picked.map((c) => c.y ?? 0));
+  1180→      const normalized = picked.map((c) =>
+  1181→        c.x !== undefined || c.y !== undefined
+  1182→          ? { ...c, x: (c.x ?? 0) - minX, y: (c.y ?? 0) - minY }
+  1183→          : c
+  1184→      );
+  1185→      try {
+  1186→        const res = await fetch('/api/presets', {
+  1187→          method: 'POST',
+  1188→          headers: { 'Content-Type': 'application/json' },
+  1189→          body: JSON.stringify({ name: trimmed, icon: icon || '✨', widgets: normalized }),
+  1190→        });
+  1191→        if (!res.ok) return null;
+  1192→        const data = await res.json();
+  1193→        set({ presets: [data, ...get().presets] });
+  1194→        return data;
+  1195→      } catch {
+  1196→        return null;
+  1197→      }
+  1198→    },
+  1199→
+  1200→    async deletePreset(id) {
+  1201→      set({ presets: get().presets.filter((p) => p.id !== id) });
+  1202→      await fetch(`/api/presets/${id}`, { method: 'DELETE' }).catch(() => null);
+  1203→    },
+  1204→
+  1205→    async renamePreset(id, patch) {
+  1206→      const prev = get().presets;
+  1207→      const name = patch.name?.trim();
+  1208→      if (name !== undefined && !name) return false;
+  1209→      /* 乐观更新 */
+  1210→      set({
+  1211→        presets: prev.map((p) =>
+  1212→          p.id === id ? { ...p, ...(name !== undefined ? { name } : {}), ...(patch.icon ? { icon: patch.icon } : {}) } : p
+  1213→        ),
+  1214→      });
+  1215→      try {
+  1216→        const res = await fetch(`/api/presets/${id}`, {
+  1217→          method: 'PATCH',
+  1218→          headers: { 'Content-Type': 'application/json' },
+  1219→          body: JSON.stringify(patch),
+  1220→        });
+  1221→        if (!res.ok) throw new Error('failed');
+  1222→        return true;
+  1223→      } catch {
+  1224→        set({ presets: prev }); /* 回滚 */
+  1225→        return false;
+  1226→      }
+  1227→    },
+  1228→
+  1229→    async togglePresetStar(id) {
+  1230→      const prev = get().presets;
+  1231→      const target = prev.find((p) => p.id === id);
+  1232→      if (!target) return false;
+  1233→      const starred = !target.meta?.starred;
+  1234→      const nextMeta = { ...(target.meta ?? {}), starred, starredAt: starred ? new Date().toISOString() : undefined };
+  1235→      /* 乐观更新 */
+  1236→      set({ presets: prev.map((p) => (p.id === id ? { ...p, meta: nextMeta } : p)) });
+  1237→      try {
+  1238→        const res = await fetch(`/api/presets/${id}`, {
+  1239→          method: 'PATCH',
+  1240→          headers: { 'Content-Type': 'application/json' },
+  1241→          body: JSON.stringify({ starred }),
+  1242→        });
+  1243→        if (!res.ok) throw new Error('failed');
+  1244→        return true;
+  1245→      } catch {
+  1246→        set({ presets: prev }); /* 回滚 */
+  1247→        return false;
+  1248→      }
+  1249→    },
+  1250→
+  1251→    insertPreset(preset, anchor) {
+  1252→      const page = currentPage();
+  1253→      if (!page) return;
+  1254→      const defs = preset.widgets.map((w) => ({ w, def: getWidget(w.type) }));
+  1255→      const valid = defs.filter((d): d is { w: WidgetInstance; def: NonNullable<ReturnType<typeof getWidget>> } => !!d.def);
+  1256→      if (valid.length === 0) return;
+  1257→      /* 锚点：未给定时以内容底部为锚（默认 10px 边距）；拖拽释放时以释放点为组合原点 */
+  1258→      const maxBottom = anchor
+  1259→        ? 0
+  1260→        : page.components.reduce((m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)), 0);
+  1261→      const baseX = anchor ? anchor.x : 10;
+  1262→      const baseY = anchor ? anchor.y : maxBottom + 12;
+  1263→      const created: WidgetInstance[] = valid.map(({ w, def }) => {
+  1264→        const inst: WidgetInstance = {
+  1265→          ...deepClone(w),
+  1266→          id: uid(),
+  1267→          locked: undefined,
+  1268→          hidden: undefined,
+  1269→          group: undefined,
+  1270→        };
+  1271→        if (page.layout === 'free') {
+  1272→          inst.x = Math.max(0, Math.min(baseX + (w.x ?? 0), 375 - (w.w ?? 355)));
+  1273→          inst.y = Math.max(0, baseY + (w.y ?? 0));
+  1274→          inst.w = w.w ?? (def.fullBleed ? 375 : 355);
+  1275→        } else {
+  1276→          delete inst.x;
+  1277→          delete inst.y;
+  1278→          delete inst.w;
+  1279→          delete inst.h;
+  1280→        }
+  1281→        return inst;
+  1282→      });
+  1283→      commit(({ pages }) => ({
+  1284→        pages: pages.map((p) =>
+  1285→          p.id === page.id ? { ...p, components: [...p.components, ...created] } : p
+  1286→        ),
+  1287→      }));
+  1288→      /* 选中整组新组件，方便紧接着拖动调整 */
+  1289→      set({
+  1290→        selectedWidgetId: created[created.length - 1].id,
+  1291→        selectedIds: created.map((c) => c.id),
+  1292→      });
+  1293→    },
+  1294→
+  1295→    async savePagePreset(name, icon, pageId) {
+  1296→      const page = get().pages.find((p) => p.id === pageId);
+  1297→      if (!page) return null;
+  1298→      const trimmed = name.trim();
+  1299→      if (!trimmed || page.components.length === 0) return null;
+  1300→      /* 整页组件原样保留绝对坐标（页面模板的布局语义），剥运行时标记 */
+  1301→      const widgets = page.components.map((c) => {
+  1302→        const { locked: _l, hidden: _h, group: _g, ...rest } = c;
+  1303→        return rest as WidgetInstance;
+  1304→      });
+  1305→      try {
+  1306→        const res = await fetch('/api/presets', {
+  1307→          method: 'POST',
+  1308→          headers: { 'Content-Type': 'application/json' },
+  1309→          body: JSON.stringify({
+  1310→            name: trimmed,
+  1311→            icon: icon || '📄',
+  1312→            kind: 'page',
+  1313→            widgets,
+  1314→            meta: { background: page.background, layout: page.layout ?? 'free' },
+  1315→          }),
+  1316→        });
+  1317→        if (!res.ok) return null;
+  1318→        const data: PresetData = await res.json();
+  1319→        set({ presets: [data, ...get().presets] });
+  1320→        return data;
+  1321→      } catch {
+  1322→        return null;
+  1323→      }
+  1324→    },
+  1325→
+  1326→    addPageFromTemplate(preset) {
+  1327→      const count = get().pages.length;
+  1328→      const pid = uid();
+  1329→      const comps: WidgetInstance[] = deepClone(preset.widgets).map((c) => ({
+  1330→        ...c,
+  1331→        id: uid(),
+  1332→        locked: undefined,
+  1333→        hidden: undefined,
+  1334→        group: undefined,
+  1335→      }));
+  1336→      commit(({ pages }) => ({
+  1337→        pages: [
+  1338→          ...pages,
+  1339→          {
+  1340→            id: pid,
+  1341→            name: preset.name,
+  1342→            background: preset.meta?.background ?? '#f6f7fb',
+  1343→            isHome: pages.length === 0,
+  1344→            components: comps,
+  1345→            layout: preset.meta?.layout ?? 'free',
+  1346→            flowX: 80 + (count % 3) * 340,
+  1347→            flowY: 80 + Math.floor(count / 3) * 280,
+  1348→          },
+  1349→        ],
+  1350→      }));
+  1351→      set({ currentPageId: pid, selectedWidgetId: null, selectedIds: [] });
+  1352→    },
+  1353→  };
+  1354→});
+  1355→
+  1356→/** 自动保存：脏状态 1.2s 后保存 */
+  1357→export function bindAutosave() {
+  1358→  let timer: ReturnType<typeof setTimeout> | null = null;
+  1359→  let stopped = false;
+  1360→  const unsub = useBuilder.subscribe((state) => {
+  1361→    if (stopped) return;
+  1362→    if (state.dirty && state.view !== 'home') {
+  1363→      if (timer) clearTimeout(timer);
+  1364→      timer = setTimeout(() => {
+  1365→        useBuilder.getState().save();
+  1366→      }, 1200);
+  1367→    }
+  1368→  });
+  1369→  return () => {
+  1370→    stopped = true;
+  1371→    if (timer) clearTimeout(timer);
+  1372→    unsub();
+  1373→  };
+  1374→}
+  1375→

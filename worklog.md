@@ -582,3 +582,52 @@ Stage Summary:
 - 用户需自行删除聊天中泄露的 Token（github.com/settings/tokens）
 - CI 恢复方法：新 Token 勾 workflow scope 后，去掉 .gitignore 中 .github/workflows/ 行再推送
 - 遗留：需求 D（D-1 画板就地编辑 / D-2 App 级 TabBar / D-3 组件扩充）待实施
+
+---
+Task ID: 28-b
+Agent: widgets-expander
+Task: D-3 组件扩充（social/mall/media 追加 7 个高频组件）
+
+Work Log:
+- 读取 worklog.md（Task 26/27）、src/lib/widget-types.ts 契约与 fitness.tsx 范例，对齐 WidgetDef 规范（render 纯函数 / w-* 表面类 / --p --pf --pr 变量 / defaultProps↔fields 一一对应）
+- 【关键发现】规格中 social.live-card 与 mall.flash-sale 在代码库中已存在（提交 09ea1ca，props 为 anchor/viewers 与 title/time，与本次规格 props 不一致）。因 WidgetLibrary 以 w.type 为 React key、getWidget 按 type 取首个匹配，若按规格再追加同名 type 会产生重复键 bug —— 决策：对这 2 个既有组件「就地升级到新规格」（均在本次允许编辑的 3 个文件内），其余 5 个为纯新增；mall.coupon-card（大票券单张）与新增 mall.coupon-row（横条多张）类型不同、共存
+- social.tsx（+3）：
+  - social.live-card 升级：props 改为 title/viewers/liveText；封面改 aspect-video 16:9 主色渐变 + LIVE rose 红点角标（呼吸动画沿用原实现）+ 右上 Eye 观看人数 + 底部渐变压暗（标题 + 白圈 CircleUserRound 主播头像圆点 + liveText）
+  - 新增 social.topic-card：rank/topic/heat/posts；序号徽标 1-3 名主色热榜配色（var(--p) 由深到浅 color-mix 三档，>3 名 w-chip 弱化），话题 # 文字 + 讨论数 + 右侧 Flame 主色热度值
+  - 新增 social.story-row：names 逗号分隔取前 5；w-card 内一排 56px 圆头像，渐变描边圈复用 GRADS 装饰渐变池 + w-card 内圈（明暗自适应）+ 首字符，下方用户名（宽度 5×56+4×12+padding=352 ≤355 恰好放下）
+- mall.tsx（+2）：
+  - mall.flash-sale 升级：props 改为 title/hours/minutes（规格仅列时/分，倒计时按时:分两个 zinc-900 色块渲染，pad2 容错解析）；3 个秒杀商品位（渐变图块 + 主色价格 + 划线原价）保持原样式
+  - 新增 mall.coupon-row：amount/threshold 逗号分隔取前 3 张，grid 等宽横条；每张迷你票券 = 面额大字主色 + 门槛小字 + border-dashed w-line 虚线撕票分隔 + 主色圆角「领取」按钮
+- media.tsx（+2）：
+  - 新增 media.audio-card：size-16 方形 PRIMARY_GRAD 封面（Headphones 图标）+ 标题/作者 + w-chip 主色进度条与百分比 + 复用 PlayKnob 主色播放圆钮（progress 用既有 pct() 钳制）
+  - 新增 media.schedule-row：weekday select（一~日）+ titles 列表；左侧 7 枚星期徽标竖列（今天 var(--p)/var(--pf) 高亮，其余 w-chip），右侧剧名行 flex-1 均分高度并以 w-line 分隔，与徽标列对齐
+- 图标均先用 bun -e 校验 lucide-react 导出存在后才 import（CircleDashed/Ticket/BookAudio/CalendarDays/Headphones 等）；期间修复一处 media.tsx 漏 import Headphones 的 tsc 错误
+- 兼容性说明：旧实例遗留 props（anchor/time）在渲染合并 {...defaultProps, ...w.props} 下被忽略或回落默认值（viewers 可保留），无需数据迁移
+- 验证：①bunx tsc --noEmit 过滤 ^src/ 输出为空 ②eslint 三文件 exit 0 ③三文件 39 个组件类型 grep 唯一性检查无重复 ④bun 冒烟脚本：7 个目标组件 render(defaultProps) 与 render({}) 均正常输出、fields↔defaultProps 键一一匹配、39 组件全量回归渲染 0 异常
+- 未编辑 registry.tsx / src/lib/ / src/components/builder/ 任何文件
+
+Stage Summary:
+- 新增 type 清单：social.topic-card、social.story-row、mall.coupon-row、media.audio-card、media.schedule-row（5 个纯新增）；social.live-card、mall.flash-sale 按新规格就地升级（props 对齐 title/viewers/liveText 与 title/hours/minutes），三文件组件总数 12/11/14 = 39
+- 验证结果：tsc src/ 0 错误、eslint 0 错误、type 无重复、39 组件 render 全量冒烟通过
+- 注意事项：①后续任务下发前建议先核对现有组件清单，避免同名 type 重复追加（WidgetLibrary key 冲突）②LIVE 角标的 rose-500 为规格明确要求的红色强调（沿用原实现），其余颜色全部为 var(--p)/var(--pf)/zinc+opacity ③coupon-row 的 amount/threshold 为逗号分隔多值，与单张 coupon-card 的单值语义不同，编辑面板已用 label 注明
+
+---
+Task ID: 28
+Agent: main
+Task: 需求 D 完整实施——①无限画布重建+画板内就地编辑（改文字/调间距/删除/排序）②App 级底部 TabBar（图标绑定整页+点击切换）③D-3 组件扩充 7 个
+
+Work Log:
+- 侦察发现：上次会话的 InfiniteCanvas/入口按钮均未落盘（Task 23/24 产物丢失），store 有 flowX/flowY、updateWidget 等地基；fn.tabbar 是组件级（非 App 级）
+- 数据层：types.ts 新增 AppTab{ id, pageId, label, icon }，ProjectData/AppSnapshot 加 tabs?；prisma Project 加 tabs 列（db push）；projects/[id] GET/PUT、publish 路由支持 tabs 持久化
+- store：BuilderView 加 'canvas'；tabs state + setTabs/addTab/updateTab/removeTab/moveTab；新增 addWidgetToPage(pageId, type)（画板内添加，自由布局自动堆叠）；save/exportProject/openProject/deleteProject 全链路映射 tabs
+- 新文件：lib/app-icons.ts（73 个 lucide 图标映射，含用户点名的点餐/首页/购物车/订单/视频/消息/个人中心/通讯录/发现/市集）；builder/AppTabBar.tsx（明暗自适应底部导航视图）；builder/IconPicker.tsx（搜索式图标选择器，createElement 渲染规避 ForwardRef 直调崩溃）；builder/TabManager.tsx（增删/改名/换图标/绑页/排序/一键生成/重复绑定提示，关闭自动保存）；builder/InfiniteCanvas.tsx（~700 行）
+- InfiniteCanvas：pan（空白拖拽/滚轮）+ zoom（Ctrl+滚轮/按钮/适应视图 fit）；画板=chrome 条（拖动 setFlowPos/双击重命名/+添加组件 popover/进编辑器）+ 缩放 PhoneFrame（WidgetRenderer 静态渲染，点击组件直接选中）；SVG 贝塞尔连线+标签（点编辑/删）+ 右侧圆点拖拽建连（预填 ConnectionDialog，从 FlowEditor 导出复用）；选中浮动工具条（编辑内容/上移下移/删除）；QuickEditor 弹层=文字 fields 就地实时编辑 + mt/mb 滑杆 + 宽度/对齐；画板底部 AppTabBar 点击聚焦目标画板（amber ring+平移居中+2.4s 消退）
+- 入口：page.tsx 加 canvas 路由；Toolbar 加 violet「无限画布」按钮+「底部导航」按钮+一次性引导横幅（localStorage 记忆）；ProjectHome 卡片加「无限画布」按钮
+- 预览：PreviewPlayer 底部渲染 AppTabBar，点击换根切换整页（navigateTab fade）
+- D-3（子代理 28-b）：social/mall/media 追加 7 组件（live-card/flash-sale 就地升级避免 type 冲突）；首页计数 138→143
+- 调试修复：IconPicker 函数直调 ForwardRef 崩溃→createElement；ChevronUp/Down 漏 import；static-components lint 误报→createElement 方案；dev server 持旧 Prisma Client 致 PUT 500（Unknown arg tabs）→重启解决；Toolbar fragment 闭合补全
+
+Stage Summary:
+- agent-browser 全链路实测通过：画板渲染/组件点选/就地改文字（星云 App→星云 App Pro 实时生效）/间距滑杆 mt=32/TabBar 一键生成(2 tab)/换图标(73 选项)/Tab 点击聚焦画板(amber ring)/预览整页切换(商城首页↔商品详情)/拖拽连线(Banner→商品详情)/删除组件/保存+刷新持久化(DB tabs=[商城首页(home),商品详情(compass)])
+- tsc 0 错、lint 0 错；三入口（首页卡片/Toolbar 按钮/引导横幅）全部验证可达
+- 遗留小项：②icon 选择点击的 option 偶发落空（title 匹配选择器问题，功能本身正常）可后续打磨；free 布局画板内选中热区按 x/y/w/h 估算，复杂绝对定位页面可回编辑器精调

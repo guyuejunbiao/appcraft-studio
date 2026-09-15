@@ -1,0 +1,819 @@
+     1→import {
+     2→  Activity, Footprints, Dumbbell, CalendarDays, Flame, Droplets, Moon, Scale,
+     3→  MessageCircle, UserRound, Medal, LayoutGrid, MonitorPlay, Play, UtensilsCrossed,
+     4→  GlassWater, TrendingUp, TrendingDown, MapPin, Heart, Star, BadgeCheck,
+     5→  CalendarCheck, ChevronRight, Timer, Zap, Route,
+     6→} from 'lucide-react';
+     7→import type { WidgetDef } from '@/lib/widget-types';
+     8→
+     9→/**
+    10→ * 健康运动 组件库（目录：fitness）
+    11→ * 与 charts.tsx 同一套规范：只使用 Tailwind + CSS 变量（--p 主色 / --pr 圆角 / --pf 主色上文字）
+    12→ * 表面类：w-card(卡片) w-input(输入底) w-chip(浅色块) w-line(分割线颜色)
+    13→ * 图表/圆环全部为纯静态 markup（div / 内联 SVG / conic-gradient），无 hooks、无外部请求；
+    14→ * 辅助色仅用 rose / amber / emerald，禁止蓝色系；render 为纯函数。
+    15→ */
+    16→
+    17→/** 逗号（中英文）分隔 → 字符串数组（去空白项） */
+    18→const splitList = (raw: unknown): string[] =>
+    19→  String(raw ?? '').split(/[,,]/).map((s) => s.trim()).filter(Boolean);
+    20→
+    21→/** 逗号分隔 → 数值数组（非法项按 0 处理） */
+    22→const numList = (raw: unknown): number[] =>
+    23→  splitList(raw).map((s) => (Number.isFinite(Number(s)) ? Number(s) : 0));
+    24→
+    25→/** 数字钳制 */
+    26→const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+    27→
+    28→/** 宽松取数：容忍千分位逗号 / 单位文字（如 '8,426' / '62.5kg'） */
+    29→const looseNum = (raw: unknown): number =>
+    30→  Number(String(raw ?? '').replace(/[^\d.-]/g, '')) || 0;
+    31→
+    32→/** 辅助强调色（装饰用途，非主色语义）：玫红 / 琥珀 / 翠绿 */
+    33→const C_ROSE = '#f43f5e';
+    34→const C_AMBER = '#f59e0b';
+    35→const C_GREEN = '#10b981';
+    36→
+    37→/** 运动圆环三色：主色（步数）/ 玫红（消耗）/ 琥珀（时长） */
+    38→const RING_COLORS = ['var(--p)', C_ROSE, C_AMBER];
+    39→const RING_RADII = [50, 39, 28];
+    40→
+    41→/** 赛事报名状态 → 芯片配色 */
+    42→const RACE_STATUS: Record<string, { fg: string; bg: string }> = {
+    43→  '报名中': { fg: 'var(--p)', bg: 'color-mix(in srgb, var(--p) 12%, transparent)' },
+    44→  '即将开跑': { fg: C_AMBER, bg: 'color-mix(in srgb, #f59e0b 14%, transparent)' },
+    45→  '已满员': { fg: C_ROSE, bg: 'color-mix(in srgb, #f43f5e 12%, transparent)' },
+    46→  '已结束': { fg: 'currentColor', bg: 'color-mix(in srgb, currentColor 8%, transparent)' },
+    47→};
+    48→
+    49→export const widgets: WidgetDef[] = [
+    50→  {
+    51→    type: 'fitness.ring-progress',
+    52→    category: 'fitness',
+    53→    name: '运动圆环',
+    54→    desc: '三色同心环（步数/消耗/时长）+ 中心完成度 + 图例',
+    55→    icon: Activity,
+    56→    defaultProps: {
+    57→      steps: 86,
+    58→      burn: 64,
+    59→      duration: 42,
+    60→      centerValue: '78%',
+    61→      centerLabel: '今日目标',
+    62→    },
+    63→    fields: [
+    64→      { key: 'steps', label: '步数环进度 (%)', type: 'number', min: 0, max: 100, step: 1 },
+    65→      { key: 'burn', label: '消耗环进度 (%)', type: 'number', min: 0, max: 100, step: 1 },
+    66→      { key: 'duration', label: '时长环进度 (%)', type: 'number', min: 0, max: 100, step: 1 },
+    67→      { key: 'centerValue', label: '中心数值', type: 'text' },
+    68→      { key: 'centerLabel', label: '中心标签', type: 'text' },
+    69→    ],
+    70→    render: (p) => {
+    71→      const pcts = [p.steps, p.burn, p.duration].map((v) => clamp(Math.round(Number(v) || 0), 0, 100));
+    72→      const labels = ['步数', '消耗', '时长'];
+    73→      return (
+    74→        <div className="w-card flex items-center gap-4 p-4" style={{ borderRadius: 'var(--pr)' }}>
+    75→          <div className="relative size-28 shrink-0">
+    76→            <svg viewBox="0 0 120 120" className="size-full -rotate-90">
+    77→              {RING_RADII.map((r, i) => {
+    78→                const len = 2 * Math.PI * r;
+    79→                return (
+    80→                  <g key={i}>
+    81→                    <circle cx="60" cy="60" r={r} fill="none" stroke="currentColor" strokeOpacity="0.08" strokeWidth="8" />
+    82→                    <circle
+    83→                      cx="60"
+    84→                      cy="60"
+    85→                      r={r}
+    86→                      fill="none"
+    87→                      stroke={RING_COLORS[i]}
+    88→                      strokeWidth="8"
+    89→                      strokeLinecap="round"
+    90→                      strokeDasharray={`${(pcts[i] / 100) * len} ${len}`}
+    91→                    />
+    92→                  </g>
+    93→                );
+    94→              })}
+    95→            </svg>
+    96→            <div className="absolute inset-0 flex flex-col items-center justify-center">
+    97→              <span className="text-lg font-extrabold leading-none tracking-tight">{p.centerValue}</span>
+    98→              <span className="mt-1 text-[9px] opacity-45">{p.centerLabel}</span>
+    99→            </div>
+   100→          </div>
+   101→          <div className="min-w-0 flex-1 space-y-2.5">
+   102→            {labels.map((label, i) => (
+   103→              <div key={label} className="flex items-center gap-2">
+   104→                <span className="size-2 shrink-0 rounded-full" style={{ background: RING_COLORS[i] }} />
+   105→                <span className="min-w-0 flex-1 truncate text-[11px] opacity-60">{label}</span>
+   106→                <span className="shrink-0 text-[11px] font-bold">{pcts[i]}%</span>
+   107→              </div>
+   108→            ))}
+   109→          </div>
+   110→        </div>
+   111→      );
+   112→    },
+   113→  },
+   114→  {
+   115→    type: 'fitness.steps-card',
+   116→    category: 'fitness',
+   117→    name: '今日步数卡',
+   118→    desc: '大数字步数 + 7 天迷你柱状图 + 目标进度条',
+   119→    icon: Footprints,
+   120→    defaultProps: {
+   121→      today: '8,426',
+   122→      goal: '10,000',
+   123→      values: '5230,6810,9452,7180,8764,10230,8426',
+   124→      labels: '一,二,三,四,五,六,日',
+   125→    },
+   126→    fields: [
+   127→      { key: 'today', label: '今日步数', type: 'text' },
+   128→      { key: 'goal', label: '每日目标（步）', type: 'text' },
+   129→      { key: 'values', label: '近 7 天步数（逗号分隔）', type: 'textarea' },
+   130→      { key: 'labels', label: '星期标签（逗号分隔）', type: 'textarea' },
+   131→    ],
+   132→    render: (p) => {
+   133→      const vals = numList(p.values);
+   134→      const labels = splitList(p.labels);
+   135→      const max = Math.max(...vals, 1);
+   136→      const today = looseNum(p.today) || vals[vals.length - 1] || 0;
+   137→      const goal = looseNum(p.goal) || 1;
+   138→      const pct = clamp(Math.round((today / goal) * 100), 0, 100);
+   139→      return (
+   140→        <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   141→          <div className="flex items-start justify-between">
+   142→            <div>
+   143→              <div className="flex items-center gap-1.5">
+   144→                <Footprints className="size-3.5" style={{ color: 'var(--p)' }} />
+   145→                <span className="text-[11px] opacity-55">今日步数</span>
+   146→              </div>
+   147→              <div className="mt-1 text-[26px] font-extrabold leading-none tracking-tight">{p.today}</div>
+   148→            </div>
+   149→            <span className="w-chip rounded-full px-2 py-1 text-[10px] font-semibold" style={{ color: 'var(--p)' }}>
+   150→              目标 {p.goal}
+   151→            </span>
+   152→          </div>
+   153→          {/* 7 天迷你柱状图（最后一根 = 今日，主色高亮） */}
+   154→          <div className="mt-3 flex h-16 items-end gap-1.5">
+   155→            {vals.map((v, i) => {
+   156→              const last = i === vals.length - 1;
+   157→              return (
+   158→                <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+   159→                  <span
+   160→                    className={`w-full ${last ? '' : 'w-chip'}`}
+   161→                    style={{
+   162→                      height: `${Math.max(8, (v / max) * 100)}%`,
+   163→                      borderRadius: '3px 3px 0 0',
+   164→                      background: last ? 'var(--p)' : undefined,
+   165→                    }}
+   166→                  />
+   167→                  <span className={`text-[9px] leading-none ${last ? 'font-bold' : 'opacity-35'}`}>
+   168→                    {labels[i] ?? i + 1}
+   169→                  </span>
+   170→                </div>
+   171→              );
+   172→            })}
+   173→          </div>
+   174→          {/* 目标进度条 */}
+   175→          <div className="mt-2.5 flex items-center gap-2">
+   176→            <div className="h-1.5 min-w-0 flex-1 overflow-hidden" style={{ borderRadius: '999px' }}>
+   177→              <div
+   178→                className="h-full"
+   179→                style={{
+   180→                  width: `${Math.max(4, pct)}%`,
+   181→                  borderRadius: '999px',
+   182→                  background: 'linear-gradient(90deg, var(--p), color-mix(in srgb, var(--p) 55%, #fff))',
+   183→                }}
+   184→              />
+   185→            </div>
+   186→            <span className="shrink-0 text-[10px] font-bold" style={{ color: 'var(--p)' }}>{pct}%</span>
+   187→          </div>
+   188→        </div>
+   189→      );
+   190→    },
+   191→  },
+   192→  {
+   193→    type: 'fitness.workout-item',
+   194→    category: 'fitness',
+   195→    name: '训练动作条目',
+   196→    desc: '序号圆徽 + 动作名 + 组数×次数 + 教学视频入口',
+   197→    icon: Dumbbell,
+   198→    defaultProps: {
+   199→      index: 1,
+   200→      name: '哑铃卧推',
+   201→      sets: '3 组 × 12 次',
+   202→      rest: '组间休息 60 秒',
+   203→      video: true,
+   204→    },
+   205→    fields: [
+   206→      { key: 'index', label: '动作序号', type: 'number', min: 1, max: 20, step: 1 },
+   207→      { key: 'name', label: '动作名称', type: 'text' },
+   208→      { key: 'sets', label: '组数 × 次数', type: 'text' },
+   209→      { key: 'rest', label: '休息说明', type: 'text' },
+   210→      { key: 'video', label: '显示视频图标', type: 'switch' },
+   211→    ],
+   212→    render: (p) => {
+   213→      const idx = clamp(Math.round(Number(p.index) || 1), 1, 99);
+   214→      return (
+   215→        <div className="w-card flex items-center gap-3 p-3" style={{ borderRadius: 'var(--pr)' }}>
+   216→          <span
+   217→            className="flex size-9 shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold"
+   218→            style={{ background: 'var(--p)', color: 'var(--pf)' }}
+   219→          >
+   220→            {idx}
+   221→          </span>
+   222→          <div className="min-w-0 flex-1">
+   223→            <div className="truncate text-[13px] font-bold">{p.name}</div>
+   224→            <div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
+   225→              <span className="shrink-0">{p.sets}</span>
+   226→              {p.rest ? <><span className="opacity-40">·</span><span className="truncate">{p.rest}</span></> : null}
+   227→            </div>
+   228→          </div>
+   229→          {p.video !== false ? (
+   230→            <span
+   231→              className="flex size-8 shrink-0 items-center justify-center rounded-full"
+   232→              style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+   233→            >
+   234→              <MonitorPlay className="size-4" />
+   235→            </span>
+   236→          ) : null}
+   237→        </div>
+   238→      );
+   239→    },
+   240→  },
+   241→  {
+   242→    type: 'fitness.plan-card',
+   243→    category: 'fitness',
+   244→    name: '训练计划卡',
+   245→    desc: '渐变封面 + 难度芯片 + 周数/时长/频次 + 开始按钮',
+   246→    icon: CalendarDays,
+   247→    defaultProps: {
+   248→      title: '14 天燃脂塑形计划',
+   249→      level: '进阶',
+   250→      weeks: '4 周',
+   251→      duration: '20 分钟/次',
+   252→      freq: '5 次/周',
+   253→    },
+   254→    fields: [
+   255→      { key: 'title', label: '计划名称', type: 'text' },
+   256→      { key: 'level', label: '难度', type: 'select', options: [
+   257→        { label: '入门', value: '入门' },
+   258→        { label: '进阶', value: '进阶' },
+   259→        { label: '挑战', value: '挑战' },
+   260→      ] },
+   261→      { key: 'weeks', label: '计划周期', type: 'text' },
+   262→      { key: 'duration', label: '单次时长', type: 'text' },
+   263→      { key: 'freq', label: '训练频次', type: 'text' },
+   264→    ],
+   265→    render: (p) => {
+   266→      const levelStyle: Record<string, { fg: string; bg: string }> = {
+   267→        '入门': { fg: C_GREEN, bg: 'color-mix(in srgb, #10b981 16%, transparent)' },
+   268→        '进阶': { fg: C_AMBER, bg: 'color-mix(in srgb, #f59e0b 18%, transparent)' },
+   269→        '挑战': { fg: C_ROSE, bg: 'color-mix(in srgb, #f43f5e 16%, transparent)' },
+   270→      };
+   271→      const lv = levelStyle[p.level] ?? levelStyle['入门'];
+   272→      return (
+   273→        <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+   274→          {/* 封面占位：主色 color-mix 渐变 + 装饰圆 + 图标 */}
+   275→          <div
+   276→            className="relative h-28 overflow-hidden"
+   277→            style={{
+   278→              background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))',
+   279→            }}
+   280→          >
+   281→            <span className="absolute -right-5 -top-7 size-24 rounded-full bg-white opacity-10" />
+   282→            <span className="absolute -bottom-8 left-9 size-20 rounded-full bg-white opacity-[0.07]" />
+   283→            <span
+   284→              className="absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold"
+   285→              style={{ background: lv.bg, color: '#fff' }}
+   286→            >
+   287→              {p.level}
+   288→            </span>
+   289→            <Dumbbell className="absolute bottom-3 right-4 size-12 text-white opacity-25" />
+   290→            <div className="absolute bottom-3 left-4 right-24">
+   291→              <div className="truncate text-[15px] font-extrabold text-white">{p.title}</div>
+   292→            </div>
+   293→          </div>
+   294→          <div className="p-3.5">
+   295→            {/* 周数 / 时长 / 频次 元信息 */}
+   296→            <div className="flex items-center justify-between text-[11px] opacity-60">
+   297→              <span className="flex items-center gap-1"><CalendarDays className="size-3.5" />{p.weeks}</span>
+   298→              <span className="flex items-center gap-1"><Timer className="size-3.5" />{p.duration}</span>
+   299→              <span className="flex items-center gap-1"><Zap className="size-3.5" />{p.freq}</span>
+   300→            </div>
+   301→            <button
+   302→              className="mt-3 flex w-full items-center justify-center gap-1.5 py-2.5 text-[13px] font-bold"
+   303→              style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: 'calc(var(--pr) - 4px)' }}
+   304→            >
+   305→              <Play className="size-3.5" />
+   306→              开始训练
+   307→            </button>
+   308→          </div>
+   309→        </div>
+   310→      );
+   311→    },
+   312→  },
+   313→  {
+   314→    type: 'fitness.calories-ring',
+   315→    category: 'fitness',
+   316→    name: '热量平衡卡',
+   317→    desc: '摄入/消耗左右对比条 + 净热量缺口与剩余提示',
+   318→    icon: Flame,
+   319→    defaultProps: {
+   320→      intake: 1850,
+   321→      burn: 1230,
+   322→      note: '还可摄入 620 千卡达成平衡',
+   323→    },
+   324→    fields: [
+   325→      { key: 'intake', label: '今日摄入（千卡）', type: 'number', min: 0, max: 4000, step: 10 },
+   326→      { key: 'burn', label: '今日消耗（千卡）', type: 'number', min: 0, max: 4000, step: 10 },
+   327→      { key: 'note', label: '底部提示', type: 'text' },
+   328→    ],
+   329→    render: (p) => {
+   330→      const intake = clamp(Math.round(Number(p.intake) || 0), 0, 99999);
+   331→      const burn = clamp(Math.round(Number(p.burn) || 0), 0, 99999);
+   332→      const max = Math.max(intake, burn, 1);
+   333→      const gap = intake - burn;
+   334→      const rows = [
+   335→        { icon: UtensilsCrossed, label: '摄入', value: intake, color: 'var(--p)' },
+   336→        { icon: Flame, label: '消耗', value: burn, color: C_ROSE },
+   337→      ];
+   338→      return (
+   339→        <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+   340→          <div className="flex items-center justify-between">
+   341→            <span className="flex items-center gap-1.5 text-[13px] font-bold">
+   342→              <Flame className="size-4" style={{ color: 'var(--p)' }} />
+   343→              热量平衡
+   344→            </span>
+   345→            <span className="text-[10px] opacity-40">今日</span>
+   346→          </div>
+   347→          {/* 净热量大数字 */}
+   348→          <div className="mt-2 flex items-end gap-1.5">
+   349→            <span className="text-2xl font-extrabold leading-none tracking-tight" style={{ color: 'var(--p)' }}>
+   350→              {gap > 0 ? '+' : ''}{gap}
+   351→            </span>
+   352→            <span className="pb-0.5 text-[10px] opacity-45">千卡 {gap > 0 ? '盈余' : '缺口'}</span>
+   353→          </div>
+   354→          {/* 摄入 / 消耗 左右对比条 */}
+   355→          <div className="mt-3 space-y-2.5">
+   356→            {rows.map((row) => (
+   357→              <div key={row.label} className="flex items-center gap-2.5">
+   358→                <span
+   359→                  className="flex size-7 shrink-0 items-center justify-center rounded-lg"
+   360→                  style={{ background: `color-mix(in srgb, ${row.color} 14%, transparent)`, color: row.color }}
+   361→                >
+   362→                  <row.icon className="size-3.5" />
+   363→                </span>
+   364→                <span className="w-7 shrink-0 text-[11px] opacity-60">{row.label}</span>
+   365→                <div className="h-2.5 min-w-0 flex-1 overflow-hidden" style={{ borderRadius: '999px' }}>
+   366→                  <div
+   367→                    className="h-full"
+   368→                    style={{
+   369→                      width: `${Math.max(5, (row.value / max) * 100)}%`,
+   370→                      borderRadius: '999px',
+   371→                      background: `linear-gradient(90deg, ${row.color}, color-mix(in srgb, ${row.color} 55%, #fff))`,
+   372→                    }}
+   373→                  />
+   374→                </div>
+   375→                <span className="w-16 shrink-0 text-right text-[11px] font-bold">{row.value}</span>
+   376→              </div>
+   377→            ))}
+   378→          </div>
+   379→          {p.note ? (
+   380→            <div className="mt-3 border-t w-line pt-2.5 text-[11px] opacity-55">{p.note}</div>
+   381→          ) : null}
+   382→        </div>
+   383→      );
+   384→    },
+   385→  },
+   386→  {
+   387→    type: 'fitness.water-tracker',
+   388→    category: 'fitness',
+   389→    name: '喝水打卡',
+   390→    desc: '水杯格子打卡（前 N 杯主色填充）+ 补水量进度',
+   391→    icon: Droplets,
+   392→    defaultProps: {
+   393→      count: 8,
+   394→      done: 5,
+   395→      cupSize: '250 ml',
+   396→    },
+   397→    fields: [
+   398→      { key: 'count', label: '目标杯数', type: 'number', min: 4, max: 12, step: 1 },
+   399→      { key: 'done', label: '已喝杯数', type: 'number', min: 0, max: 12, step: 1 },
+   400→      { key: 'cupSize', label: '每杯容量', type: 'text' },
+   401→    ],
+   402→    render: (p) => {
+   403→      const count = clamp(Math.round(Number(p.count) || 8), 4, 12);
+   404→      const done = clamp(Math.round(Number(p.done) || 0), 0, count);
+   405→      const cupMl = looseNum(p.cupSize) || 250;
+   406→      const pct = Math.round((done / count) * 100);
+   407→      return (
+   408→        <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   409→          <div className="flex items-center justify-between">
+   410→            <span className="flex items-center gap-1.5 text-[13px] font-bold">
+   411→              <Droplets className="size-4" style={{ color: 'var(--p)' }} />
+   412→              今日喝水
+   413→            </span>
+   414→            <span className="text-[11px] font-bold" style={{ color: 'var(--p)' }}>
+   415→              {done}<span className="font-normal opacity-40"> / {count} 杯</span>
+   416→            </span>
+   417→          </div>
+   418→          {/* 水杯格子 */}
+   419→          <div className="mt-3 grid grid-cols-4 gap-2">
+   420→            {Array.from({ length: count }).map((_, i) => {
+   421→              const filled = i < done;
+   422→              return (
+   423→                <div
+   424→                  key={i}
+   425→                  className={`flex h-11 flex-col items-center justify-center gap-0.5 ${filled ? '' : 'w-chip'}`}
+   426→                  style={{
+   427→                    borderRadius: 'calc(var(--pr) - 4px)',
+   428→                    background: filled ? 'var(--p)' : undefined,
+   429→                  }}
+   430→                >
+   431→                  <GlassWater className={`size-4 ${filled ? '' : 'opacity-30'}`} style={filled ? { color: 'var(--pf)' } : undefined} />
+   432→                  <span className={`text-[8px] leading-none ${filled ? '' : 'opacity-30'}`} style={filled ? { color: 'var(--pf)' } : undefined}>
+   433→                    {i + 1}
+   434→                  </span>
+   435→                </div>
+   436→              );
+   437→            })}
+   438→          </div>
+   439→          {/* 补水量进度 */}
+   440→          <div className="mt-3 flex items-center gap-2">
+   441→            <div className="h-1.5 min-w-0 flex-1 overflow-hidden" style={{ borderRadius: '999px' }}>
+   442→              <div
+   443→                className="h-full"
+   444→                style={{ width: `${Math.max(3, pct)}%`, borderRadius: '999px', background: 'var(--p)' }}
+   445→              />
+   446→            </div>
+   447→            <span className="shrink-0 text-[10px] opacity-45">
+   448→              {done * cupMl} / {count * cupMl} ml
+   449→            </span>
+   450→          </div>
+   451→        </div>
+   452→      );
+   453→    },
+   454→  },
+   455→  {
+   456→    type: 'fitness.sleep-chart',
+   457→    category: 'fitness',
+   458→    name: '睡眠时长图',
+   459→    desc: '7 天睡眠柱状图（达标主色）+ 目标虚线 + 平均时长',
+   460→    icon: Moon,
+   461→    defaultProps: {
+   462→      values: '6.5,7.8,7.2,6.1,8.0,7.5,7.3',
+   463→      labels: '一,二,三,四,五,六,日',
+   464→      goal: 7,
+   465→    },
+   466→    fields: [
+   467→      { key: 'values', label: '每日时长（小时，逗号分隔）', type: 'textarea' },
+   468→      { key: 'labels', label: '星期标签（逗号分隔）', type: 'textarea' },
+   469→      { key: 'goal', label: '目标时长（小时）', type: 'number', min: 4, max: 12, step: 0.5 },
+   470→    ],
+   471→    render: (p) => {
+   472→      const vals = numList(p.values);
+   473→      const labels = splitList(p.labels);
+   474→      const goal = Number(p.goal) || 7;
+   475→      const max = Math.max(...vals, goal, 1);
+   476→      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+   477→      return (
+   478→        <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   479→          <div className="flex items-center justify-between">
+   480→            <span className="flex items-center gap-1.5 text-[13px] font-bold">
+   481→              <Moon className="size-4" style={{ color: 'var(--p)' }} />
+   482→              睡眠时长
+   483→            </span>
+   484→            <span className="text-[11px] opacity-55">
+   485→              平均 <span className="font-bold" style={{ color: 'var(--p)' }}>{avg.toFixed(1)}</span> 小时
+   486→            </span>
+   487→          </div>
+   488→          <div className="relative mt-3">
+   489→            {/* 目标虚线 */}
+   490→            <div
+   491→              className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
+   492→              style={{ bottom: `${(goal / max) * 100 * 0.86 + 14}%` }}
+   493→            >
+   494→              <span className="h-0 flex-1 border-t border-dashed border-current opacity-25" />
+   495→              <span className="w-chip ml-1 rounded px-1 py-0.5 text-[8px] leading-none opacity-60">目标 {goal}h</span>
+   496→            </div>
+   497→            <div className="flex h-24 items-end gap-2">
+   498→              {vals.map((v, i) => {
+   499→                const ok = v >= goal;
+   500→                return (
+   501→                  <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+   502→                    <span className={`text-[8px] leading-none ${ok ? 'font-bold' : 'opacity-35'}`} style={ok ? { color: 'var(--p)' } : undefined}>
+   503→                      {v}
+   504→                    </span>
+   505→                    <span
+   506→                      className={`w-full ${ok ? '' : 'bg-current opacity-15'}`}
+   507→                      style={{
+   508→                        height: `${Math.max(8, (v / max) * 86)}%`,
+   509→                        borderRadius: '4px 4px 0 0',
+   510→                        background: ok ? 'var(--p)' : undefined,
+   511→                      }}
+   512→                    />
+   513→                    <span className={`text-[9px] leading-none ${ok ? 'font-bold' : 'opacity-40'}`}>
+   514→                      {labels[i] ?? i + 1}
+   515→                    </span>
+   516→                  </div>
+   517→                );
+   518→              })}
+   519→            </div>
+   520→          </div>
+   521→        </div>
+   522→      );
+   523→    },
+   524→  },
+   525→  {
+   526→    type: 'fitness.weight-log',
+   527→    category: 'fitness',
+   528→    name: '体重记录',
+   529→    desc: '当前体重大数字 + 较上周涨跌芯片 + 迷你折线图',
+   530→    icon: Scale,
+   531→    defaultProps: {
+   532→      current: '62.5',
+   533→      delta: '0.8',
+   534→      down: true,
+   535→      values: '63.8,63.5,63.9,63.2,62.8,63.0,62.5',
+   536→    },
+   537→    fields: [
+   538→      { key: 'current', label: '当前体重（kg）', type: 'text' },
+   539→      { key: 'delta', label: '较上周变化（kg）', type: 'text' },
+   540→      { key: 'down', label: '体重下降', type: 'switch' },
+   541→      { key: 'values', label: '历史记录（逗号分隔）', type: 'textarea' },
+   542→    ],
+   543→    render: (p) => {
+   544→      const vals = numList(p.values);
+   545→      while (vals.length < 2) vals.push(vals[vals.length - 1] ?? 0);
+   546→      const max = Math.max(...vals);
+   547→      const min = Math.min(...vals);
+   548→      const W = 280, H = 64, PX = 6, PY = 8;
+   549→      const span = Math.max(max - min, 0.5);
+   550→      const x = (i: number) => PX + (i * (W - 2 * PX)) / (vals.length - 1);
+   551→      const y = (v: number) => H - PY - ((v - min) / span) * (H - 2 * PY);
+   552→      const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+   553→      const down = p.down !== false;
+   554→      const c = down ? C_GREEN : C_ROSE;
+   555→      return (
+   556→        <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+   557→          <div className="flex items-center gap-1.5">
+   558→            <Scale className="size-4" style={{ color: 'var(--p)' }} />
+   559→            <span className="text-[13px] font-bold">体重记录</span>
+   560→          </div>
+   561→          <div className="mt-2 flex items-end gap-2.5">
+   562→            <div className="flex items-baseline gap-1">
+   563→              <span className="text-3xl font-extrabold leading-none tracking-tight">{p.current}</span>
+   564→              <span className="text-[11px] opacity-45">kg</span>
+   565→            </div>
+   566→            <span
+   567→              className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[10px] font-bold leading-none"
+   568→              style={{ background: `color-mix(in srgb, ${c} 14%, transparent)`, color: c }}
+   569→            >
+   570→              {down ? <TrendingDown className="size-3" /> : <TrendingUp className="size-3" />}
+   571→              {p.delta} kg
+   572→            </span>
+   573→            <span className="pb-0.5 text-[10px] opacity-40">较上周</span>
+   574→          </div>
+   575→          {/* 迷你折线 */}
+   576→          <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 h-auto w-full">
+   577→            <polyline
+   578→              points={pts}
+   579→              fill="none"
+   580→              stroke="var(--p)"
+   581→              strokeWidth="2.5"
+   582→              strokeLinecap="round"
+   583→              strokeLinejoin="round"
+   584→            />
+   585→            {vals.map((v, i) => (
+   586→              <circle
+   587→                key={i}
+   588→                cx={x(i)}
+   589→                cy={y(v)}
+   590→                r={i === vals.length - 1 ? 3.5 : 2.2}
+   591→                fill="var(--p)"
+   592→                opacity={i === vals.length - 1 ? 1 : 0.45}
+   593→              />
+   594→            ))}
+   595→          </svg>
+   596→        </div>
+   597→      );
+   598→    },
+   599→  },
+   600→  {
+   601→    type: 'fitness.community-post',
+   602→    category: 'fitness',
+   603→    name: '社区动态卡',
+   604→    desc: '运动社区动态：头像 + 昵称 + 文案 + 点赞/评论/分享',
+   605→    icon: MessageCircle,
+   606→    defaultProps: {
+   607→      nickname: '晨跑打卡中',
+   608→      time: '12 分钟前',
+   609→      tag: '跑步打卡',
+   610→      content: '今天终于完成人生第一个 10 公里！最后 1 公里全靠意志力撑住，配速稳进 6 分内，继续加油！',
+   611→      likes: '326',
+   612→      comments: '48',
+   613→    },
+   614→    fields: [
+   615→      { key: 'nickname', label: '昵称', type: 'text' },
+   616→      { key: 'time', label: '发布时间', type: 'text' },
+   617→      { key: 'tag', label: '话题标签', type: 'text' },
+   618→      { key: 'content', label: '动态文案', type: 'textarea' },
+   619→      { key: 'likes', label: '点赞数', type: 'text' },
+   620→      { key: 'comments', label: '评论数', type: 'text' },
+   621→    ],
+   622→    render: (p) => (
+   623→      <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   624→        <div className="flex items-center gap-2.5">
+   625→          {/* 头像占位：主色渐变 + 图标 */}
+   626→          <span
+   627→            className="flex size-10 shrink-0 items-center justify-center rounded-full"
+   628→            style={{ background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))' }}
+   629→          >
+   630→            <UserRound className="size-5" style={{ color: 'var(--pf)' }} />
+   631→          </span>
+   632→          <div className="min-w-0 flex-1">
+   633→            <div className="flex items-center gap-1.5">
+   634→              <span className="truncate text-[13px] font-bold">{p.nickname}</span>
+   635→              <span
+   636→                className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-none"
+   637→                style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+   638→              >
+   639→                {p.tag}
+   640→              </span>
+   641→            </div>
+   642→            <div className="mt-0.5 text-[10px] opacity-40">{p.time}</div>
+   643→          </div>
+   644→        </div>
+   645→        <p className="mt-2.5 line-clamp-2 text-[12.5px] leading-relaxed opacity-80">{p.content}</p>
+   646→        {/* 点赞 / 评论 */}
+   647→        <div className="mt-3 flex items-center gap-5 border-t w-line pt-2.5 text-[11px] opacity-55">
+   648→          <span className="flex items-center gap-1"><Heart className="size-3.5" style={{ color: C_ROSE }} />{p.likes}</span>
+   649→          <span className="flex items-center gap-1"><MessageCircle className="size-3.5" />{p.comments}</span>
+   650→          <span className="ml-auto flex items-center opacity-60">
+   651→            <ChevronRight className="size-3.5" />
+   652→          </span>
+   653→        </div>
+   654→      </div>
+   655→    ),
+   656→  },
+   657→  {
+   658→    type: 'fitness.coach-card',
+   659→    category: 'fitness',
+   660→    name: '教练名片卡',
+   661→    desc: '圆形头像占位 + 姓名/头衔 + 评分 + 主色预约按钮',
+   662→    icon: UserRound,
+   663→    defaultProps: {
+   664→      name: '李思远',
+   665→      title: '国家级健身教练 · 8 年经验',
+   666→      rating: '4.9',
+   667→      students: '已指导 1,200+ 学员',
+   668→      action: '立即预约',
+   669→    },
+   670→    fields: [
+   671→      { key: 'name', label: '教练姓名', type: 'text' },
+   672→      { key: 'title', label: '头衔简介', type: 'text' },
+   673→      { key: 'rating', label: '评分', type: 'text' },
+   674→      { key: 'students', label: '学员规模', type: 'text' },
+   675→      { key: 'action', label: '按钮文字', type: 'text' },
+   676→    ],
+   677→    render: (p) => (
+   678→      <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+   679→        <div className="flex items-center gap-3">
+   680→          {/* 头像占位：主色渐变 + 图标 */}
+   681→          <span
+   682→            className="flex size-14 shrink-0 items-center justify-center rounded-full"
+   683→            style={{ background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))' }}
+   684→          >
+   685→            <UserRound className="size-7" style={{ color: 'var(--pf)' }} />
+   686→          </span>
+   687→          <div className="min-w-0 flex-1">
+   688→            <div className="flex items-center gap-1">
+   689→              <span className="truncate text-[14px] font-extrabold">{p.name}</span>
+   690→              <BadgeCheck className="size-4 shrink-0" style={{ color: C_AMBER }} />
+   691→            </div>
+   692→            <div className="mt-0.5 truncate text-[11px] opacity-50">{p.title}</div>
+   693→            <div className="mt-1 flex items-center gap-1 text-[11px]">
+   694→              <Star className="size-3" style={{ color: C_AMBER, fill: C_AMBER }} />
+   695→              <span className="font-bold">{p.rating}</span>
+   696→              <span className="text-[10px] opacity-40">综合评分</span>
+   697→            </div>
+   698→          </div>
+   699→        </div>
+   700→        <div className="mt-3 flex items-center justify-between border-t w-line pt-3">
+   701→          <span className="text-[11px] opacity-50">{p.students}</span>
+   702→          <span
+   703→            className="flex items-center gap-1 px-3.5 py-1.5 text-[12px] font-bold"
+   704→            style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: '999px' }}
+   705→          >
+   706→            <CalendarCheck className="size-3.5" />
+   707→            {p.action}
+   708→          </span>
+   709→        </div>
+   710→      </div>
+   711→    ),
+   712→  },
+   713→  {
+   714→    type: 'fitness.marathon-item',
+   715→    category: 'fitness',
+   716→    name: '赛事条目',
+   717→    desc: '日期块 + 赛事标题 + 地点 + 报名状态芯片',
+   718→    icon: Medal,
+   719→    defaultProps: {
+   720→      month: '10月',
+   721→      day: '26',
+   722→      title: '城市半程马拉松',
+   723→      location: '滨江公园起点广场',
+   724→      status: '报名中',
+   725→    },
+   726→    fields: [
+   727→      { key: 'month', label: '月份', type: 'text' },
+   728→      { key: 'day', label: '日期', type: 'text' },
+   729→      { key: 'title', label: '赛事名称', type: 'text' },
+   730→      { key: 'location', label: '举办地点', type: 'text' },
+   731→      { key: 'status', label: '报名状态', type: 'select', options: [
+   732→        { label: '报名中', value: '报名中' },
+   733→        { label: '即将开跑', value: '即将开跑' },
+   734→        { label: '已满员', value: '已满员' },
+   735→        { label: '已结束', value: '已结束' },
+   736→      ] },
+   737→    ],
+   738→    render: (p) => {
+   739→      const st = RACE_STATUS[p.status] ?? RACE_STATUS['报名中'];
+   740→      return (
+   741→        <div className="w-card flex items-center gap-3 p-3" style={{ borderRadius: 'var(--pr)' }}>
+   742→          {/* 日期块 */}
+   743→          <div className="w-chip flex w-[52px] shrink-0 flex-col items-center justify-center rounded-xl py-2">
+   744→            <span className="text-[9px] leading-none opacity-50">{p.month}</span>
+   745→            <span className="mt-1 text-lg font-extrabold leading-none" style={{ color: 'var(--p)' }}>{p.day}</span>
+   746→          </div>
+   747→          <div className="min-w-0 flex-1">
+   748→            <div className="truncate text-[13px] font-bold">{p.title}</div>
+   749→            <div className="mt-1 flex items-center gap-1 text-[11px] opacity-50">
+   750→              <MapPin className="size-3 shrink-0" />
+   751→              <span className="truncate">{p.location}</span>
+   752→            </div>
+   753→          </div>
+   754→          <span
+   755→            className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold leading-none"
+   756→            style={{ background: st.bg, color: st.fg, opacity: p.status === '已结束' ? 0.55 : undefined }}
+   757→          >
+   758→            {p.status}
+   759→          </span>
+   760→        </div>
+   761→      );
+   762→    },
+   763→  },
+   764→  {
+   765→    type: 'fitness.stats-weekly',
+   766→    category: 'fitness',
+   767→    name: '周运动统计',
+   768→    desc: '2×2 统计格：运动次数 / 时长 / 消耗 / 里程',
+   769→    icon: LayoutGrid,
+   770→    defaultProps: {
+   771→      title: '本周运动概览',
+   772→      sessions: '5 次',
+   773→      duration: '320 分钟',
+   774→      calories: '2,860 千卡',
+   775→      distance: '42.5 公里',
+   776→    },
+   777→    fields: [
+   778→      { key: 'title', label: '标题', type: 'text' },
+   779→      { key: 'sessions', label: '运动次数', type: 'text' },
+   780→      { key: 'duration', label: '总时长', type: 'text' },
+   781→      { key: 'calories', label: '总消耗', type: 'text' },
+   782→      { key: 'distance', label: '总里程', type: 'text' },
+   783→    ],
+   784→    render: (p) => {
+   785→      const cells = [
+   786→        { icon: Dumbbell, label: '运动次数', value: p.sessions },
+   787→        { icon: Timer, label: '运动时长', value: p.duration },
+   788→        { icon: Flame, label: '消耗热量', value: p.calories },
+   789→        { icon: Route, label: '运动里程', value: p.distance },
+   790→      ];
+   791→      return (
+   792→        <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   793→          <div className="flex items-center justify-between">
+   794→            <span className="text-[13px] font-bold">{p.title}</span>
+   795→            <span className="flex items-center text-[10px] opacity-40">
+   796→              查看报告
+   797→              <ChevronRight className="size-3" />
+   798→            </span>
+   799→          </div>
+   800→          <div className="mt-3 grid grid-cols-2 gap-2.5">
+   801→            {cells.map((cell) => (
+   802→              <div key={cell.label} className="w-chip rounded-xl p-3" style={{ borderRadius: 'calc(var(--pr) - 4px)' }}>
+   803→                <span
+   804→                  className="flex size-8 items-center justify-center rounded-lg"
+   805→                  style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+   806→                >
+   807→                  <cell.icon className="size-4" />
+   808→                </span>
+   809→                <div className="mt-2 text-[10px] opacity-45">{cell.label}</div>
+   810→                <div className="mt-0.5 truncate text-[15px] font-extrabold leading-tight">{cell.value}</div>
+   811→              </div>
+   812→            ))}
+   813→          </div>
+   814→        </div>
+   815→      );
+   816→    },
+   817→  },
+   818→];
+   819→

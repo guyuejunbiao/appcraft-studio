@@ -1,0 +1,101 @@
+import type { LucideIcon } from 'lucide-react';
+import {
+  Home, Utensils, UtensilsCrossed, ShoppingBag, ShoppingCart, Receipt, ReceiptText,
+  Video, Clapperboard, MessageCircle, MessagesSquare, User, UserRound, Users, Contact,
+  Compass, Store, Search, Heart, Star, Bell, Settings, Calendar, Clock, MapPin,
+  Camera, Image, Music, Headphones, BookOpen, Newspaper, Wallet, CreditCard,
+  Gift, Ticket, Tag, Package, Truck, Flame, TrendingUp, LayoutGrid, List,
+  Grid2x2, CircleUserRound, Play, Gamepad2, Trophy, Dumbbell, Plane, Car,
+  Coffee, Pizza, Cake, Beer, Pill, Stethoscope, GraduationCap, Briefcase,
+  FileText, Folder, Download, Share2, QrCode, ScanLine, Languages,
+  CircleHelp, CircleCheck, CircleAlert, Zap, Moon, Sun, Cloud, Droplets,
+} from 'lucide-react';
+
+/** TabBar / 图标选择器可用图标（name 为存档值，label 为中文展示名） */
+export const APP_ICONS: { name: string; label: string; Icon: LucideIcon }[] = [
+  /* 用户点名的 App 常用导航 */
+  { name: 'utensils', label: '点餐', Icon: Utensils },
+  { name: 'utensils-crossed', label: '外卖', Icon: UtensilsCrossed },
+  { name: 'home', label: '首页', Icon: Home },
+  { name: 'shopping-cart', label: '购物车', Icon: ShoppingCart },
+  { name: 'shopping-bag', label: '购物', Icon: ShoppingBag },
+  { name: 'receipt', label: '订单', Icon: Receipt },
+  { name: 'receipt-text', label: '账单', Icon: ReceiptText },
+  { name: 'video', label: '我的视频', Icon: Video },
+  { name: 'clapperboard', label: '影视', Icon: Clapperboard },
+  { name: 'message-circle', label: '消息', Icon: MessageCircle },
+  { name: 'messages-square', label: '聊天', Icon: MessagesSquare },
+  { name: 'user', label: '个人中心', Icon: User },
+  { name: 'user-round', label: '我的', Icon: UserRound },
+  { name: 'contact', label: '通讯录', Icon: Contact },
+  { name: 'compass', label: '发现', Icon: Compass },
+  { name: 'store', label: '市集', Icon: Store },
+  /* 内容与媒体 */
+  { name: 'play', label: '播放', Icon: Play },
+  { name: 'music', label: '音乐', Icon: Music },
+  { name: 'headphones', label: '电台', Icon: Headphones },
+  { name: 'book-open', label: '书城', Icon: BookOpen },
+  { name: 'newspaper', label: '资讯', Icon: Newspaper },
+  { name: 'image', label: '相册', Icon: Image },
+  { name: 'camera', label: '相机', Icon: Camera },
+  { name: 'gamepad-2', label: '游戏', Icon: Gamepad2 },
+  { name: 'trophy', label: '排行', Icon: Trophy },
+  { name: 'dumbbell', label: '运动', Icon: Dumbbell },
+  { name: 'plane', label: '旅行', Icon: Plane },
+  { name: 'car', label: '出行', Icon: Car },
+  /* 商务与工具 */
+  { name: 'search', label: '搜索', Icon: Search },
+  { name: 'heart', label: '收藏', Icon: Heart },
+  { name: 'star', label: '星标', Icon: Star },
+  { name: 'bell', label: '通知', Icon: Bell },
+  { name: 'settings', label: '设置', Icon: Settings },
+  { name: 'calendar', label: '日历', Icon: Calendar },
+  { name: 'clock', label: '时钟', Icon: Clock },
+  { name: 'map-pin', label: '附近', Icon: MapPin },
+  { name: 'wallet', label: '钱包', Icon: Wallet },
+  { name: 'credit-card', label: '银行卡', Icon: CreditCard },
+  { name: 'gift', label: '礼包', Icon: Gift },
+  { name: 'ticket', label: '票券', Icon: Ticket },
+  { name: 'tag', label: '优惠', Icon: Tag },
+  { name: 'package', label: '包裹', Icon: Package },
+  { name: 'truck', label: '物流', Icon: Truck },
+  { name: 'flame', label: '热搜', Icon: Flame },
+  { name: 'trending-up', label: '趋势', Icon: TrendingUp },
+  { name: 'layout-grid', label: '分类', Icon: LayoutGrid },
+  { name: 'grid-2x2', label: '宫格', Icon: Grid2x2 },
+  { name: 'list', label: '列表', Icon: List },
+  { name: 'circle-user-round', label: '账户', Icon: CircleUserRound },
+  { name: 'users', label: '好友', Icon: Users },
+  { name: 'coffee', label: '咖啡', Icon: Coffee },
+  { name: 'pizza', label: '披萨', Icon: Pizza },
+  { name: 'cake', label: '甜点', Icon: Cake },
+  { name: 'beer', label: '小酒馆', Icon: Beer },
+  { name: 'pill', label: '医药', Icon: Pill },
+  { name: 'stethoscope', label: '健康', Icon: Stethoscope },
+  { name: 'graduation-cap', label: '教育', Icon: GraduationCap },
+  { name: 'briefcase', label: '工作', Icon: Briefcase },
+  { name: 'file-text', label: '文档', Icon: FileText },
+  { name: 'folder', label: '文件', Icon: Folder },
+  { name: 'download', label: '下载', Icon: Download },
+  { name: 'share-2', label: '分享', Icon: Share2 },
+  { name: 'qr-code', label: '二维码', Icon: QrCode },
+  { name: 'scan-line', label: '扫一扫', Icon: ScanLine },
+  { name: 'languages', label: '多语言', Icon: Languages },
+  { name: 'circle-help', label: '帮助', Icon: CircleHelp },
+  { name: 'circle-check', label: '完成', Icon: CircleCheck },
+  { name: 'circle-alert', label: '提醒', Icon: CircleAlert },
+  { name: 'zap', label: '闪电', Icon: Zap },
+  { name: 'moon', label: '夜间', Icon: Moon },
+  { name: 'sun', label: '日间', Icon: Sun },
+  { name: 'cloud', label: '天气', Icon: Cloud },
+  { name: 'droplets', label: '喝水打卡', Icon: Droplets },
+];
+
+const ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(
+  APP_ICONS.map((i) => [i.name, i.Icon])
+);
+
+/** 按存档名取图标组件（未知名称回退圆点用户图标） */
+export function iconByName(name: string): LucideIcon {
+  return ICON_MAP[name] ?? User;
+}

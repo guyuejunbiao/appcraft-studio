@@ -1,15 +1,16 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Plus, Undo2, Redo2, Home, Crown, GitBranch, Play, Save, Loader2,
   Pencil, Copy, Trash2, Download, Upload, Keyboard, Ellipsis, FileCode2,
-  LayoutTemplate, FilePlus2, GripVertical, FolderTree,
+  LayoutTemplate, FilePlus2, GripVertical, FolderTree, PanelBottom, X,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { exportHtmlApp } from '@/lib/export-html';
 import { PageTemplateDialog, SavePagePresetDialog } from '@/components/builder/PresetMarket';
 import { PageManagerDialog } from '@/components/builder/PageManager';
+import { TabManagerDialog } from '@/components/builder/TabManager';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -48,6 +49,7 @@ const SHORTCUTS: [string, string][] = [
 export function Toolbar() {
   const project = useBuilder((s) => s.project);
   const pages = useBuilder((s) => s.pages);
+  const tabs = useBuilder((s) => s.tabs);
   const currentPageId = useBuilder((s) => s.currentPageId);
   const dirty = useBuilder((s) => s.dirty);
   const saving = useBuilder((s) => s.saving);
@@ -81,6 +83,17 @@ export function Toolbar() {
   const [pagePreset, setPagePreset] = useState<{ id: string; name: string } | null>(null);
   /** 页面管理器对话框 */
   const [managerOpen, setManagerOpen] = useState(false);
+  /** 底部导航（TabBar）管理对话框 */
+  const [tabOpen, setTabOpen] = useState(false);
+  /** 一次性引导：无限画布入口提示 */
+  const [showCanvasHint, setShowCanvasHint] = useState(false);
+  useEffect(() => {
+    try { setShowCanvasHint(localStorage.getItem('ac-canvas-hint') !== 'done'); } catch { setShowCanvasHint(true); }
+  }, []);
+  const dismissCanvasHint = () => {
+    setShowCanvasHint(false);
+    try { localStorage.setItem('ac-canvas-hint', 'done'); } catch { /* noop */ }
+  };
   /** 页面标签拖拽排序状态 */
   const [dragPageId, setDragPageId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -132,7 +145,26 @@ export function Toolbar() {
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-3">
+    <>
+      {/* 一次性引导横幅：无限画布 */}
+      {showCanvasHint && (
+        <div className="flex items-center gap-2 border-b border-violet-100 bg-violet-50 px-4 py-1.5 text-[11px] text-violet-700">
+          <GitBranch className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            全新「无限画布」：俯瞰全部页面、拖拽连线、画板内点选组件直接改文字/调间距 —— 点右侧按钮体验
+          </span>
+          <button
+            className="shrink-0 rounded-full bg-violet-500 px-2.5 py-0.5 text-[10px] font-bold text-white hover:bg-violet-600"
+            onClick={() => { dismissCanvasHint(); setView('canvas'); }}
+          >
+            立即体验
+          </button>
+          <button className="shrink-0 text-violet-400 hover:text-violet-600" onClick={dismissCanvasHint} aria-label="关闭引导">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-3">
       <Button variant="ghost" size="icon" className="size-8" title="返回首页" onClick={() => { save(); setView('home'); }}>
         <ArrowLeft className="size-4" />
       </Button>
@@ -341,8 +373,14 @@ export function Toolbar() {
           <span className={dirty ? 'text-amber-600' : 'text-zinc-400'}>{savedLabel}</span>
         </button>
 
-        <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => setView('flow')}>
-          <GitBranch className="size-4" /> 流程
+        <Button variant="outline" size="sm" className="hidden border-violet-200 text-violet-600 hover:bg-violet-50 hover:text-violet-700 sm:flex" onClick={() => setView('canvas')} title="无限画布：画板内直接添加/编辑内容、拖拽连线">
+          <GitBranch className="size-4" /> 无限画布
+        </Button>
+        <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => setTabOpen(true)} title="App 级底部导航：每个图标绑定一整页">
+          <PanelBottom className="size-4" />
+          {tabs.length > 0 && (
+            <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-bold text-violet-600">{tabs.length}</span>
+          )}
         </Button>
         <Button variant="outline" size="sm" className="hidden border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700 sm:flex" onClick={() => setPublishOpen(true)}>
           <Crown className="size-4" /> 上架
@@ -354,6 +392,9 @@ export function Toolbar() {
 
       {/* 页面管理器 */}
       <PageManagerDialog open={managerOpen} onOpenChange={setManagerOpen} />
+
+      {/* 底部导航（TabBar）管理 */}
+      <TabManagerDialog open={tabOpen} onOpenChange={setTabOpen} />
 
       {/* 重命名对话框 */}
       <Dialog open={!!renaming} onOpenChange={(b) => !b && setRenaming(null)}>
@@ -420,5 +461,6 @@ export function Toolbar() {
         </DialogContent>
       </Dialog>
     </header>
+    </>
   );
 }

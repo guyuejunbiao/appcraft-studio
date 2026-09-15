@@ -22,8 +22,8 @@ import { toast } from 'sonner';
 const NODE_W = 208;
 const NODE_H = 132;
 
-/** 新建/编辑连接对话框：editConn 给定为编辑模式（触发页锁定），否则新建 */
-function ConnectionDialog({
+/** 新建/编辑连接对话框：editConn 给定为编辑模式（触发页锁定），否则新建（无限画布复用） */
+export function ConnectionDialog({
   open,
   onOpenChange,
   editConn,

@@ -1,7 +1,7 @@
 import {
   Image as ImageIcon, Newspaper, Grid3x3, Heart, MessageCircle, Share2, Hash,
   Flame, TrendingUp, UserPlus, MonitorPlay, Play, Radio, Eye, CircleUserRound,
-  Users, MessagesSquare, BadgeCheck,
+  Users, MessagesSquare, BadgeCheck, CircleDashed,
 } from 'lucide-react';
 import type { WidgetDef } from '@/lib/widget-types';
 
@@ -340,26 +340,28 @@ export const widgets: WidgetDef[] = [
   {
     type: 'social.live-card',
     category: 'social',
-    name: '直播卡',
-    desc: '封面 + LIVE 红标 + 观看人数',
+    name: '直播卡片',
+    desc: '16:9 封面渐变 + LIVE 红点角标 + 主播头像 + 标题 + 观看人数',
     icon: Radio,
-    defaultProps: { anchor: '薇薇安ViVi', viewers: '1.2万' },
+    defaultProps: { title: '周末零食开箱狂欢', viewers: '1.2万', liveText: '薇薇安ViVi 的直播间' },
     fields: [
-      { key: 'anchor', label: '主播昵称', type: 'text' },
+      { key: 'title', label: '直播标题', type: 'text' },
       { key: 'viewers', label: '观看人数', type: 'text' },
+      { key: 'liveText', label: '主播 / 直播间文案', type: 'text' },
     ],
     render: (p) => (
       <div
-        className="relative h-36 overflow-hidden"
+        className="relative aspect-video w-full overflow-hidden"
         style={{
           borderRadius: 'var(--pr)',
           background: 'linear-gradient(118deg, var(--p) 0%, color-mix(in srgb, var(--p) 62%, #fff) 58%, color-mix(in srgb, var(--p) 88%, #000) 100%)',
         }}
       >
+        {/* 封面占位图标 */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <ImageIcon className="size-10 opacity-30" style={{ color: 'var(--pf)' }} />
+          <MonitorPlay className="size-9 opacity-30" style={{ color: 'var(--pf)' }} />
         </div>
-        {/* 左上角 LIVE 红标（呼吸圆点） */}
+        {/* 左上角 LIVE 红点角标（呼吸圆点） */}
         <span className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-md bg-rose-500 px-1.5 py-1 text-[10px] font-black leading-none text-white">
           <span className="size-1.5 animate-pulse rounded-full bg-white" />
           LIVE
@@ -369,15 +371,18 @@ export const widgets: WidgetDef[] = [
           <Eye className="size-3" />
           {p.viewers}
         </span>
-        {/* 底部主播条 */}
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/45 to-transparent px-2.5 pb-2 pt-6">
-          <span
-            className="flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
-            style={{ background: 'rgba(255,255,255,0.9)', color: 'var(--p)' }}
-          >
-            {String(p.anchor || '播').slice(0, 1)}
-          </span>
-          <span className="truncate text-xs font-semibold text-white">{p.anchor}</span>
+        {/* 底部：直播标题 + 主播头像圆点 + 直播间文案 */}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-3 pb-2.5 pt-8">
+          <p className="truncate text-[13px] font-bold leading-4 text-white">{p.title}</p>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span
+              className="flex size-5 shrink-0 items-center justify-center rounded-full"
+              style={{ background: 'rgba(255,255,255,0.92)', color: 'var(--p)' }}
+            >
+              <CircleUserRound className="size-3.5" />
+            </span>
+            <span className="truncate text-[10px] font-medium text-white/85">{p.liveText}</span>
+          </div>
         </div>
       </div>
     ),
@@ -551,6 +556,87 @@ export const widgets: WidgetDef[] = [
             回关
           </span>
         )}
+      </div>
+    ),
+  },
+  {
+    type: 'social.topic-card',
+    category: 'social',
+    name: '热搜话题卡',
+    desc: '单条话题：序号徽标（前三名主色热榜配色）+ 话题 + 热度 + 讨论数',
+    icon: Flame,
+    defaultProps: { rank: 1, topic: 'AI 一句话生成小程序', heat: '512.6万', posts: '2.8万' },
+    fields: [
+      { key: 'rank', label: '话题排名', type: 'number', min: 1, max: 99, step: 1 },
+      { key: 'topic', label: '话题文字', type: 'text' },
+      { key: 'heat', label: '热度值', type: 'text' },
+      { key: 'posts', label: '讨论数', type: 'text' },
+    ],
+    render: (p) => {
+      const rank = Math.min(99, Math.max(1, Math.round(Number(p.rank) || 1)));
+      /* 1-3 名主色热榜配色：主色由深到浅，4 名以后弱化 */
+      const rankStyle =
+        rank === 1
+          ? { background: 'var(--p)', color: 'var(--pf)' }
+          : rank === 2
+            ? { background: 'color-mix(in srgb, var(--p) 45%, transparent)', color: 'var(--p)' }
+            : rank === 3
+              ? { background: 'color-mix(in srgb, var(--p) 20%, transparent)', color: 'var(--p)' }
+              : undefined;
+      return (
+        <div className="w-card flex items-center gap-3 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+          {/* 话题序号徽标 */}
+          <span
+            className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-[15px] font-black italic leading-none ${rank > 3 ? 'w-chip opacity-40' : ''}`}
+            style={rankStyle}
+          >
+            {rank}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-bold leading-5"># {p.topic}</p>
+            <p className="mt-0.5 truncate text-[10px] leading-4 opacity-45">{p.posts} 条讨论</p>
+          </div>
+          {/* 热度值（主色强调） */}
+          <span
+            className="flex shrink-0 items-center gap-1 text-[11px] font-bold tabular-nums"
+            style={{ color: 'var(--p)' }}
+          >
+            <Flame className="size-3.5" fill="currentColor" />
+            {p.heat}
+          </span>
+        </div>
+      );
+    },
+  },
+  {
+    type: 'social.story-row',
+    category: 'social',
+    name: '好友动态条',
+    desc: '一排渐变描边圆头像 + 用户名（最多 5 个）',
+    icon: CircleDashed,
+    defaultProps: { names: '桃桃酱,阿乐不吃香菜,山野君,椰椰,柚子' },
+    fields: [
+      { key: 'names', label: '好友昵称', type: 'textarea', placeholder: '逗号分隔，取前 5 个' },
+    ],
+    render: (p) => (
+      <div className="w-card flex gap-3 overflow-hidden p-3" style={{ borderRadius: 'var(--pr)' }}>
+        {splitList(p.names).slice(0, 5).map((name, i) => (
+          <div key={`${name}-${i}`} className="flex w-14 min-w-0 shrink-0 flex-col items-center gap-1.5">
+            {/* 渐变描边圈头像 */}
+            <span
+              className="flex size-14 shrink-0 items-center justify-center rounded-full p-[2.5px]"
+              style={{ background: GRADS[i % GRADS.length] }}
+            >
+              <span
+                className="w-card flex size-full items-center justify-center rounded-full text-base font-bold"
+                style={{ color: 'var(--p)' }}
+              >
+                {name.slice(0, 1)}
+              </span>
+            </span>
+            <span className="w-full truncate text-center text-[10px] leading-3 opacity-60">{name}</span>
+          </div>
+        ))}
       </div>
     ),
   },

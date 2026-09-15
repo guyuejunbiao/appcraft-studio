@@ -10,6 +10,7 @@ import { useInteractionBus } from '@/lib/interaction-bus';
 import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
+import { AppTabBar } from './AppTabBar';
 import { Button } from '@/components/ui/button';
 import type { PageData, ConnectionData, WidgetInstance } from '@/lib/types';
 import { missingFreeCoords, ANIM_OPTS } from '@/lib/types';
@@ -26,6 +27,8 @@ export function PreviewPlayer() {
 
   const pages: PageData[] = previewSnapshot?.pages ?? storePages;
   const connections: ConnectionData[] = previewSnapshot?.connections ?? storeConnections;
+  const tabs = useBuilder((s) => s.tabs);
+  const activeTabs = previewSnapshot?.tabs ?? tabs;
   const theme = previewSnapshot?.theme ?? project?.theme ?? { primary: '#f97316', radius: 'md' as const, dark: false };
 
   const [stack, setStack] = useState<string[] | null>(null);
@@ -255,6 +258,17 @@ export function PreviewPlayer() {
               </div>
             </motion.div>
           </AnimatePresence>
+
+          {/* App 级底部导航：点击换根切换整页（项目级配置，与无限画布/编辑器同步） */}
+          {activeTabs.length > 0 && (
+            <div className="absolute inset-x-0 bottom-0 z-30">
+              <AppTabBar
+                tabs={activeTabs}
+                activePageId={currentId}
+                onSelect={(tab) => navigateTab(tab.pageId, 'fade')}
+              />
+            </div>
+          )}
         </div>
       </PhoneFrame>
 

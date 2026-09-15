@@ -1,7 +1,7 @@
 import {
   Music, AudioLines, ListMusic, Album, Disc3, Radio, RadioTower, Podcast,
   Library, BookOpen, SquarePlay, ListVideo, Quote, BookMarked, Play, Pause,
-  SkipBack, SkipForward, Crown, ArrowLeft, Clock3, Mic,
+  SkipBack, SkipForward, Crown, ArrowLeft, Clock3, Mic, BookAudio, CalendarDays, Headphones,
 } from 'lucide-react';
 import type { WidgetDef } from '@/lib/widget-types';
 
@@ -540,6 +540,105 @@ export const widgets: WidgetDef[] = [
                 </div>
               );
             })}
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    type: 'media.audio-card',
+    category: 'media',
+    name: '有声书 / 播客卡片',
+    desc: '方形封面 + 播放圆钮 + 标题作者 + 进度条',
+    icon: BookAudio,
+    defaultProps: { title: '百年孤独（有声剧版）', author: '马尔克斯 · 演播：阿磊', progress: 35 },
+    fields: [
+      { key: 'title', label: '标题', type: 'text' },
+      { key: 'author', label: '作者 / 演播者', type: 'text' },
+      { key: 'progress', label: '播放进度 (%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+    render: (p) => {
+      const percent = pct(p.progress, 35);
+      return (
+        <div className="w-card flex items-center gap-3 p-3" style={{ borderRadius: 'var(--pr)' }}>
+          {/* 方形封面渐变 */}
+          <div
+            className="relative flex size-16 shrink-0 items-center justify-center"
+            style={{ borderRadius: 'calc(var(--pr) - 2px)', background: PRIMARY_GRAD }}
+          >
+            <Headphones className="size-6 text-white/90" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-bold">{p.title}</div>
+            <div className="mt-0.5 truncate text-[10px] opacity-45">{p.author}</div>
+            {/* 进度条（主色已播比例） */}
+            <div className="mt-2 flex items-center gap-2">
+              <div className="w-chip h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                <div className="h-full rounded-full" style={{ width: `${percent}%`, background: 'var(--p)' }} />
+              </div>
+              <span className="shrink-0 text-[10px] font-semibold tabular-nums" style={{ color: 'var(--p)' }}>{percent}%</span>
+            </div>
+          </div>
+          {/* 主色播放圆钮 */}
+          <PlayKnob size={36} iconSize={15} />
+        </div>
+      );
+    },
+  },
+  {
+    type: 'media.schedule-row',
+    category: 'media',
+    name: '追剧日历条',
+    desc: '星期徽标列（今天主色高亮）+ 更新剧名列表',
+    icon: CalendarDays,
+    defaultProps: { weekday: '三', titles: '漫长的季节,繁花,庆余年第二季,三体' },
+    fields: [
+      {
+        key: 'weekday', label: '今天（星期）', type: 'select',
+        options: [
+          { label: '周一', value: '一' },
+          { label: '周二', value: '二' },
+          { label: '周三', value: '三' },
+          { label: '周四', value: '四' },
+          { label: '周五', value: '五' },
+          { label: '周六', value: '六' },
+          { label: '周日', value: '日' },
+        ],
+      },
+      { key: 'titles', label: '更新剧名', type: 'textarea', placeholder: '逗号分隔，取前 7 部' },
+    ],
+    render: (p) => {
+      const days = ['一', '二', '三', '四', '五', '六', '日'];
+      const today = days.includes(String(p.weekday)) ? String(p.weekday) : '三';
+      const titles = splitList(p.titles).slice(0, 7);
+      return (
+        <div className="w-card flex gap-3 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+          {/* 星期徽标列（今天主色高亮） */}
+          <div className="flex shrink-0 flex-col gap-1">
+            {days.map((d) => {
+              const on = d === today;
+              return (
+                <span
+                  key={d}
+                  className={`flex size-5 items-center justify-center rounded-md text-[10px] leading-none ${on ? 'font-bold' : 'w-chip opacity-50'}`}
+                  style={on ? { background: 'var(--p)', color: 'var(--pf)' } : undefined}
+                >
+                  {d}
+                </span>
+              );
+            })}
+          </div>
+          {/* 剧名列表（按行均分高度，与星期列对齐） */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            {titles.map((t, i) => (
+              <div
+                key={`${t}-${i}`}
+                className={`flex min-h-5 flex-1 items-center gap-2 ${i < titles.length - 1 ? 'border-b w-line' : ''}`}
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-current opacity-30" />
+                <span className="min-w-0 flex-1 truncate text-xs">{t}</span>
+              </div>
+            ))}
           </div>
         </div>
       );

@@ -14,6 +14,8 @@ model Project {
   description String?
   template    String?
   theme       String       @default("{}")
+  /// App 级底部导航（JSON 数组：{ id, pageId, label, icon }）
+  tabs        String       @default("[]")
   pages       Page[]
   connections Connection[]
   publishes   Publish[]

@@ -21,12 +21,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     /* 使用默认主题 */
   }
 
+  let tabs: unknown = [];
+  try {
+    tabs = JSON.parse(project.tabs || '[]');
+  } catch {
+    /* 使用空 tabs */
+  }
+
   return NextResponse.json({
     id: project.id,
     name: project.name,
     description: project.description,
     template: project.template,
     theme,
+    tabs,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     pages: project.pages.map((p) => ({
@@ -69,6 +77,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         name: (body.name || existing.name).toString(),
         description: body.description ?? existing.description,
         theme: JSON.stringify(body.theme || DEFAULT_THEME),
+        tabs: JSON.stringify(Array.isArray(body.tabs) ? body.tabs : []),
       },
     }),
     db.page.deleteMany({ where: { projectId: id } }),

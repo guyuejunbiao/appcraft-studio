@@ -117,6 +117,21 @@ export interface ConnectionData {
   slot?: string;
 }
 
+/**
+ * App 级底部导航（TabBar）的一个标签。
+ * 与组件库里的 fn.tabbar 不同：这是项目级导航，每页底部自动出现，
+ * 每个标签绑定一整页（点击换根切换）。
+ */
+export interface AppTab {
+  id: string;
+  /** 绑定的目标页面 */
+  pageId: string;
+  /** 标签文字（如：首页 / 购物车） */
+  label: string;
+  /** lucide 图标名（见 lib/app-icons.ts 的 APP_ICONS 映射） */
+  icon: string;
+}
+
 /** 项目主题（UI/UX 自定义） */
 export interface ThemeConfig {
   primary: string;
@@ -141,6 +156,8 @@ export interface ProjectData {
   theme: ThemeConfig;
   pages: PageData[];
   connections: ConnectionData[];
+  /** App 级底部导航（可空 = 不启用） */
+  tabs?: AppTab[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -205,6 +222,8 @@ export interface AppSnapshot {
   theme: ThemeConfig;
   pages: PageData[];
   connections: ConnectionData[];
+  /** App 级底部导航（可空 = 不启用） */
+  tabs?: AppTab[];
 }
 
 /** 生成短 id */

@@ -229,8 +229,14 @@ export function ProjectHome() {
                         <Button size="sm" className="h-8 flex-1" onClick={() => openProject(p.id)}>
                           <Pencil className="size-3.5" /> 编辑
                         </Button>
-                        <Button size="sm" variant="outline" className="h-8" title="流程图" aria-label="流程图" onClick={async () => { await openProject(p.id); setView('flow'); }}>
-                          <GitBranch className="size-3.5" />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 border-violet-200 px-3 text-violet-600 hover:bg-violet-50 hover:text-violet-700"
+                          title="无限画布：俯瞰全部页面、画板内直接编辑、拖拽连线"
+                          onClick={async () => { await openProject(p.id); setView('canvas'); }}
+                        >
+                          <GitBranch className="size-3.5" /> <span className="hidden sm:inline">无限画布</span>
                         </Button>
                         <Button size="sm" variant="outline" className="h-8" title="预览" aria-label="预览" onClick={async () => { await openProject(p.id); setView('preview'); }}>
                           <Play className="size-3.5" />

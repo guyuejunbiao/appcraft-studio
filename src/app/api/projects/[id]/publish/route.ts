@@ -27,10 +27,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     /* 使用默认主题 */
   }
 
+  let tabs: unknown = [];
+  try {
+    tabs = JSON.parse(project.tabs || '[]');
+  } catch {
+    /* 使用空 tabs */
+  }
+
   const snapshot = {
     name,
     description,
     theme,
+    tabs,
     pages: project.pages.map((p) => ({
       id: p.id,
       name: p.name,
