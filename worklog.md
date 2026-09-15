@@ -562,3 +562,23 @@ Stage Summary:
 - 仓库已 100% 就绪：单提交 main 分支 + README + CI + .env.example，敏感文件零泄露
 - 用户只需：GitHub 网页建空仓库 → git remote add origin → git push -u origin main（Token 认证）
 - 遗留：需求 D（画板内就地编辑 D-1 / App 级 TabBar D-2 / 组件扩充 D-3）仍未实施，建议下一阶段优先；23-b 的 travel/office 组件文件确认未落盘（widgets 目录无此二文件）
+
+---
+Task ID: 27
+Agent: main
+Task: 使用用户提供的 GitHub Token 完成代码推送到 guyuejunbiao/appcraft-studio
+
+Work Log:
+- git ls-remote 验证 Token 有效、远程仓库为空
+- 首次推送被拒：Token 缺 workflow scope（.github/workflows/ci.yml 触发限制）
+- 应对：ci.yml 移出跟踪（备份于 .github/workflows/ci.yml，已被 .gitignore 忽略），.gitignore 增补 .github/workflows/ 与 upload/ 规则
+- 期间 15 分钟 cron 巡检提交了 worklog + 用户截图混入 upload/，一并软重置清理，重新压成单一干净提交 09ea1ca
+- git push 成功：main -> main（新分支）
+- GitHub API 抽查 src/components/builder/ 文件列表确认代码在线
+- git grep ghp_ HEAD 确认已推送内容无 Token 泄露
+
+Stage Summary:
+- 仓库地址：https://github.com/guyuejunbiao/appcraft-studio（main，单干净提交）
+- 用户需自行删除聊天中泄露的 Token（github.com/settings/tokens）
+- CI 恢复方法：新 Token 勾 workflow scope 后，去掉 .gitignore 中 .github/workflows/ 行再推送
+- 遗留：需求 D（D-1 画板就地编辑 / D-2 App 级 TabBar / D-3 组件扩充）待实施
