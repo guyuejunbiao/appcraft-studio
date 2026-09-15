@@ -292,6 +292,8 @@ export const widgets: WidgetDef[] = [
       { key: 'channel', label: '联动频道', type: 'text', placeholder: '配合输入框的「显示于值」使用' },
     ],
     Interactive: LoginTabsInteractive,
+    /** 画板内可点击切换：编辑器里实时预览密码/短信两组件的联动显隐 */
+    canvasInteractive: true,
     render: (p) => (
       <div className="w-chip flex rounded-full p-1" style={{ borderRadius: '999px' }}>
         {[p.left, p.right].map((t, i) => {

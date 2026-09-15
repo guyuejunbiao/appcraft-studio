@@ -10,7 +10,7 @@ import {
   Home, LayoutGrid, Compass, UserRound, Settings, BookUser,
   Minus, Plus, Search, X,
 } from 'lucide-react';
-import { useInteractionBus, useChannelDefault } from '@/lib/interaction-bus';
+import { useChannelDefault, useChannelSetter, useChannelValue } from '@/lib/interaction-bus';
 import type { InteractiveCtx } from '@/lib/widget-types';
 
 /* ------------------------------------------------------------------ */
@@ -18,8 +18,8 @@ import type { InteractiveCtx } from '@/lib/widget-types';
 /* ------------------------------------------------------------------ */
 export function LoginTabsInteractive({ props }: InteractiveCtx) {
   const channel = String(props.channel || 'loginMode');
-  const value = useInteractionBus((s) => s.values[channel]);
-  const setBus = useInteractionBus((s) => s.set);
+  const value = useChannelValue(channel);
+  const setBus = useChannelSetter();
   const active = value ?? String(props.active ?? 'left');
   /* 频道默认值：保证初始「选中项」与密码/验证码框的显隐联动同步（修复初始密码框消失） */
   useChannelDefault(channel, String(props.active ?? 'left'));
@@ -616,7 +616,7 @@ const TAB_ICONS_I = [Home, LayoutGrid, Compass, UserRound, Bell, Settings];
 
 export function FnTabbarInteractive({ props, tabNav }: InteractiveCtx) {
   const lid = useId();
-  const setBus = useInteractionBus((s) => s.set);
+  const setBus = useChannelSetter();
   const channel = String(props.channel || 'tab');
   const tabs = useMemo(() => splitListI(props.items), [props.items]);
 
@@ -689,7 +689,7 @@ const CHAT_TABS_I = [
 ];
 
 export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
-  const setBus = useInteractionBus((s) => s.set);
+  const setBus = useChannelSetter();
   const channel = String(props.channel || 'chatTab');
   const [active, setActive] = useState(() =>
     CHAT_TABS_I.some((t) => t.key === props.active) ? String(props.active) : 'msg'
@@ -744,7 +744,7 @@ export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
 /* ------------------------------------------------------------------ */
 
 export function QtyStepperInteractive({ props }: InteractiveCtx) {
-  const setBus = useInteractionBus((s) => s.set);
+  const setBus = useChannelSetter();
   const channel = String(props.channel || 'qty');
   const [count, setCount] = useState(() => Math.max(1, Math.min(99, Math.round(Number(props.value) || 1))));
   /* 频道默认值：初始数量同步到总线 */
@@ -798,7 +798,7 @@ export function QtyStepperInteractive({ props }: InteractiveCtx) {
 /* ------------------------------------------------------------------ */
 
 export function SkuSelectInteractive({ props }: InteractiveCtx) {
-  const setBus = useInteractionBus((s) => s.set);
+  const setBus = useChannelSetter();
   const channel = String(props.channel || 'sku');
   const colors = useMemo(() => splitListI(props.colors), [props.colors]);
   const versions = useMemo(() => splitListI(props.versions), [props.versions]);

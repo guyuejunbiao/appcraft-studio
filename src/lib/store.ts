@@ -19,6 +19,26 @@ interface HistorySnap {
 /** 复制/粘贴剪贴板（会话级，跨页面也可粘贴） */
 let widgetClipboard: { type: string; props: Record<string, any>; width?: WidgetInstance['width']; align?: WidgetInstance['align'] } | null = null;
 
+/**
+ * free 布局互斥组件自动同槽位：
+ * 新组件配置了联动频道（defaultProps 含 channel + showValue，如 验证码输入
+ * = loginMode/right），且页面已有同频道、不同显示值的搭档（如 密码输入
+ * = loginMode/left）时，返回搭档实例 → 新组件直接落到同一 x/y/w 槽位。
+ * 这样预览/画板内切换登录方式时两组件互斥显隐、不留空洞。
+ */
+function slotPartnerOf(page: PageData, defaultProps: Record<string, unknown>): WidgetInstance | null {
+  const ch = defaultProps.channel;
+  const sv = defaultProps.showValue;
+  if (typeof ch !== 'string' || !ch || typeof sv !== 'string' || !sv) return null;
+  for (const c of page.components) {
+    const d = getWidget(c.type);
+    if (!d) continue;
+    const m = { ...d.defaultProps, ...c.props };
+    if (m.channel === ch && typeof m.showValue === 'string' && m.showValue !== sv) return c;
+  }
+  return null;
+}
+
 /** 样式刷剪贴板（会话级，跨页面可用） */
 let styleClipboard: (WidgetStyleClip & { fromType?: string }) | null = null;
 
@@ -301,14 +321,22 @@ export const useBuilder = create<BuilderState>((set, get) => {
       /* 自由布局：按落点/智能位置放置（不钳制，可摆到首屏以下，画布自动增高） */
       if (page.layout === 'free') {
         const fullW = def.fullBleed ? 375 : 355;
-        const maxBottom = page.components.reduce(
-          (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
-          0
-        );
-        w.x = rect?.x ?? (def.fullBleed ? 0 : 10);
-        w.y = rect?.y ?? maxBottom + 12;
-        w.w = rect?.w ?? fullW;
-        w.x = Math.max(0, Math.min(w.x ?? 0, 375 - (w.w ?? fullW)));
+        /* 互斥联动组件（如验证码输入）自动与搭档（密码输入）同槽位，预览切换不留空洞 */
+        const partner = rect?.y === undefined ? slotPartnerOf(page, def.defaultProps) : null;
+        if (partner) {
+          w.x = partner.x ?? 10;
+          w.y = partner.y ?? 0;
+          w.w = partner.w ?? fullW;
+        } else {
+          const maxBottom = page.components.reduce(
+            (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
+            0
+          );
+          w.x = rect?.x ?? (def.fullBleed ? 0 : 10);
+          w.y = rect?.y ?? maxBottom + 12;
+          w.w = rect?.w ?? fullW;
+          w.x = Math.max(0, Math.min(w.x ?? 0, 375 - (w.w ?? fullW)));
+        }
       }
       commit(({ pages }) => ({
         pages: pages.map((p) =>
@@ -1056,13 +1084,21 @@ export const useBuilder = create<BuilderState>((set, get) => {
       };
       if (page.layout === 'free') {
         const fullW = def.fullBleed ? 375 : 355;
-        const maxBottom = page.components.reduce(
-          (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
-          0
-        );
-        w.x = def.fullBleed ? 0 : 10;
-        w.y = maxBottom + 12;
-        w.w = fullW;
+        /* 互斥联动组件（如验证码输入）自动与搭档（密码输入）同槽位，预览切换不留空洞 */
+        const partner = slotPartnerOf(page, def.defaultProps);
+        if (partner) {
+          w.x = partner.x ?? 10;
+          w.y = partner.y ?? 0;
+          w.w = partner.w ?? fullW;
+        } else {
+          const maxBottom = page.components.reduce(
+            (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
+            0
+          );
+          w.x = def.fullBleed ? 0 : 10;
+          w.y = maxBottom + 12;
+          w.w = fullW;
+        }
       }
       commit(({ pages }) => ({
         pages: pages.map((p) =>

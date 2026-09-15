@@ -6,7 +6,7 @@ import {
   X, Undo2, RotateCcw, MousePointerClick, Crown, Sparkles,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
-import { useInteractionBus } from '@/lib/interaction-bus';
+import { useInteractionBus, BusScopeProvider } from '@/lib/interaction-bus';
 import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -186,6 +186,7 @@ export function PreviewPlayer() {
               className="absolute inset-0 overflow-y-auto thin-scroll"
               style={anim === 'zoom' ? { transformOrigin: '50% 50%' } : undefined}
             >
+              <BusScopeProvider value={current?.id ?? ''}>
               <div
                 ref={contentRef}
                 className={isFree ? 'relative w-full' : 'relative'}
@@ -256,6 +257,7 @@ export function PreviewPlayer() {
                 )}
                 {!isFree && <div className="h-10" />}
               </div>
+              </BusScopeProvider>
             </motion.div>
           </AnimatePresence>
 

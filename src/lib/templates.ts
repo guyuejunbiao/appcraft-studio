@@ -66,6 +66,7 @@ export const templates: AppTemplate[] = [
           { type: 'login.login-tabs' },
           { type: 'login.phone-input' },
           { type: 'login.password-input' },
+          { type: 'login.sms-input' },
           { type: 'login.forgot-link', id: 'tpl_login_forgot' },
           { type: 'login.primary-btn', id: 'tpl_login_btn' },
           { type: 'login.register-btn', id: 'tpl_login_register', props: { text: '注册新账号' } },

@@ -17,6 +17,7 @@ import { useCanvasSettings } from '@/lib/canvas-settings';
 import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer, WidgetInner } from './WidgetRenderer';
+import { BusScopeProvider } from '@/lib/interaction-bus';
 import { DragGhost } from './DragGhost';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { CanvasBlankMenu } from './CanvasBlankMenu';
@@ -794,6 +795,8 @@ export function Canvas() {
       <div ref={phoneRef} style={{ width: 395 * zoom, height: 832 * zoom }}>
         <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: 395, height: 832 }}>
           <PhoneFrame theme={t} pageBg={page.background}>
+            {/* 总线按页面作用域；编辑器也实时联动（login-tabs 可点击切换互斥组件显隐） */}
+            <BusScopeProvider value={page?.id ?? ''}>
             <div
               ref={contentRef}
               className="relative h-full overflow-y-auto thin-scroll"
@@ -1053,7 +1056,7 @@ export function Canvas() {
                               : 'rgba(0,0,0,0.12)',
                         } as React.CSSProperties}
                       >
-                        <WidgetInner w={w} />
+                        <WidgetInner w={w} canvasLive />
 
                         {/* 坐标/尺寸徽标（拖动或缩放中） */}
                         {(resizing || posBadge !== null) && (
@@ -1213,7 +1216,7 @@ export function Canvas() {
                           '--tw-ring-color': selected ? t.primary : 'rgba(0,0,0,0.12)',
                         } as React.CSSProperties}
                       >
-                        <WidgetRenderer w={w} />
+                        <WidgetRenderer w={w} canvasLive />
 
                         {/* 悬浮操作条 */}
                         {!w.locked && (
@@ -1295,6 +1298,7 @@ export function Canvas() {
               {/* 底部留白便于拖入 */}
               <div className="h-16" />
             </div>
+            </BusScopeProvider>
           </PhoneFrame>
         </div>
       </div>

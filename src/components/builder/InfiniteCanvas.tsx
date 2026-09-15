@@ -7,6 +7,7 @@ import {
   ArrowUpDown, Search, ChevronDown, ChevronUp, Loader2, X, ChevronRight,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
+import { BusScopeProvider } from '@/lib/interaction-bus';
 import { allWidgets, categories, getWidget } from '@/components/widgets/registry';
 import { PhoneFrame, PHONE_W, PHONE_H } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -381,6 +382,8 @@ function Artboard({
           style={{ transform: `scale(${AB_SCALE})`, width: FRAME_W, height: FRAME_H }}
         >
           <PhoneFrame theme={theme} pageBg={page.background}>
+            {/* 总线按页面作用域隔离：多画板同屏互不串扰；画板内联动源头可点击切换 */}
+            <BusScopeProvider value={page.id}>
             <div className="flex h-full flex-col">
               <div
                 className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${tabs.length > 0 ? '' : 'pb-2'}`}
@@ -402,7 +405,7 @@ function Artboard({
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id); }}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-1 outline-violet-500' : 'rounded hover:outline hover:outline-1 hover:outline-violet-300'}>
-                          <WidgetRenderer w={w} />
+                          <WidgetRenderer w={w} canvasLive />
                         </div>
                       </div>
                     ))}
@@ -421,7 +424,7 @@ function Artboard({
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id); }}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-[-1px] outline-violet-500' : ''}>
-                          <WidgetRenderer w={w} />
+                          <WidgetRenderer w={w} canvasLive />
                         </div>
                       </div>
                     ))}
@@ -443,6 +446,7 @@ function Artboard({
                 />
               )}
             </div>
+            </BusScopeProvider>
           </PhoneFrame>
         </div>
       </div>

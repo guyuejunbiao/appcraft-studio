@@ -1,7 +1,7 @@
 'use client';
 
 import { getWidget } from '@/components/widgets/registry';
-import { useInteractionBus, busVisible } from '@/lib/interaction-bus';
+import { useBusScope, useInteractionBus, busVisible } from '@/lib/interaction-bus';
 import { SHADOW_FILTER, type WidgetInstance } from '@/lib/types';
 
 const WIDTH_MAP: Record<NonNullable<WidgetInstance['width']>, string> = {
@@ -27,6 +27,13 @@ interface WidgetRendererProps {
   interactive?: boolean;
   /** 自由布局模式：按 x/y/w/h 绝对定位 */
   free?: boolean;
+  /**
+   * 画布联动模式（无限画布/编辑器画板专用）：
+   * ① 应用总线显隐（编辑态也能真实预览互斥组件的联动效果）
+   * ② 对标记 canvasInteractive 的组件挂载 Interactive 实现
+   *   （如 login-tabs 在画板内点击即可切换密码/短信视图）
+   */
+  canvasLive?: boolean;
   /** 槽位导航（tabbar）：传入槽位 key，若绑定则换根跳页 */
   tabNav?: (slot: string) => void;
   /** 槽位绑定提示：slot key → 目标页名 */
@@ -37,12 +44,14 @@ interface WidgetRendererProps {
  * 渲染一个组件实例（编辑器与预览共用）
  * - 编辑画布：interactive=false，纯静态展示
  * - 预览：interactive=true，带 Interactive 实现与联动显隐
+ * - 画布联动：canvasLive=true，总线显隐 + 联动源头组件可交互（按页面作用域隔离）
  */
 export function WidgetRenderer({
-  w, onTap, targetHint, interactive = false, free = false, tabNav, slotHints,
+  w, onTap, targetHint, interactive = false, free = false, canvasLive = false, tabNav, slotHints,
 }: WidgetRendererProps) {
   const def = getWidget(w.type);
   const busValues = useInteractionBus((s) => s.values);
+  const scope = useBusScope();
 
   if (!def) {
     return (
@@ -54,18 +63,23 @@ export function WidgetRenderer({
 
   const merged = { ...def.defaultProps, ...w.props };
 
-  /* 预览联动：channel + showValue 不匹配时隐藏（编辑模式恒显示） */
-  if (interactive && !busVisible(busValues, merged.channel, merged.showValue)) {
+  /* 联动显隐：channel 加页面作用域前缀，不匹配时隐藏（编辑模式非 canvasLive 时恒显示） */
+  const effChannel = merged.channel && scope ? `${scope}::${merged.channel}` : merged.channel;
+  if ((interactive || canvasLive) && !busVisible(busValues, effChannel, merged.showValue)) {
     return null;
   }
 
   const Interactive = def.Interactive;
-  const body =
-    interactive && Interactive ? (
-      <Interactive props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotHints={slotHints} />
-    ) : (
-      def.render(merged)
-    );
+  const Live = interactive
+    ? Interactive
+    : canvasLive && def.canvasInteractive
+      ? Interactive
+      : null;
+  const body = Live ? (
+    <Live props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotHints={slotHints} />
+  ) : (
+    def.render(merged)
+  );
 
   const inner = def.fullBleed ? body : <div className="px-2.5">{body}</div>;
   const hint =
@@ -133,15 +147,17 @@ export function WidgetRenderer({
  * 位置/大小由画布的拖拽包装层控制。
  */
 export function WidgetInner({
-  w, interactive = false, onTap, targetHint,
+  w, interactive = false, canvasLive = false, onTap, targetHint,
 }: {
   w: WidgetInstance;
   interactive?: boolean;
+  canvasLive?: boolean;
   onTap?: () => void;
   targetHint?: string | null;
 }) {
   const def = getWidget(w.type);
   const busValues = useInteractionBus((s) => s.values);
+  const scope = useBusScope();
 
   if (!def) {
     return (
@@ -152,17 +168,22 @@ export function WidgetInner({
   }
 
   const merged = { ...def.defaultProps, ...w.props };
-  if (interactive && !busVisible(busValues, merged.channel, merged.showValue)) {
+  const effChannel = merged.channel && scope ? `${scope}::${merged.channel}` : merged.channel;
+  if ((interactive || canvasLive) && !busVisible(busValues, effChannel, merged.showValue)) {
     return null;
   }
 
   const Interactive = def.Interactive;
-  const body =
-    interactive && Interactive ? (
-      <Interactive props={merged} onTap={onTap} targetHint={targetHint} />
-    ) : (
-      def.render(merged)
-    );
+  const Live = interactive
+    ? Interactive
+    : canvasLive && def.canvasInteractive
+      ? Interactive
+      : null;
+  const body = Live ? (
+    <Live props={merged} onTap={onTap} targetHint={targetHint} />
+  ) : (
+    def.render(merged)
+  );
 
   return def.fullBleed ? <>{body}</> : <div className="px-2.5">{body}</div>;
 }

@@ -80,6 +80,12 @@ export interface WidgetDef {
   /** 预览模式下的可交互实现（未提供则预览也用静态 render） */
   Interactive?: React.ComponentType<InteractiveCtx>;
   /**
+   * 画布联动开关：配合渲染器的 canvasLive 模式，编辑画板内也挂载
+   * Interactive 实现（如 login-tabs 在画板内点击即可切换联动状态，
+   * 实时预览「密码/短信」两组互斥组件的显隐效果）。
+   */
+  canvasInteractive?: boolean;
+  /**
    * 复合组件的可绑定槽位（如 tabbar 的每个标签可分别绑定页面）。
    * 提供后属性面板的交互页可为每个槽位单独建立连接。
    */

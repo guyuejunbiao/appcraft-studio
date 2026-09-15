@@ -1,0 +1,980 @@
+     1→'use client';
+     2→
+     3→import { useEffect, useId, useMemo, useRef, useState } from 'react';
+     4→import { createPortal } from 'react-dom';
+     5→import { AnimatePresence, motion } from 'framer-motion';
+     6→import {
+     7→  Lock, Smartphone, ShieldCheck, Eye, EyeOff, LoaderCircle, Check,
+     8→  MessageCircle, Apple, Chrome, Mail, CircleCheck, CircleX, Fingerprint,
+     9→  Signal, Wifi, BatteryFull, Bell, Copy as CopyIcon,
+    10→  Home, LayoutGrid, Compass, UserRound, Settings, BookUser,
+    11→  Minus, Plus, Search, X,
+    12→} from 'lucide-react';
+    13→import { useInteractionBus, useChannelDefault } from '@/lib/interaction-bus';
+    14→import type { InteractiveCtx } from '@/lib/widget-types';
+    15→
+    16→/* ------------------------------------------------------------------ */
+    17→/* 登录方式切换：点击后真实切换，并通过总线联动其它组件的显隐           */
+    18→/* ------------------------------------------------------------------ */
+    19→export function LoginTabsInteractive({ props }: InteractiveCtx) {
+    20→  const channel = String(props.channel || 'loginMode');
+    21→  const value = useInteractionBus((s) => s.values[channel]);
+    22→  const setBus = useInteractionBus((s) => s.set);
+    23→  const active = value ?? String(props.active ?? 'left');
+    24→  /* 频道默认值：保证初始「选中项」与密码/验证码框的显隐联动同步（修复初始密码框消失） */
+    25→  useChannelDefault(channel, String(props.active ?? 'left'));
+    26→
+    27→  return (
+    28→    <div className="w-chip flex rounded-full p-1" style={{ borderRadius: '999px' }}>
+    29→      <div className="relative flex flex-1">
+    30→        <motion.span
+    31→          className="absolute inset-y-0 rounded-full"
+    32→          style={{
+    33→            width: '50%',
+    34→            background: 'var(--p)',
+    35→            boxShadow: '0 2px 8px color-mix(in srgb, var(--p) 45%, transparent)',
+    36→          }}
+    37→          animate={{ x: active === 'right' ? '100%' : '0%' }}
+    38→          transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+    39→        />
+    40→        {(['left', 'right'] as const).map((k) => {
+    41→          const isActive = active === k;
+    42→          return (
+    43→            <button
+    44→              key={k}
+    45→              type="button"
+    46→              onClick={(e) => {
+    47→                e.stopPropagation();
+    48→                setBus(channel, k);
+    49→              }}
+    50→              className="relative z-10 flex-1 py-2 text-center text-[13px] font-semibold transition-colors"
+    51→              style={isActive ? { color: 'var(--pf)' } : { opacity: 0.55 }}
+    52→            >
+    53→              {k === 'left' ? props.left : props.right}
+    54→            </button>
+    55→          );
+    56→        })}
+    57→      </div>
+    58→    </div>
+    59→  );
+    60→}
+    61→
+    62→/* ------------------------------------------------------------------ */
+    63→/* 手机号输入：预览中可真实输入                                        */
+    64→/* ------------------------------------------------------------------ */
+    65→export function PhoneInputInteractive({ props }: InteractiveCtx) {
+    66→  const [val, setVal] = useState('');
+    67→  return (
+    68→    <div className="w-input flex h-11 items-center gap-2.5 px-3" style={{ borderRadius: 'var(--pr)' }}>
+    69→      <Smartphone className="size-4 opacity-45" />
+    70→      <span className="text-sm font-semibold opacity-75">{props.prefix}</span>
+    71→      <span className="h-4 w-px w-line border-l" />
+    72→      <input
+    73→        value={val}
+    74→        onChange={(e) => setVal(e.target.value.replace(/\D/g, '').slice(0, 11))}
+    75→        placeholder={props.placeholder}
+    76→        inputMode="numeric"
+    77→        className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
+    78→      />
+    79→      {val.length === 11 && <CircleCheck className="size-4" style={{ color: 'var(--p)' }} />}
+    80→    </div>
+    81→  );
+    82→}
+    83→
+    84→/* ------------------------------------------------------------------ */
+    85→/* 密码输入：可输入 + 小眼睛真实切换明文/密文                          */
+    86→/* ------------------------------------------------------------------ */
+    87→export function PasswordInputInteractive({ props }: InteractiveCtx) {
+    88→  const [val, setVal] = useState('');
+    89→  const [show, setShow] = useState(false);
+    90→  return (
+    91→    <div className="w-input flex h-11 items-center gap-2.5 px-3" style={{ borderRadius: 'var(--pr)' }}>
+    92→      <Lock className="size-4 opacity-45" />
+    93→      <input
+    94→        type={show ? 'text' : 'password'}
+    95→        value={val}
+    96→        onChange={(e) => setVal(e.target.value)}
+    97→        placeholder={props.placeholder}
+    98→        className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
+    99→      />
+   100→      {val && !show && <span className="text-xs tracking-widest opacity-40">••••</span>}
+   101→      {props.eye !== false && (
+   102→        <button
+   103→          type="button"
+   104→          onClick={(e) => {
+   105→            e.stopPropagation();
+   106→            setShow((v) => !v);
+   107→          }}
+   108→          className="opacity-60 transition-opacity hover:opacity-100"
+   109→          aria-label={show ? '隐藏密码' : '显示密码'}
+   110→        >
+   111→          {show ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+   112→        </button>
+   113→      )}
+   114→    </div>
+   115→  );
+   116→}
+   117→
+   118→/* ------------------------------------------------------------------ */
+   119→/* 验证码输入：真实倒计时 + 模拟短信自动填充                           */
+   120→/* ------------------------------------------------------------------ */
+   121→export function SmsInputInteractive({ props }: InteractiveCtx) {
+   122→  const [code, setCode] = useState('');
+   123→  const [left, setLeft] = useState(0);
+   124→  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   125→
+   126→  const counting = left > 0;
+   127→  useEffect(() => {
+   128→    if (!counting) return;
+   129→    const iv = setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000);
+   130→    return () => clearInterval(iv);
+   131→  }, [counting]);
+   132→
+   133→  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+   134→
+   135→  const send = () => {
+   136→    if (left > 0) return;
+   137→    setLeft(60);
+   138→    timers.current.push(
+   139→      setTimeout(() => {
+   140→        // 模拟收到短信，自动填充验证码
+   141→        setCode('284616');
+   142→      }, 1100)
+   143→    );
+   144→  };
+   145→
+   146→  return (
+   147→    <div className="w-input flex h-11 items-center gap-2 pl-3 pr-1" style={{ borderRadius: 'var(--pr)' }}>
+   148→      <ShieldCheck className="size-4 opacity-45" />
+   149→      <input
+   150→        value={code}
+   151→        onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+   152→        placeholder={props.placeholder}
+   153→        inputMode="numeric"
+   154→        className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
+   155→      />
+   156→      <button
+   157→        type="button"
+   158→        onClick={(e) => {
+   159→          e.stopPropagation();
+   160→          send();
+   161→        }}
+   162→        className="flex h-8 shrink-0 items-center px-3 text-xs font-semibold disabled:opacity-60"
+   163→        style={{
+   164→          borderRadius: 'calc(var(--pr) - 4px)',
+   165→          background: left > 0 ? 'transparent' : 'var(--p)',
+   166→          color: left > 0 ? 'var(--p)' : 'var(--pf)',
+   167→          border: left > 0 ? '1px solid var(--p)' : 'none',
+   168→        }}
+   169→      >
+   170→        {left > 0 ? `${left}s 后重发` : props.btnText}
+   171→      </button>
+   172→    </div>
+   173→  );
+   174→}
+   175→
+   176→/* ------------------------------------------------------------------ */
+   177→/* 登录按钮：点击后 加载 → 成功，再触发已绑定的页面跳转                */
+   178→/* ------------------------------------------------------------------ */
+   179→export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
+   180→  const [st, setSt] = useState<'idle' | 'loading' | 'done'>('idle');
+   181→  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   182→  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+   183→
+   184→  const click = (e: React.MouseEvent) => {
+   185→    e.stopPropagation();
+   186→    if (st !== 'idle') return;
+   187→    setSt('loading');
+   188→    timers.current.push(
+   189→      setTimeout(() => {
+   190→        setSt('done');
+   191→        timers.current.push(
+   192→          setTimeout(() => {
+   193→            setSt('idle');
+   194→            onTap?.();
+   195→          }, 650)
+   196→        );
+   197→      }, 900)
+   198→    );
+   199→  };
+   200→
+   201→  return (
+   202→    <button
+   203→      type="button"
+   204→      onClick={click}
+   205→      className="flex h-12 w-full items-center justify-center gap-2 text-[15px] font-bold shadow-md transition-transform active:scale-[0.98]"
+   206→      style={{ borderRadius: 'var(--pr)', background: 'var(--p)', color: 'var(--pf)' }}
+   207→    >
+   208→      {st === 'loading' ? (
+   209→        <><LoaderCircle className="size-4 animate-spin" /> 正在登录…</>
+   210→      ) : st === 'done' ? (
+   211→        <><Check className="size-4" /> 登录成功</>
+   212→      ) : (
+   213→        <><Lock className="size-4" /> {props.text}{props.sub ? <span className="text-xs font-normal opacity-70">{props.sub}</span> : null}</>
+   214→      )}
+   215→    </button>
+   216→  );
+   217→}
+   218→
+   219→/* ------------------------------------------------------------------ */
+   220→/* 协议勾选：真实可勾选                                                */
+   221→/* ------------------------------------------------------------------ */
+   222→export function AgreementCheckInteractive({ props }: InteractiveCtx) {
+   223→  const [checked, setChecked] = useState(false);
+   224→  return (
+   225→    <button
+   226→      type="button"
+   227→      onClick={(e) => {
+   228→        e.stopPropagation();
+   229→        setChecked((v) => !v);
+   230→      }}
+   231→      className="flex items-start gap-2 px-0.5 text-left"
+   232→    >
+   233→      <span
+   234→        className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors"
+   235→        style={{
+   236→          borderColor: 'var(--p)',
+   237→          background: checked ? 'var(--p)' : 'transparent',
+   238→        }}
+   239→      >
+   240→        {checked && <Check className="size-3 text-white" strokeWidth={3.5} />}
+   241→      </span>
+   242→      <p className="text-[11px] leading-4 opacity-55">
+   243→        {props.text}
+   244→        <span style={{ color: 'var(--p)' }}>{props.link1}</span>
+   245→        <span className="opacity-55">和</span>
+   246→        <span style={{ color: 'var(--p)' }}>{props.link2}</span>
+   247→      </p>
+   248→    </button>
+   249→  );
+   250→}
+   251→
+   252→/* ------------------------------------------------------------------ */
+   253→/* 第三方登录：模拟真机唤起第三方 App → 品牌授权页 → 返回应用          */
+   254→/* ------------------------------------------------------------------ */
+   255→
+   256→type BrandKey = 'wechat' | 'apple' | 'browser' | 'mail' | 'phone';
+   257→
+   258→const BRANDS: Record<BrandKey, { label: string; color: string; dark?: boolean }> = {
+   259→  wechat: { label: '微信', color: '#07c160' },
+   260→  apple: { label: 'Apple', color: '#101013', dark: true },
+   261→  browser: { label: '浏览器', color: '#3f3f46' },
+   262→  mail: { label: '邮件', color: '#f59e0b' },
+   263→  phone: { label: '一键登录', color: '#0f9d58' },
+   264→};
+   265→
+   266→const BRAND_ICONS: Record<BrandKey, typeof MessageCircle> = {
+   267→  wechat: MessageCircle,
+   268→  apple: Apple,
+   269→  browser: Chrome,
+   270→  mail: Mail,
+   271→  phone: Smartphone,
+   272→};
+   273→
+   274→type Phase = 'idle' | 'splash' | 'auth' | 'granting' | 'success' | 'denied';
+   275→
+   276→export function SocialRowInteractive({ props, onTap }: InteractiveCtx) {
+   277→  const [phase, setPhase] = useState<Phase>('idle');
+   278→  const [brand, setBrand] = useState<BrandKey | null>(null);
+   279→  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   280→
+   281→  useEffect(() => {
+   282→    return () => timers.current.forEach(clearTimeout);
+   283→  }, []);
+   284→
+   285→  const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
+   286→
+   287→  const launch = (key: BrandKey) => {
+   288→    if (phase !== 'idle') return;
+   289→    setBrand(key);
+   290→    setPhase('splash');
+   291→    later(() => setPhase('auth'), 850);
+   292→  };
+   293→
+   294→  const agree = () => {
+   295→    setPhase('granting');
+   296→    later(() => {
+   297→      setPhase('success');
+   298→      later(() => {
+   299→        setPhase('idle');
+   300→        setBrand(null);
+   301→        onTap?.();
+   302→      }, 950);
+   303→    }, 850);
+   304→  };
+   305→
+   306→  const deny = () => {
+   307→    setPhase('denied');
+   308→    later(() => {
+   309→      setPhase('idle');
+   310→      setBrand(null);
+   311→    }, 750);
+   312→  };
+   313→
+   314→  const items = ([
+   315→    ['showWechat', 'wechat'],
+   316→    ['showApple', 'apple'],
+   317→    ['showWeb', 'browser'],
+   318→    ['showMail', 'mail'],
+   319→    ['showPhone', 'phone'],
+   320→  ] as const)
+   321→    .filter(([k]) => props[k] !== false)
+   322→    .map(([, key]) => key);
+   323→
+   324→  const row = (
+   325→    <div className="flex items-center justify-center gap-4 py-1.5">
+   326→      {items.map((key) => {
+   327→        const Icon = BRAND_ICONS[key];
+   328→        const b = BRANDS[key];
+   329→        return (
+   330→          <button
+   331→            key={key}
+   332→            type="button"
+   333→            onClick={(e) => {
+   334→              e.stopPropagation();
+   335→              launch(key);
+   336→            }}
+   337→            className="flex touch-manipulation flex-col items-center gap-1.5 transition-transform active:scale-90"
+   338→          >
+   339→            <span
+   340→              className="flex size-11 items-center justify-center rounded-full border w-line shadow-sm transition-colors"
+   341→              style={{ background: `${b.color}14`, borderColor: `${b.color}30` }}
+   342→            >
+   343→              <Icon className="size-5" style={{ color: b.color }} />
+   344→            </span>
+   345→            <span className="text-[10px] opacity-45">
+   346→              {key === 'phone' ? '本机号码' : b.label}
+   347→            </span>
+   348→          </button>
+   349→        );
+   350→      })}
+   351→    </div>
+   352→  );
+   353→
+   354→  if (phase === 'idle' || !brand) return row;
+   355→
+   356→  const b = BRANDS[brand];
+   357→  const appName = String(props.appName || '星云 App');
+   358→
+   359→  /* 唤起 / 授权 全屏覆盖层（挂载到手机屏幕容器） */
+   360→  const overlay = (
+   361→    <AnimatePresence>
+   362→      <motion.div
+   363→        key={phase}
+   364→        initial={{ opacity: 0 }}
+   365→        animate={{ opacity: 1 }}
+   366→        exit={{ opacity: 0 }}
+   367→        transition={{ duration: 0.22 }}
+   368→        className="absolute inset-0 z-[80] flex flex-col overflow-hidden"
+   369→        style={{ background: phase === 'splash' ? '#000' : b.dark ? '#0a0a0c' : '#f4f5f7' }}
+   370→        onClick={(e) => e.stopPropagation()}
+   371→      >
+   372→        {/* 仿系统状态栏 */}
+   373→        <div
+   374→          className="flex h-12 shrink-0 items-center justify-between px-7 pt-2 text-[13px] font-semibold"
+   375→          style={{ color: phase === 'splash' || b.dark ? '#fff' : '#111' }}
+   376→        >
+   377→          <span>9:41</span>
+   378→          <div className="flex items-center gap-1.5">
+   379→            <Signal className="size-3.5" />
+   380→            <Wifi className="size-3.5" />
+   381→            <BatteryFull className="size-4" />
+   382→          </div>
+   383→        </div>
+   384→
+   385→        {phase === 'splash' && (
+   386→          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-white">
+   387→            <motion.div
+   388→              initial={{ scale: 0.6, opacity: 0 }}
+   389→              animate={{ scale: 1, opacity: 1 }}
+   390→              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+   391→              className="flex size-20 items-center justify-center rounded-[22px] shadow-2xl"
+   392→              style={{ background: b.color }}
+   393→            >
+   394→              {(() => {
+   395→                const Icon = BRAND_ICONS[brand];
+   396→                return <Icon className="size-10 text-white" />;
+   397→              })()}
+   398→            </motion.div>
+   399→            <p className="text-lg font-bold">{BRANDS[brand].label}</p>
+   400→            <div className="flex items-center gap-1.5 text-xs text-white/50">
+   401→              <LoaderCircle className="size-3.5 animate-spin" />
+   402→              正在打开「{BRANDS[brand].label}」…
+   403→            </div>
+   404→            <p className="absolute bottom-10 text-[10px] text-white/35">模拟真机唤起 · 演示环境</p>
+   405→          </div>
+   406→        )}
+   407→
+   408→        {(phase === 'auth' || phase === 'granting') && (
+   409→          <AuthSheet
+   410→            brand={brand}
+   411→            color={b.color}
+   412→            dark={!!b.dark}
+   413→            appName={appName}
+   414→            busy={phase === 'granting'}
+   415→            onAgree={agree}
+   416→            onDeny={deny}
+   417→          />
+   418→        )}
+   419→
+   420→        {phase === 'success' && (
+   421→          <div className="flex flex-1 flex-col items-center justify-center gap-3">
+   422→            <motion.div
+   423→              initial={{ scale: 0.5, opacity: 0 }}
+   424→              animate={{ scale: 1, opacity: 1 }}
+   425→              transition={{ type: 'spring', stiffness: 320, damping: 20 }}
+   426→            >
+   427→              <CircleCheck className="size-16" style={{ color: b.color }} />
+   428→            </motion.div>
+   429→            <p className={`text-base font-bold ${b.dark ? 'text-white' : 'text-zinc-900'}`}>
+   430→              授权成功
+   431→            </p>
+   432→            <p className={`text-xs ${b.dark ? 'text-white/50' : 'text-zinc-500'}`}>正在返回 {appName}…</p>
+   433→          </div>
+   434→        )}
+   435→
+   436→        {phase === 'denied' && (
+   437→          <div className="flex flex-1 flex-col items-center justify-center gap-3">
+   438→            <motion.div initial={{ scale: 0.6 }} animate={{ scale: 1 }}>
+   439→              <CircleX className="size-14 text-zinc-400" />
+   440→            </motion.div>
+   441→            <p className={`text-sm font-semibold ${b.dark ? 'text-white/80' : 'text-zinc-600'}`}>已取消授权</p>
+   442→          </div>
+   443→        )}
+   444→
+   445→        {/* 仿 Home 条 */}
+   446→        <div className="flex h-6 shrink-0 items-center justify-center">
+   447→          <div className={`h-1 w-32 rounded-full ${b.dark || phase === 'splash' ? 'bg-white/35' : 'bg-black/25'}`} />
+   448→        </div>
+   449→      </motion.div>
+   450→    </AnimatePresence>
+   451→  );
+   452→
+   453→  const target = typeof document !== 'undefined' ? document.getElementById('phone-screen') : null;
+   454→  const overlayNode = target ? createPortal(overlay, target) : null;
+   455→
+   456→  return (
+   457→    <>
+   458→      {row}
+   459→      {overlayNode}
+   460→    </>
+   461→  );
+   462→}
+   463→
+   464→/** 第三方品牌授权页 */
+   465→function AuthSheet({
+   466→  brand, color, dark, appName, busy, onAgree, onDeny,
+   467→}: {
+   468→  brand: BrandKey;
+   469→  color: string;
+   470→  dark: boolean;
+   471→  appName: string;
+   472→  busy: boolean;
+   473→  onAgree: () => void;
+   474→  onDeny: () => void;
+   475→}) {
+   476→  const BrandIcon = BRAND_ICONS[brand];
+   477→  const textColor = dark ? 'text-white' : 'text-zinc-900';
+   478→  const subText = dark ? 'text-white/55' : 'text-zinc-500';
+   479→
+   480→  const scopes =
+   481→    brand === 'phone'
+   482→      ? ['获取你的手机号（加密）', '获取你的昵称与头像']
+   483→      : brand === 'mail'
+   484→        ? ['获取你的邮箱地址', '获取你的公开资料']
+   485→        : brand === 'apple'
+   486→          ? ['获取你的姓名', '获取你的邮箱（可隐藏）']
+   487→          : ['获取你的昵称、头像', '获取你的地区与性别'];
+   488→
+   489→  return (
+   490→    <div className={`flex min-h-0 flex-1 flex-col ${dark ? 'bg-[#0a0a0c]' : 'bg-[#f4f5f7]'}`}>
+   491→      {/* 品牌导航栏 */}
+   492→      <div
+   493→        className="flex shrink-0 items-center gap-2 px-4 py-3"
+   494→        style={{ background: dark ? 'transparent' : color, color: dark ? '#fff' : '#fff' }}
+   495→      >
+   496→        <BrandIcon className="size-5" />
+   497→        <span className="text-sm font-bold">
+   498→          {brand === 'phone' ? '运营商一键登录' : `${BRANDS[brand].label}授权`}
+   499→        </span>
+   500→      </div>
+   501→
+   502→      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 thin-scroll">
+   503→        {/* 应用卡片 */}
+   504→        <div className={`flex items-center gap-3 rounded-2xl p-3.5 shadow-sm ${dark ? 'bg-white/10' : 'bg-white'}`}>
+   505→          <span
+   506→            className="flex size-12 items-center justify-center rounded-[14px] text-lg font-black text-white shadow"
+   507→            style={{ background: 'var(--p)' }}
+   508→          >
+   509→            {appName.slice(0, 1)}
+   510→          </span>
+   511→          <div className="min-w-0 flex-1">
+   512→            <p className={`truncate text-sm font-bold ${textColor}`}>{appName}</p>
+   513→            <p className={`text-[11px] ${subText}`}>申请获取以下权限</p>
+   514→          </div>
+   515→          <Bell className={`size-4 ${subText}`} />
+   516→        </div>
+   517→
+   518→        {/* 权限清单 */}
+   519→        <div className={`mt-3 rounded-2xl p-1 ${dark ? 'bg-white/10' : 'bg-white'}`}>
+   520→          {scopes.map((s, i) => (
+   521→            <div key={s} className={`flex items-center gap-2.5 px-3 py-3 ${i > 0 ? (dark ? 'border-t border-white/10' : 'border-t border-zinc-100') : ''}`}>
+   522→              <ShieldCheck className="size-4 shrink-0" style={{ color }} />
+   523→              <span className={`flex-1 text-xs font-medium ${textColor}`}>{s}</span>
+   524→              <span className={`text-[10px] ${subText}`}>授权后可获得</span>
+   525→            </div>
+   526→          ))}
+   527→        </div>
+   528→
+   529→        {brand === 'phone' && (
+   530→          <div className={`mt-3 rounded-2xl p-4 text-center ${dark ? 'bg-white/10' : 'bg-white'}`}>
+   531→            <p className={`text-[11px] ${subText}`}>中国联通 · 本机号码</p>
+   532→            <p className={`mt-1 text-xl font-extrabold tracking-wider ${textColor}`}>138****8000</p>
+   533→          </div>
+   534→        )}
+   535→
+   536→        {brand === 'apple' && (
+   537→          <div className="mt-4 flex flex-col items-center gap-2 py-2">
+   538→            <Fingerprint className="size-10 text-white/70" />
+   539→            <p className="text-xs text-white/50">通过 Face ID 确认身份</p>
+   540→          </div>
+   541→        )}
+   542→
+   543→        {brand === 'mail' && (
+   544→          <div className={`mt-3 flex items-center gap-2 rounded-2xl px-3.5 py-3 ${dark ? 'bg-white/10' : 'bg-white'}`}>
+   545→            <Mail className="size-4" style={{ color }} />
+   546→            <span className={`flex-1 text-sm font-medium ${textColor}`}>user@example.com</span>
+   547→            <CopyIcon className={`size-3.5 ${subText}`} />
+   548→          </div>
+   549→        )}
+   550→
+   551→        <p className={`mt-3 px-1 text-[10px] leading-4 ${subText}`}>
+   552→          授权代表你已同意 {BRANDS[brand].label} 与 {appName} 的用户协议及隐私政策，仅演示不会真实授权。
+   553→        </p>
+   554→      </div>
+   555→
+   556→      {/* 操作按钮 */}
+   557→      <div className="shrink-0 space-y-2 px-4 pb-4 pt-1">
+   558→        {brand === 'apple' ? (
+   559→          <button
+   560→            type="button"
+   561→            disabled={busy}
+   562→            onClick={onAgree}
+   563→            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-bold text-black shadow-lg transition-transform active:scale-[0.98] disabled:opacity-70"
+   564→          >
+   565→            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Apple className="size-4" />}
+   566→            {busy ? '确认中…' : '通过 Face ID 继续'}
+   567→          </button>
+   568→        ) : (
+   569→          <div className="flex gap-2.5">
+   570→            <button
+   571→              type="button"
+   572→              disabled={busy}
+   573→              onClick={onDeny}
+   574→              className={`h-12 flex-1 rounded-full text-sm font-semibold transition-transform active:scale-[0.98] disabled:opacity-60 ${
+   575→                dark ? 'bg-white/10 text-white/80' : 'border border-zinc-200 bg-white text-zinc-600'
+   576→              }`}
+   577→            >
+   578→              拒绝
+   579→            </button>
+   580→            <button
+   581→              type="button"
+   582→              disabled={busy}
+   583→              onClick={onAgree}
+   584→              className="flex h-12 flex-[1.6] items-center justify-center gap-2 rounded-full text-[15px] font-bold text-white shadow-lg transition-transform active:scale-[0.98] disabled:opacity-70"
+   585→              style={{ background: color }}
+   586→            >
+   587→              {busy ? (
+   588→                <><LoaderCircle className="size-4 animate-spin" /> 授权中…</>
+   589→              ) : brand === 'phone' ? (
+   590→                '本机号码一键登录'
+   591→              ) : (
+   592→                '同意授权'
+   593→              )}
+   594→            </button>
+   595→          </div>
+   596→        )}
+   597→      </div>
+   598→    </div>
+   599→  );
+   600→}
+   601→
+   602→
+   603→/* ================================================================== */
+   604→/* 以下为通用交互实现（tabbar / 步进器 / SKU / 表单 / 按钮 / 搜索）      */
+   605→/* ================================================================== */
+   606→
+   607→/** 逗号分隔解析（与组件 render 内一致） */
+   608→const splitListI = (raw: unknown): string[] =>
+   609→  String(raw ?? '').split(/[,,]/).map((s) => s.trim()).filter(Boolean);
+   610→
+   611→/* ------------------------------------------------------------------ */
+   612→/* 底部导航（fn.tabbar）：真实切换激活项 + 交互总线联动 + 槽位换根跳页  */
+   613→/* ------------------------------------------------------------------ */
+   614→
+   615→const TAB_ICONS_I = [Home, LayoutGrid, Compass, UserRound, Bell, Settings];
+   616→
+   617→export function FnTabbarInteractive({ props, tabNav }: InteractiveCtx) {
+   618→  const lid = useId();
+   619→  const setBus = useInteractionBus((s) => s.set);
+   620→  const channel = String(props.channel || 'tab');
+   621→  const tabs = useMemo(() => splitListI(props.items), [props.items]);
+   622→
+   623→  const [active, setActive] = useState(() => {
+   624→    const a = Math.round(Number(props.active) || 0);
+   625→    return Math.max(0, Math.min(Math.max(tabs.length - 1, 0), a));
+   626→  });
+   627→  /* 频道默认值：初始选中项同步到总线（订阅 tab 频道显隐的组件初始即可见） */
+   628→  useChannelDefault(channel, String(active));
+   629→
+   630→  const switchTab = (i: number) => {
+   631→    if (i === active) return;
+   632→    setActive(i);
+   633→    setBus(channel, String(i));
+   634→    tabNav?.(String(i));
+   635→  };
+   636→
+   637→  return (
+   638→    <div className="w-card flex border-t w-line" style={{ borderRadius: 'var(--pr) var(--pr) 0 0' }}>
+   639→      {tabs.map((label, i) => {
+   640→        const on = i === active;
+   641→        const Icon = TAB_ICONS_I[i % TAB_ICONS_I.length] || Home;
+   642→        return (
+   643→          <button
+   644→            key={`${i}-${label}`}
+   645→            type="button"
+   646→            onClick={(e) => {
+   647→              e.stopPropagation();
+   648→              switchTab(i);
+   649→            }}
+   650→            aria-pressed={on}
+   651→            className="flex flex-1 flex-col items-center gap-1 pb-2 pt-1.5 transition-transform active:scale-90"
+   652→          >
+   653→            {on ? (
+   654→              <motion.span
+   655→                layoutId={`${lid}-dot`}
+   656→                className="size-1 rounded-full"
+   657→                style={{ background: 'var(--p)' }}
+   658→                transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+   659→              />
+   660→            ) : (
+   661→              <span className="size-1 rounded-full bg-transparent" />
+   662→            )}
+   663→            <Icon
+   664→              className={`size-5 shrink-0 transition-opacity ${on ? '' : 'opacity-45'}`}
+   665→              style={on ? { color: 'var(--p)' } : undefined}
+   666→            />
+   667→            <span
+   668→              className={`text-[10px] transition-opacity ${on ? 'font-semibold' : 'opacity-45'}`}
+   669→              style={on ? { color: 'var(--p)' } : undefined}
+   670→            >
+   671→              {label}
+   672→            </span>
+   673→          </button>
+   674→        );
+   675→      })}
+   676→    </div>
+   677→  );
+   678→}
+   679→
+   680→/* ------------------------------------------------------------------ */
+   681→/* 聊天底部导航（chat.tabbar）：真实切换 + 总线联动 + 槽位换根跳页      */
+   682→/* ------------------------------------------------------------------ */
+   683→
+   684→const CHAT_TABS_I = [
+   685→  { key: 'msg', label: '消息', icon: MessageCircle, badge: true },
+   686→  { key: 'contacts', label: '通讯录', icon: BookUser, badge: false },
+   687→  { key: 'discover', label: '发现', icon: Compass, badge: false },
+   688→  { key: 'me', label: '我', icon: UserRound, badge: false },
+   689→];
+   690→
+   691→export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
+   692→  const setBus = useInteractionBus((s) => s.set);
+   693→  const channel = String(props.channel || 'chatTab');
+   694→  const [active, setActive] = useState(() =>
+   695→    CHAT_TABS_I.some((t) => t.key === props.active) ? String(props.active) : 'msg'
+   696→  );
+   697→  /* 频道默认值：初始选中项同步到总线 */
+   698→  useChannelDefault(channel, active);
+   699→
+   700→  const switchTab = (key: string) => {
+   701→    if (key === active) return;
+   702→    setActive(key);
+   703→    setBus(channel, key);
+   704→    tabNav?.(key);
+   705→  };
+   706→
+   707→  return (
+   708→    <div className="w-card flex border-t w-line">
+   709→      {CHAT_TABS_I.map(({ key, label, icon: Icon, badge }) => {
+   710→        const on = key === active;
+   711→        return (
+   712→          <button
+   713→            key={key}
+   714→            type="button"
+   715→            onClick={(e) => {
+   716→              e.stopPropagation();
+   717→              switchTab(key);
+   718→            }}
+   719→            aria-pressed={on}
+   720→            className="flex flex-1 flex-col items-center gap-1 pb-1.5 pt-2 transition-transform active:scale-90"
+   721→          >
+   722→            <span className="relative" style={on ? { color: 'var(--p)' } : undefined}>
+   723→              <Icon
+   724→                className="size-[22px] transition-opacity"
+   725→                style={{ opacity: on ? 1 : 0.4 }}
+   726→              />
+   727→              {badge && <span className="absolute -right-1.5 -top-0.5 size-2 rounded-full bg-rose-500" />}
+   728→            </span>
+   729→            <span
+   730→              className={`text-[10px] transition-opacity ${on ? 'font-semibold' : 'opacity-40'}`}
+   731→              style={on ? { color: 'var(--p)' } : undefined}
+   732→            >
+   733→              {label}
+   734→            </span>
+   735→          </button>
+   736→        );
+   737→      })}
+   738→    </div>
+   739→  );
+   740→}
+   741→
+   742→/* ------------------------------------------------------------------ */
+   743→/* 数量步进器（shop.qty-stepper）：真实加减 + 写入总线                 */
+   744→/* ------------------------------------------------------------------ */
+   745→
+   746→export function QtyStepperInteractive({ props }: InteractiveCtx) {
+   747→  const setBus = useInteractionBus((s) => s.set);
+   748→  const channel = String(props.channel || 'qty');
+   749→  const [count, setCount] = useState(() => Math.max(1, Math.min(99, Math.round(Number(props.value) || 1))));
+   750→  /* 频道默认值：初始数量同步到总线 */
+   751→  useChannelDefault(channel, String(count));
+   752→
+   753→  const clamp = (n: number) => Math.max(1, Math.min(99, n));
+   754→  const apply = (n: number) => {
+   755→    setCount(n);
+   756→    setBus(channel, String(n));
+   757→  };
+   758→
+   759→  return (
+   760→    <div className="flex items-center justify-between px-0.5">
+   761→      <span className="text-sm font-semibold">{props.label}</span>
+   762→      <div className="flex items-center gap-2.5">
+   763→        <button
+   764→          type="button"
+   765→          onClick={(e) => { e.stopPropagation(); if (count > 1) apply(count - 1); }}
+   766→          disabled={count <= 1}
+   767→          aria-label="减少数量"
+   768→          className="w-chip flex size-7 items-center justify-center rounded-full border w-line transition-transform active:scale-90 disabled:opacity-35"
+   769→        >
+   770→          <Minus className="size-3.5 opacity-55" />
+   771→        </button>
+   772→        <motion.span
+   773→          key={count}
+   774→          initial={{ scale: 1.25 }}
+   775→          animate={{ scale: 1 }}
+   776→          transition={{ type: 'spring', stiffness: 600, damping: 30 }}
+   777→          className="min-w-6 text-center text-sm font-bold tabular-nums"
+   778→        >
+   779→          {count}
+   780→        </motion.span>
+   781→        <button
+   782→          type="button"
+   783→          onClick={(e) => { e.stopPropagation(); if (count < 99) apply(count + 1); }}
+   784→          disabled={count >= 99}
+   785→          aria-label="增加数量"
+   786→          className="w-chip flex size-7 items-center justify-center rounded-full border w-line transition-transform active:scale-90 disabled:opacity-35"
+   787→          style={{ color: 'var(--p)' }}
+   788→        >
+   789→          <Plus className="size-3.5" />
+   790→        </button>
+   791→      </div>
+   792→    </div>
+   793→  );
+   794→}
+   795→
+   796→/* ------------------------------------------------------------------ */
+   797→/* SKU 选择（shop.sku-select）：真实选中 + 写入总线                    */
+   798→/* ------------------------------------------------------------------ */
+   799→
+   800→export function SkuSelectInteractive({ props }: InteractiveCtx) {
+   801→  const setBus = useInteractionBus((s) => s.set);
+   802→  const channel = String(props.channel || 'sku');
+   803→  const colors = useMemo(() => splitListI(props.colors), [props.colors]);
+   804→  const versions = useMemo(() => splitListI(props.versions), [props.versions]);
+   805→  const [ci, setCi] = useState(0);
+   806→  const [vi, setVi] = useState(0);
+   807→  /* 频道默认值：初始选中 SKU 同步到总线（格式与 pick 一致） */
+   808→  useChannelDefault(
+   809→    channel,
+   810→    [colors[0] ?? '', versions[0] ?? ''].filter(Boolean).join(' · ')
+   811→  );
+   812→
+   813→  const pick = (row: 'c' | 'v', i: number) => {
+   814→    const nextCi = row === 'c' ? i : ci;
+   815→    const nextVi = row === 'v' ? i : vi;
+   816→    setCi(nextCi);
+   817→    setVi(nextVi);
+   818→    const c = colors[nextCi] ?? '';
+   819→    const v = versions[nextVi] ?? '';
+   820→    setBus(channel, [c, v].filter(Boolean).join(' · '));
+   821→  };
+   822→
+   823→  const rows = [
+   824→    { label: '颜色', items: colors, active: ci, pick: (i: number) => pick('c', i) },
+   825→    { label: '版本', items: versions, active: vi, pick: (i: number) => pick('v', i) },
+   826→  ].filter((r) => r.items.length > 0);
+   827→
+   828→  return (
+   829→    <div className="w-card space-y-3.5 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   830→      {rows.map((row) => (
+   831→        <div key={row.label} className="flex items-start gap-3">
+   832→          <span className="w-7 shrink-0 pt-0.5 text-xs opacity-50">{row.label}</span>
+   833→          <div className="flex flex-wrap gap-1.5">
+   834→            {row.items.map((item, i) => {
+   835→              const on = i === row.active;
+   836→              return (
+   837→                <button
+   838→                  key={`${item}-${i}`}
+   839→                  type="button"
+   840→                  onClick={(e) => { e.stopPropagation(); row.pick(i); }}
+   841→                  aria-pressed={on}
+   842→                  className={`px-2.5 py-1 text-xs font-semibold transition-all active:scale-95 ${on ? '' : 'w-chip opacity-65'}`}
+   843→                  style={on
+   844→                    ? {
+   845→                        borderRadius: 'calc(var(--pr) - 6px)',
+   846→                        border: '1px solid var(--p)',
+   847→                        background: 'color-mix(in srgb, var(--p) 10%, transparent)',
+   848→                        color: 'var(--p)',
+   849→                      }
+   850→                    : { borderRadius: 'calc(var(--pr) - 6px)' }}
+   851→                >
+   852→                  {item}
+   853→                </button>
+   854→              );
+   855→            })}
+   856→          </div>
+   857→        </div>
+   858→      ))}
+   859→    </div>
+   860→  );
+   861→}
+   862→
+   863→/* ------------------------------------------------------------------ */
+   864→/* 表单输入（fn.input-field）：预览真实输入                            */
+   865→/* ------------------------------------------------------------------ */
+   866→
+   867→export function InputFieldInteractive({ props }: InteractiveCtx) {
+   868→  const [val, setVal] = useState('');
+   869→  return (
+   870→    <div>
+   871→      <label className="mb-1.5 block text-xs font-bold">{props.label}</label>
+   872→      <div className="w-input flex h-11 items-center px-3" style={{ borderRadius: 'var(--pr)' }}>
+   873→        <input
+   874→          value={val}
+   875→          onChange={(e) => setVal(e.target.value)}
+   876→          placeholder={props.placeholder}
+   877→          className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
+   878→        />
+   879→        {val && (
+   880→          <button
+   881→            type="button"
+   882→            onClick={(e) => { e.stopPropagation(); setVal(''); }}
+   883→            aria-label="清空"
+   884→            className="opacity-40 transition-opacity hover:opacity-80"
+   885→          >
+   886→            <X className="size-3.5" />
+   887→          </button>
+   888→        )}
+   889→      </div>
+   890→    </div>
+   891→  );
+   892→}
+   893→
+   894→/* ------------------------------------------------------------------ */
+   895→/* 主按钮（fn.big-button）：点击 → 加载 → 成功 → 触发绑定跳转          */
+   896→/* ------------------------------------------------------------------ */
+   897→
+   898→export function BigButtonInteractive({ props, onTap }: InteractiveCtx) {
+   899→  const [st, setSt] = useState<'idle' | 'loading' | 'done'>('idle');
+   900→  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   901→  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+   902→
+   903→  const variant = props.style === 'outline' || props.style === 'ghost' ? props.style : 'primary';
+   904→  const br = props.radius === 'normal' ? 'var(--pr)' : '999px';
+   905→  const skin = variant === 'primary'
+   906→    ? { background: 'var(--p)', color: 'var(--pf)' }
+   907→    : variant === 'outline'
+   908→      ? { border: '1.5px solid var(--p)', color: 'var(--p)' }
+   909→      : { color: 'var(--p)' };
+   910→
+   911→  const click = (e: React.MouseEvent) => {
+   912→    e.stopPropagation();
+   913→    if (st !== 'idle') return;
+   914→    setSt('loading');
+   915→    timers.current.push(
+   916→      setTimeout(() => {
+   917→        setSt('done');
+   918→        timers.current.push(
+   919→          setTimeout(() => {
+   920→            setSt('idle');
+   921→            onTap?.();
+   922→          }, 620)
+   923→        );
+   924→      }, 700)
+   925→    );
+   926→  };
+   927→
+   928→  return (
+   929→    <button
+   930→      type="button"
+   931→      onClick={click}
+   932→      className={`flex h-12 w-full items-center justify-center gap-2 text-[15px] font-bold transition-transform active:scale-[0.98] ${variant === 'primary' ? 'shadow-md' : variant === 'ghost' ? 'w-chip' : ''}`}
+   933→      style={{ borderRadius: br, ...skin }}
+   934→    >
+   935→      {st === 'loading' ? (
+   936→        <><LoaderCircle className="size-4 animate-spin" /> 请稍候…</>
+   937→      ) : st === 'done' ? (
+   938→        <><Check className="size-4" /> 操作成功</>
+   939→      ) : (
+   940→        props.text
+   941→      )}
+   942→    </button>
+   943→  );
+   944→}
+   945→
+   946→/* ------------------------------------------------------------------ */
+   947→/* 搜索栏（mall.search）：预览真实输入 + 一键清空                      */
+   948→/* ------------------------------------------------------------------ */
+   949→
+   950→export function SearchInputInteractive({ props }: InteractiveCtx) {
+   951→  const [val, setVal] = useState('');
+   952→  return (
+   953→    <div className="w-input flex h-10 items-center gap-2 pl-3.5 pr-1" style={{ borderRadius: '999px' }}>
+   954→      <Search className="size-4 shrink-0 opacity-45" />
+   955→      <input
+   956→        value={val}
+   957→        onChange={(e) => setVal(e.target.value)}
+   958→        placeholder={props.placeholder}
+   959→        className="flex-1 bg-transparent text-[13px] outline-none placeholder:opacity-40"
+   960→      />
+   961→      {val && (
+   962→        <button
+   963→          type="button"
+   964→          onClick={(e) => { e.stopPropagation(); setVal(''); }}
+   965→          aria-label="清空搜索"
+   966→          className="flex size-5 items-center justify-center rounded-full bg-black/10 opacity-70"
+   967→        >
+   968→          <X className="size-3" />
+   969→        </button>
+   970→      )}
+   971→      <span
+   972→        className="flex h-8 shrink-0 items-center px-4 text-xs font-semibold"
+   973→        style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+   974→      >
+   975→        {props.btnText}
+   976→      </span>
+   977→    </div>
+   978→  );
+   979→}
+   980→
