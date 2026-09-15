@@ -70,3 +70,4 @@ mini-services/*/node_modules
 
 # 聊天粘贴的临时图片等
 upload/
+tool-results/
