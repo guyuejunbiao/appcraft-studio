@@ -1,0 +1,1162 @@
+     1→'use client';
+     2→
+     3→import { useCallback, useEffect, useRef, useState } from 'react';
+     4→import {
+     5→  ChevronUp, ChevronDown, Copy, Trash2, ZoomIn, ZoomOut, Scan,
+     6→  Move3d, Rows3, Info, X, Lock,
+     7→  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+     8→  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+     9→  AlignHorizontalSpaceAround, AlignVerticalSpaceAround,
+    10→} from 'lucide-react';
+    11→import { toast } from 'sonner';
+    12→import { useBuilder } from '@/lib/store';
+    13→import { useDnd } from '@/lib/dnd-store';
+    14→import { getWidget } from '@/components/widgets/registry';
+    15→import { PhoneFrame } from './PhoneFrame';
+    16→import { WidgetRenderer, WidgetInner } from './WidgetRenderer';
+    17→import { DragGhost } from './DragGhost';
+    18→import type { WidgetInstance } from '@/lib/types';
+    19→import { missingFreeCoords } from '@/lib/types';
+    20→
+    21→const SNAP = 4;
+    22→const MIN_W = 48;
+    23→const MIN_H = 32;
+    24→const SCREEN_W = 375;
+    25→const EMPTY_GUIDES: { v: number[]; h: number[] } = { v: [], h: [] };
+    26→const HANDLE_DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
+    27→const HANDLE_CLASS: Record<string, string> = {
+    28→  n: 'left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize',
+    29→  s: 'left-1/2 -bottom-1.5 -translate-x-1/2 cursor-ns-resize',
+    30→  e: '-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize',
+    31→  w: '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize',
+    32→  ne: '-right-1.5 -top-1.5 cursor-nesw-resize',
+    33→  sw: '-left-1.5 -bottom-1.5 cursor-nesw-resize',
+    34→  nw: '-left-1.5 -top-1.5 cursor-nwse-resize',
+    35→  se: '-right-1.5 -bottom-1.5 cursor-nwse-resize',
+    36→};
+    37→
+    38→/**
+    39→ * 编辑画布（指针拖拽系统）：
+    40→ * - 从组件仓库拖入（Pointer Events，鼠标/触屏通吃，替代不可靠的 HTML5 DnD）
+    41→ * - 流式布局：拖拽排序 + 插入指示线
+    42→ * - 自由布局：任意摆放位置 + 8 向手柄调整大小 + 对齐吸附线 + 4px 网格吸附
+    43→ * - 多选：Shift 点选 + 空白处框选，批量拖动/对齐/分布/复制/删除
+    44→ * - 旧页面自动升级为自由布局（视觉无感迁移）；新建页面默认自由布局
+    45→ * - 流式布局下拖动时浮出提示，可一键切换自由布局
+    46→ */
+    47→
+    48→/** 本次会话只提示一次自动迁移 */
+    49→let freeMigrateToastShown = false;
+    50→
+    51→export function Canvas() {
+    52→  const pages = useBuilder((s) => s.pages);
+    53→  const currentPageId = useBuilder((s) => s.currentPageId);
+    54→  const selectedWidgetId = useBuilder((s) => s.selectedWidgetId);
+    55→  const selectedIds = useBuilder((s) => s.selectedIds);
+    56→  const theme = useBuilder((s) => s.project?.theme);
+    57→  const select = useBuilder((s) => s.select);
+    58→  const removeWidget = useBuilder((s) => s.removeWidget);
+    59→  const duplicateWidget = useBuilder((s) => s.duplicateWidget);
+    60→
+    61→  const [zoom, setZoom] = useState(0.85);
+    62→  const [indicator, setIndicator] = useState<{ index: number; y: number } | null>(null);
+    63→  const [freePreview, setFreePreview] = useState<{ x: number; y: number; w: number } | null>(null);
+    64→  const [guides, setGuides] = useState<{ v: number[]; h: number[] }>(EMPTY_GUIDES);
+    65→  const [sizeBadge, setSizeBadge] = useState<string | null>(null);
+    66→  const [posBadge, setPosBadge] = useState<string | null>(null);
+    67→  const [freeHeight, setFreeHeight] = useState(700);
+    68→  /** 框选矩形（画布坐标系） */
+    69→  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+    70→  const marqueeStartRef = useRef({ x: 0, y: 0 });
+    71→  const marqueeHitRef = useRef<string[]>([]);
+    72→  const [showFlowTip, setShowFlowTip] = useState(true);
+    73→  const [flowDragHint, setFlowDragHint] = useState(false);
+    74→  const flowHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    75→
+    76→  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    77→  const contentRef = useRef<HTMLDivElement>(null);
+    78→  const suppressClickRef = useRef(false);
+    79→  const dragMetaRef = useRef<{ offX: number; offY: number; batch: boolean }>({ offX: 0, offY: 0, batch: false });
+    80→  /** 多选组拖拽：所有选中组件的起始坐标 + 指针起点 */
+    81→  const groupStartRef = useRef<{ map: Record<string, { x: number; y: number }>; ox: number; oy: number } | null>(null);
+    82→  const resizeRef = useRef<null | {
+    83→    id: string; dir: string; startX: number; startY: number;
+    84→    rect: { x: number; y: number; w: number; h: number };
+    85→  }>(null);
+    86→  const freePreviewRef = useRef<{ x: number; y: number; w: number } | null>(null);
+    87→  const zoomRef = useRef(zoom);
+    88→  const isFreeRef = useRef(false);
+    89→
+    90→  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+    91→  useEffect(() => {
+    92→    const b = useBuilder.getState();
+    93→    const pg = b.pages.find((p) => p.id === b.currentPageId);
+    94→    isFreeRef.current = pg?.layout === 'free' && !missingFreeCoords(pg?.components ?? []);
+    95→  }, [pages, currentPageId]);
+    96→  useEffect(() => () => { useDnd.getState().end(); }, []);
+    97→
+    98→  const page = pages.find((p) => p.id === currentPageId);
+    99→  const isFreeMode = page?.layout === 'free';
+   100→  const isFree = isFreeMode && !missingFreeCoords(page?.components ?? []);
+   101→  const t = theme ?? { primary: '#f97316', radius: 'md' as const, dark: false };
+   102→  const dndActive = useDnd((s) => s.active);
+   103→
+   104→  /* ---------- 坐标与落点计算 ---------- */
+   105→
+   106→  const toLocal = useCallback((clientX: number, clientY: number) => {
+   107→    const el = contentRef.current;
+   108→    const rect = el?.getBoundingClientRect();
+   109→    if (!el || !rect) return { x: 0, y: 0 };
+   110→    return {
+   111→      x: (clientX - rect.left) / zoomRef.current,
+   112→      y: (clientY - rect.top) / zoomRef.current + el.scrollTop,
+   113→    };
+   114→  }, []);
+   115→
+   116→  const insideContent = useCallback((clientX: number, clientY: number) => {
+   117→    const rect = contentRef.current?.getBoundingClientRect();
+   118→    if (!rect) return false;
+   119→    const pad = 8;
+   120→    return (
+   121→      clientX >= rect.left - pad && clientX <= rect.right + pad &&
+   122→      clientY >= rect.top - pad && clientY <= rect.bottom + pad
+   123→    );
+   124→  }, []);
+   125→
+   126→  const computeDrop = useCallback((clientY: number) => {
+   127→    const b = useBuilder.getState();
+   128→    const list = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   129→    const origin = contentRef.current?.getBoundingClientRect();
+   130→    const scrollTop = contentRef.current?.scrollTop ?? 0;
+   131→    for (let i = 0; i < list.length; i++) {
+   132→      const rect = itemRefs.current.get(list[i].id)?.getBoundingClientRect();
+   133→      if (!rect) continue;
+   134→      if (clientY < rect.top + rect.height / 2) {
+   135→        return { index: i, y: origin ? (rect.top - origin.top) / zoomRef.current + scrollTop : 0 };
+   136→      }
+   137→    }
+   138→    const last = list.length > 0 ? itemRefs.current.get(list[list.length - 1].id)?.getBoundingClientRect() : null;
+   139→    return { index: list.length, y: origin && last ? (last.bottom - origin.top) / zoomRef.current + scrollTop : 0 };
+   140→  }, []);
+   141→
+   142→  /** 自由布局吸附：其它组件边缘/中心 + 屏幕边缘/水平中心 + 4px 网格 */
+   143→  const snapPos = useCallback((x: number, y: number, movingId: string | null, w: number, h: number) => {
+   144→    const b = useBuilder.getState();
+   145→    const comps = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   146→    const T = 6;
+   147→    const vCands: { p: number; line: number }[] = [
+   148→      { p: 0, line: 0 },
+   149→      { p: (SCREEN_W - w) / 2, line: SCREEN_W / 2 },
+   150→      { p: SCREEN_W - w, line: SCREEN_W },
+   151→    ];
+   152→    const hCands: { p: number; line: number }[] = [{ p: 0, line: 0 }];
+   153→    comps.forEach((c) => {
+   154→      if (c.id === movingId) return;
+   155→      const cx = c.x ?? 0, cy = c.y ?? 0, cw = c.w ?? 355, ch = c.h ?? 56;
+   156→      vCands.push({ p: cx, line: cx }, { p: cx + cw / 2 - w / 2, line: cx + cw / 2 }, { p: cx + cw - w, line: cx + cw });
+   157→      hCands.push({ p: cy, line: cy }, { p: cy + ch / 2 - h / 2, line: cy + ch / 2 }, { p: cy + ch - h, line: cy + ch }, { p: cy + ch, line: cy + ch });
+   158→    });
+   159→    let nx = x, ny = y;
+   160→    const g: { v: number[]; h: number[] } = { v: [], h: [] };
+   161→    for (const c of vCands) {
+   162→      if (Math.abs(x - c.p) <= T) { nx = Math.max(0, Math.min(c.p, SCREEN_W - w)); g.v.push(c.line); break; }
+   163→    }
+   164→    for (const c of hCands) {
+   165→      if (Math.abs(y - c.p) <= T) { ny = Math.max(0, c.p); g.h.push(c.line); break; }
+   166→    }
+   167→    if (g.v.length === 0) nx = Math.round(x / SNAP) * SNAP;
+   168→    if (g.h.length === 0) ny = Math.round(y / SNAP) * SNAP;
+   169→    return { x: Math.max(0, Math.min(nx, SCREEN_W - w)), y: Math.max(0, ny), guides: g };
+   170→  }, []);
+   171→
+   172→  /* ---------- 拖拽过程 ---------- */
+   173→
+   174→  const handleDragMove = useCallback((clientX: number, clientY: number) => {
+   175→    const st = useDnd.getState();
+   176→
+   177→    /* 缩放手柄拖拽中 */
+   178→    if (resizeRef.current) {
+   179→      const r = resizeRef.current;
+   180→      setPosBadge(null);
+   181→      const dx = (clientX - r.startX) / zoomRef.current;
+   182→      const dy = (clientY - r.startY) / zoomRef.current;
+   183→      let { x, y, w, h } = r.rect;
+   184→      if (r.dir.includes('e')) w = r.rect.w + dx;
+   185→      if (r.dir.includes('s')) h = r.rect.h + dy;
+   186→      if (r.dir.includes('w')) { w = r.rect.w - dx; x = r.rect.x + dx; }
+   187→      if (r.dir.includes('n')) { h = r.rect.h - dy; y = r.rect.y + dy; }
+   188→      if (dirClampWest(r.dir) && x < 0) { w = r.rect.w + r.rect.x; x = 0; }
+   189→      if (dirClampNorth(r.dir) && y < 0) { h = r.rect.h + r.rect.y; y = 0; }
+   190→      w = Math.max(MIN_W, w);
+   191→      h = Math.max(MIN_H, h);
+   192→      if (x + w > SCREEN_W) w = SCREEN_W - x;
+   193→      x = Math.round(x / SNAP) * SNAP;
+   194→      y = Math.round(Math.max(0, y) / SNAP) * SNAP;
+   195→      w = Math.round(w / SNAP) * SNAP;
+   196→      h = Math.round(h / SNAP) * SNAP;
+   197→      useBuilder.getState().setWidgetRect(r.id, { x, y, w, h }, true);
+   198→      setSizeBadge(`${w} × ${h}`);
+   199→      return;
+   200→    }
+   201→
+   202→    if (!insideContent(clientX, clientY)) {
+   203→      setIndicator(null);
+   204→      setFreePreview(null);
+   205→      freePreviewRef.current = null;
+   206→      setGuides(EMPTY_GUIDES);
+   207→      setPosBadge(null);
+   208→      return;
+   209→    }
+   210→
+   211→    if (isFreeRef.current) {
+   212→      setIndicator(null);
+   213→      setPosBadge(null);
+   214→      if (st.kind === 'marquee') {
+   215→        /* 框选：更新矩形 + 实时命中 */
+   216→        const { x, y } = toLocal(clientX, clientY);
+   217→        const rect = { x0: marqueeStartRef.current.x, y0: marqueeStartRef.current.y, x1: x, y1: y };
+   218→        setMarquee(rect);
+   219→        const bx0 = Math.min(rect.x0, rect.x1), bx1 = Math.max(rect.x0, rect.x1);
+   220→        const by0 = Math.min(rect.y0, rect.y1), by1 = Math.max(rect.y0, rect.y1);
+   221→        const b = useBuilder.getState();
+   222→        const hits: string[] = [];
+   223→        b.pages
+   224→          .find((p) => p.id === b.currentPageId)
+   225→          ?.components.forEach((c) => {
+   226→            if (c.hidden || c.locked) return;
+   227→            const el = itemRefs.current.get(c.id);
+   228→            const cw = c.w ?? el?.offsetWidth ?? 355;
+   229→            const ch = c.h ?? el?.offsetHeight ?? 56;
+   230→            const cx = c.x ?? 0, cy = c.y ?? 0;
+   231→            if (cx < bx1 && cx + cw > bx0 && cy < by1 && cy + ch > by0) hits.push(c.id);
+   232→          });
+   233→        marqueeHitRef.current = hits;
+   234→        if (hits.length > 0) b.selectMany(hits);
+   235→        else b.select(null);
+   236→        return;
+   237→      }
+   238→      if (st.kind === 'new') {
+   239→        const def = getWidget(st.widgetType ?? '');
+   240→        const w0 = def?.fullBleed ? SCREEN_W : 355;
+   241→        const { x, y } = toLocal(clientX, clientY);
+   242→        const snapped = snapPos(x - w0 / 2, y - 24, null, w0, 56);
+   243→        const preview = { x: snapped.x, y: snapped.y, w: w0 };
+   244→        freePreviewRef.current = preview;
+   245→        setFreePreview(preview);
+   246→        setGuides(snapped.guides);
+   247→      } else if (st.kind === 'move') {
+   248→        const id = st.moveId!;
+   249→        const b = useBuilder.getState();
+   250→        const comp = b.pages
+   251→          .find((p) => p.id === b.currentPageId)
+   252→          ?.components.find((c) => c.id === id);
+   253→        if (!comp) return;
+   254→        if (!dragMetaRef.current.batch) {
+   255→          b.beginBatch();
+   256→          dragMetaRef.current.batch = true;
+   257→        }
+   258→        const { x, y } = toLocal(clientX, clientY);
+   259→        const gs = groupStartRef.current;
+   260→        if (gs && Object.keys(gs.map).length > 1) {
+   261→          /* 组拖拽：所有选中组件整体平移（4px 网格吸附，不做边缘吸附） */
+   262→          const dx = x - gs.ox;
+   263→          const dy = y - gs.oy;
+   264→          const map: Record<string, { x: number; y: number }> = {};
+   265→          for (const [wid, s0] of Object.entries(gs.map)) {
+   266→            const cw = useBuilder
+   267→              .getState()
+   268→              .pages.find((p) => p.id === b.currentPageId)
+   269→              ?.components.find((c) => c.id === wid)?.w ?? 355;
+   270→            map[wid] = {
+   271→              x: Math.max(0, Math.min(Math.round((s0.x + dx) / SNAP) * SNAP, SCREEN_W - cw)),
+   272→              y: Math.max(0, Math.round((s0.y + dy) / SNAP) * SNAP),
+   273→            };
+   274→          }
+   275→          b.setWidgetsRects(map, true);
+   276→          setPosBadge(`${Math.round(dx)} · ${Math.round(dy)}`);
+   277→          setGuides(EMPTY_GUIDES);
+   278→          setFreePreview(null);
+   279→          freePreviewRef.current = null;
+   280→          return;
+   281→        }
+   282→        const cw = comp.w ?? 355;
+   283→        const ch = comp.h ?? 56;
+   284→        const snapped = snapPos(x - dragMetaRef.current.offX, y - dragMetaRef.current.offY, id, cw, ch);
+   285→        b.setWidgetRect(id, { x: snapped.x, y: snapped.y }, true);
+   286→        setPosBadge(`${Math.round(snapped.x)} · ${Math.round(snapped.y)}`);
+   287→        setGuides(snapped.guides);
+   288→        setFreePreview(null);
+   289→        freePreviewRef.current = null;
+   290→      }
+   291→    } else {
+   292→      setFreePreview(null);
+   293→      freePreviewRef.current = null;
+   294→      setGuides(EMPTY_GUIDES);
+   295→      setPosBadge(null);
+   296→      setIndicator(computeDrop(clientY));
+   297→      /* 流式拖动：浮出提示（结束后再保留 6 秒，方便点击切换） */
+   298→      if (st.started && st.kind === 'move') {
+   299→        if (flowHintTimer.current) clearTimeout(flowHintTimer.current);
+   300→        setFlowDragHint(true);
+   301→      }
+   302→    }
+   303→  }, [computeDrop, insideContent, snapPos, toLocal]);
+   304→
+   305→  const handleUp = useCallback((clientX: number, clientY: number) => {
+   306→    const st = useDnd.getState();
+   307→    const b = useBuilder.getState();
+   308→    const pageNow = b.pages.find((p) => p.id === b.currentPageId);
+   309→    const freeNow = pageNow?.layout === 'free';
+   310→
+   311→    /* 框选结束：命中集已在移动中实时写入 selectedIds；全部落空则清空。
+   312→       同时抑制紧随的 click，避免容器 onClick 把框选结果清空 */
+   313→    if (st.kind === 'marquee') {
+   314→      if (st.started) {
+   315→        suppressClickRef.current = true;
+   316→        useDnd.setState({ suppressNextClick: true });
+   317→        setTimeout(() => { suppressClickRef.current = false; }, 90);
+   318→      }
+   319→      if (marqueeHitRef.current.length === 0) b.select(null);
+   320→      setMarquee(null);
+   321→      marqueeHitRef.current = [];
+   322→      useDnd.getState().end();
+   323→      return;
+   324→    }
+   325→
+   326→    /* 缩放结束：合并历史 */
+   327→    if (resizeRef.current) {
+   328→      if (dragMetaRef.current.batch) b.endBatch();
+   329→      resizeRef.current = null;
+   330→      setSizeBadge(null);
+   331→      dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   332→      useDnd.getState().end();
+   333→      return;
+   334→    }
+   335→
+   336→    if (st.started) {
+   337→      suppressClickRef.current = true;
+   338→      useDnd.setState({ suppressNextClick: true });
+   339→      setTimeout(() => { suppressClickRef.current = false; }, 90);
+   340→    }
+   341→
+   342→    if (st.started && st.kind === 'new' && st.widgetType) {
+   343→      if (insideContent(clientX, clientY)) {
+   344→        if (freeNow) {
+   345→          const { x, y } = toLocal(clientX, clientY);
+   346→          const def = getWidget(st.widgetType);
+   347→          const w0 = def?.fullBleed ? SCREEN_W : 355;
+   348→          const fp = freePreviewRef.current;
+   349→          const rx = fp?.x ?? Math.max(0, Math.round((x - w0 / 2) / SNAP) * SNAP);
+   350→          const ry = fp?.y ?? Math.max(0, Math.round((y - 24) / SNAP) * SNAP);
+   351→          b.addWidget(st.widgetType, undefined, { x: rx, y: ry, w: w0 });
+   352→        } else {
+   353→          b.addWidget(st.widgetType, computeDrop(clientY).index);
+   354→        }
+   355→      }
+   356→    } else if (st.started && st.kind === 'move' && st.moveId) {
+   357→      if (freeNow) {
+   358→        if (dragMetaRef.current.batch) b.endBatch();
+   359→      } else if (insideContent(clientX, clientY)) {
+   360→        /* 仅画布内松手才排序；拖出画布松手视为取消 */
+   361→        b.moveWidget(st.moveId, computeDrop(clientY).index);
+   362→      }
+   363→    }
+   364→
+   365→    dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   366→    groupStartRef.current = null;
+   367→    setIndicator(null);
+   368→    setFreePreview(null);
+   369→    freePreviewRef.current = null;
+   370→    setGuides(EMPTY_GUIDES);
+   371→    setSizeBadge(null);
+   372→    setPosBadge(null);
+   373→    /* 流式拖动结束后：提示再保留 6 秒，之后自动隐藏 */
+   374→    if (flowHintTimer.current) clearTimeout(flowHintTimer.current);
+   375→    flowHintTimer.current = setTimeout(() => setFlowDragHint(false), 6000);
+   376→    useDnd.getState().end();
+   377→  }, [computeDrop, insideContent, toLocal]);
+   378→
+   379→  /* 拖拽期间挂全局指针监听 */
+   380→  useEffect(() => {
+   381→    if (!dndActive) return;
+   382→    const onMove = (e: PointerEvent) => {
+   383→      useDnd.getState().move(e.clientX, e.clientY);
+   384→      if (!useDnd.getState().started) return;
+   385→      handleDragMove(e.clientX, e.clientY);
+   386→    };
+   387→    const onUp = (e: PointerEvent) => handleUp(e.clientX, e.clientY);
+   388→    window.addEventListener('pointermove', onMove);
+   389→    window.addEventListener('pointerup', onUp, true);
+   390→    window.addEventListener('pointercancel', onUp, true);
+   391→    return () => {
+   392→      window.removeEventListener('pointermove', onMove);
+   393→      window.removeEventListener('pointerup', onUp, true);
+   394→      window.removeEventListener('pointercancel', onUp, true);
+   395→    };
+   396→  }, [dndActive, handleDragMove, handleUp]);
+   397→
+   398→  /* ---------- 布局切换 ---------- */
+   399→
+   400→  /** 启用自由布局：已有坐标直接切；缺坐标（旧数据）先按当前渲染堆叠生成坐标 */
+   401→  const enableFree = useCallback(() => {
+   402→    const b = useBuilder.getState();
+   403→    const pg = b.pages.find((p) => p.id === b.currentPageId);
+   404→    if (!pg || pg.layout === 'free') return;
+   405→    if (!missingFreeCoords(pg.components)) {
+   406→      b.updatePage(pg.id, { layout: 'free' });
+   407→      setFlowDragHint(false);
+   408→      return;
+   409→    }
+   410→    const rects: Record<string, { x: number; y: number; w: number }> = {};
+   411→    let y = 12;
+   412→    pg.components.forEach((c) => {
+   413→      const el = itemRefs.current.get(c.id);
+   414→      const h = el ? el.offsetHeight : 64;
+   415→      const full = getWidget(c.type)?.fullBleed;
+   416→      rects[c.id] = { x: full ? 0 : 10, y, w: full ? SCREEN_W : 355 };
+   417→      y += h + 12;
+   418→    });
+   419→    b.convertToFreeLayout(rects);
+   420→    setFlowDragHint(false);
+   421→    toast('已启用自由布局', { description: '拖动组件任意摆放，选中后拖手柄调整大小' });
+   422→  }, []);
+   423→
+   424→  /** 拖拽进行中一键切换：先干净结束拖拽，避免状态错乱 */
+   425→  const enableFreeNow = useCallback(() => {
+   426→    useDnd.getState().end();
+   427→    setIndicator(null);
+   428→    setFreePreview(null);
+   429→    freePreviewRef.current = null;
+   430→    setGuides(EMPTY_GUIDES);
+   431→    setPosBadge(null);
+   432→    dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   433→    resizeRef.current = null;
+   434→    enableFree();
+   435→  }, [enableFree]);
+   436→
+   437→  const setLayoutMode = useCallback(
+   438→    (mode: 'flow' | 'free') => {
+   439→      const b = useBuilder.getState();
+   440→      const pg = b.pages.find((p) => p.id === b.currentPageId);
+   441→      if (!pg) return;
+   442→      if (mode === 'free') {
+   443→        enableFree();
+   444→      } else if (pg.layout !== 'flow') {
+   445→        b.updatePage(pg.id, { layout: 'flow' });
+   446→      }
+   447→    },
+   448→    [enableFree]
+   449→  );
+   450→
+   451→  /* 旧页面自动升级为自由布局（显式选择流式的页面除外），视觉无感、不记历史
+   452→     - 旧数据 layout 为空：直接采用自由布局（已有坐标则原样保留，还原之前的自由排版） */
+   453→  useEffect(() => {
+   454→    if (!page || page.layout === 'flow') return;
+   455→    if (page.layout === 'free' && !missingFreeCoords(page.components)) return;
+   456→    const comps = page.components;
+   457→    const b = useBuilder.getState();
+   458→    if (comps.length === 0 || !missingFreeCoords(comps)) {
+   459→      b.migrateToFree(page.id);
+   460→      return;
+   461→    }
+   462→    const rects: Record<string, { x: number; y: number; w: number }> = {};
+   463→    let y = 12;
+   464→    comps.forEach((c) => {
+   465→      const el = itemRefs.current.get(c.id);
+   466→      const h = el ? el.offsetHeight : 64;
+   467→      const full = getWidget(c.type)?.fullBleed;
+   468→      rects[c.id] = { x: full ? 0 : 10, y, w: full ? SCREEN_W : 355 };
+   469→      y += h + 12;
+   470→    });
+   471→    b.migrateToFree(page.id, rects);
+   472→    if (!freeMigrateToastShown) {
+   473→      freeMigrateToastShown = true;
+   474→      toast('已自动启用自由布局', { description: '页面上的组件现在可以任意拖放位置了' });
+   475→    }
+   476→  }, [page?.id, page?.layout, page?.components]);
+   477→
+   478→  /* 自由布局：方向键微调选中组件（Shift = 10px 步进） */
+   479→  useEffect(() => {
+   480→    if (!isFreeMode) return;
+   481→    const onKey = (e: KeyboardEvent) => {
+   482→      const el = document.activeElement as HTMLElement | null;
+   483→      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+   484→      const dv: Record<string, [number, number]> = {
+   485→        ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+   486→      };
+   487→      const d = dv[e.key];
+   488→      if (!d) return;
+   489→      const b = useBuilder.getState();
+   490→      if (useDnd.getState().active || !b.selectedWidgetId) return;
+   491→      const comp = b.pages
+   492→        .find((p) => p.id === b.currentPageId)
+   493→        ?.components.find((c) => c.id === b.selectedWidgetId);
+   494→      if (!comp) return;
+   495→      e.preventDefault();
+   496→      const step = e.shiftKey ? 10 : 2;
+   497→      const w = comp.w ?? 355;
+   498→      const nx = Math.max(0, Math.min((comp.x ?? 0) + d[0] * step, SCREEN_W - w));
+   499→      const ny = Math.max(0, (comp.y ?? 0) + d[1] * step);
+   500→      b.setWidgetRect(comp.id, { x: nx, y: ny });
+   501→    };
+   502→    window.addEventListener('keydown', onKey);
+   503→    return () => window.removeEventListener('keydown', onKey);
+   504→  }, [isFreeMode]);
+   505→
+   506→  /* 切到自由布局后立即收起流式拖动提示 */
+   507→  useEffect(() => () => { if (flowHintTimer.current) clearTimeout(flowHintTimer.current); }, []);
+   508→
+   509→  /* 自由布局内容总高（含未被 h 固定的自适应组件）— ResizeObserver 订阅式测量 */
+   510→  useEffect(() => {
+   511→    if (!isFree) return;
+   512→    const measure = () => {
+   513→      let max = 700;
+   514→      const b = useBuilder.getState();
+   515→      const comps = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   516→      comps.forEach((c) => {
+   517→        const el = itemRefs.current.get(c.id);
+   518→        if (el) max = Math.max(max, (c.y ?? 0) + el.offsetHeight + 24);
+   519→      });
+   520→      setFreeHeight((prev) => (Math.abs(prev - max) > 2 ? Math.max(700, max) : prev));
+   521→    };
+   522→    const ro = new ResizeObserver(measure);
+   523→    itemRefs.current.forEach((el) => ro.observe(el));
+   524→    return () => ro.disconnect();
+   525→  }, [isFree, page?.components, zoom]);
+   526→
+   527→  /* ---------- 渲染 ---------- */
+   528→
+   529→  if (!page) {
+   530→    return (
+   531→      <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
+   532→        正在加载画布…
+   533→      </div>
+   534→    );
+   535→  }
+   536→
+   537→  return (
+   538→    <div className="relative flex min-w-0 flex-1 flex-col items-center overflow-auto bg-dot bg-[#eef0f4] py-8 thin-scroll">
+   539→      <DragGhost />
+   540→
+   541→      {/* 流式布局拖动提示：拖动仅排序；结束后保留 6 秒，可一键切换自由布局 */}
+   542→      {flowDragHint && !isFree && (
+   543→        <div className="pointer-events-none fixed left-1/2 top-16 z-[70] -translate-x-1/2">
+   544→          <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-zinc-900/92 py-1.5 pl-3 pr-1.5 text-white shadow-2xl backdrop-blur">
+   545→            <Info className="size-3.5 shrink-0 text-amber-300" />
+   546→            <span className="whitespace-nowrap text-xs font-medium">流式布局下拖动仅调整上下顺序</span>
+   547→            <button
+   548→              onPointerDown={(e) => {
+   549→                e.stopPropagation();
+   550→                e.preventDefault();
+   551→                enableFreeNow();
+   552→                setFlowDragHint(false);
+   553→              }}
+   554→              onClick={enableFreeNow}
+   555→              className="shrink-0 rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-bold text-zinc-900 transition-colors hover:bg-amber-300"
+   556→            >
+   557→              切换自由布局
+   558→            </button>
+   559→          </div>
+   560→        </div>
+   561→      )}
+   562→
+   563→      {/* 画布信息 */}
+   564→      <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-500">
+   565→        <div
+   566→          className="flex items-center rounded-full bg-white p-0.5 shadow-sm ring-1 ring-zinc-200"
+   567→          role="group"
+   568→          aria-label="布局模式"
+   569→        >
+   570→          <button
+   571→            onClick={() => setLayoutMode('flow')}
+   572→            className={`flex items-center gap-1 rounded-full px-3 py-1 font-semibold transition-all ${
+   573→              !isFreeMode ? 'bg-zinc-900 text-white shadow' : 'text-zinc-500 hover:text-zinc-800'
+   574→            }`}
+   575→            title="流式布局：组件自上而下自动排列，拖动调整上下顺序"
+   576→          >
+   577→            <Rows3 className="size-3.5" />
+   578→            流式布局
+   579→          </button>
+   580→          <button
+   581→            onClick={() => setLayoutMode('free')}
+   582→            className={`flex items-center gap-1 rounded-full px-3 py-1 font-semibold transition-all ${
+   583→              isFreeMode ? 'bg-zinc-900 text-white shadow' : 'text-zinc-500 hover:text-zinc-800'
+   584→            }`}
+   585→            title="自由布局：组件可任意拖放位置、8 向手柄调整大小"
+   586→          >
+   587→            <Move3d className="size-3.5" />
+   588→            自由布局
+   589→          </button>
+   590→        </div>
+   591→        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+   592→          {isFree ? '拖动摆放位置 · 手柄调大小 · 方向键微调' : '拖入左侧组件 · 点击选中 · 拖动排序'}
+   593→        </span>
+   594→        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+   595→          {page.name} · {page.components.filter((c) => !c.hidden).length} 个组件
+   596→        </span>
+   597→      </div>
+   598→
+   599→      {/* 流式布局提示横幅（可关闭） */}
+   600→      {!isFreeMode && showFlowTip && (
+   601→        <div className="mb-3 flex max-w-[395px] items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 shadow-sm">
+   602→          <Info className="size-4 shrink-0 text-amber-500" />
+   603→          <p className="flex-1 text-[11px] leading-4 text-amber-800">
+   604→            流式布局下组件只能上下排列。启用<b>自由布局</b>后可任意拖放位置、自由调整大小。
+   605→          </p>
+   606→          <button
+   607→            onClick={enableFree}
+   608→            className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm transition-colors hover:bg-amber-600"
+   609→          >
+   610→            启用自由布局
+   611→          </button>
+   612→          <button
+   613→            onClick={() => setShowFlowTip(false)}
+   614→            className="shrink-0 text-amber-400 transition-colors hover:text-amber-600"
+   615→            aria-label="关闭提示"
+   616→          >
+   617→            <X className="size-3.5" />
+   618→          </button>
+   619→        </div>
+   620→      )}
+   621→
+   622→      <div style={{ width: 395 * zoom, height: 832 * zoom }}>
+   623→        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: 395, height: 832 }}>
+   624→          <PhoneFrame theme={t} pageBg={page.background}>
+   625→            <div
+   626→              ref={contentRef}
+   627→              className="relative h-full overflow-y-auto thin-scroll"
+   628→              onClick={() => select(null)}
+   629→            >
+   630→              {isFree && (
+   631→                <div
+   632→                  className="pointer-events-none absolute inset-0"
+   633→                  style={{
+   634→                    backgroundImage: t.dark
+   635→                      ? 'radial-gradient(circle, rgba(255,255,255,0.10) 1px, transparent 1px)'
+   636→                      : 'radial-gradient(circle, rgba(0,0,0,0.09) 1px, transparent 1px)',
+   637→                    backgroundSize: '16px 16px',
+   638→                    minHeight: freeHeight,
+   639→                  }}
+   640→                />
+   641→              )}
+   642→
+   643→              {/* 插入指示线（流式） */}
+   644→              {indicator && (
+   645→                <div
+   646→                  className="pointer-events-none absolute left-1 right-1 z-40 flex items-center"
+   647→                  style={{ top: indicator.y }}
+   648→                >
+   649→                  <span className="h-[3px] flex-1 rounded-full" style={{ background: t.primary }} />
+   650→                  <span
+   651→                    className="absolute -left-0.5 size-2.5 rounded-full border-2 border-white shadow"
+   652→                    style={{ background: t.primary }}
+   653→                  />
+   654→                </div>
+   655→              )}
+   656→
+   657→              {/* 自由布局吸附线 */}
+   658→              {guides.v.map((v, i) => (
+   659→                <div
+   660→                  key={`gv${i}`}
+   661→                  className="pointer-events-none absolute z-30 border-l border-dashed"
+   662→                  style={{ left: v, top: 0, height: Math.max(freeHeight, 700), borderColor: '#ec4899' }}
+   663→                />
+   664→              ))}
+   665→              {guides.h.map((v, i) => (
+   666→                <div
+   667→                  key={`gh${i}`}
+   668→                  className="pointer-events-none absolute z-30 border-t border-dashed"
+   669→                  style={{ top: v, left: 0, right: 0, borderColor: '#ec4899' }}
+   670→                />
+   671→              ))}
+   672→
+   673→              {/* 自由布局：仓库拖入预览框 */}
+   674→              {freePreview && (
+   675→                <div
+   676→                  className="pointer-events-none absolute z-40 flex items-center justify-center rounded-xl border-2 border-dashed"
+   677→                  style={{
+   678→                    left: freePreview.x, top: freePreview.y, width: freePreview.w, height: 52,
+   679→                    borderColor: t.primary, background: `${t.primary}14`,
+   680→                  }}
+   681→                >
+   682→                  <span className="text-[10px] font-bold" style={{ color: t.primary }}>放置到这里</span>
+   683→                </div>
+   684→              )}
+   685→
+   686→              {/* 空状态 */}
+   687→              {page.components.length === 0 && !indicator && !freePreview && (
+   688→                <div className="m-3 flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-zinc-400">
+   689→                  <Scan className="size-7 opacity-50" />
+   690→                  <p className="text-sm font-medium">从左侧组件仓库拖入组件</p>
+   691→                  <p className="text-xs">或直接点击组件卡片快速添加</p>
+   692→                </div>
+   693→              )}
+   694→
+   695→              {isFree ? (
+   696→                /* ---------- 自由布局：绝对定位 + 拖拽移动 + 8 向缩放 + 框选 ---------- */
+   697→                <div
+   698→                  className="relative w-full"
+   699→                  style={{ minHeight: freeHeight }}
+   700→                  onPointerDown={(e) => {
+   701→                    /* 空白处按下：启动框选（子组件均已 stopPropagation） */
+   702→                    if (e.button !== 0) return;
+   703→                    const local = toLocal(e.clientX, e.clientY);
+   704→                    marqueeStartRef.current = { x: local.x, y: local.y };
+   705→                    marqueeHitRef.current = [];
+   706→                    setMarquee({ x0: local.x, y0: local.y, x1: local.x, y1: local.y });
+   707→                    useDnd.getState().begin({ kind: 'marquee', px: e.clientX, py: e.clientY });
+   708→                  }}
+   709→                >
+   710→                  {/* 框选矩形 */}
+   711→                  {marquee && (
+   712→                    <div
+   713→                      className="pointer-events-none absolute z-40 rounded-md border-2"
+   714→                      style={{
+   715→                        left: Math.min(marquee.x0, marquee.x1),
+   716→                        top: Math.min(marquee.y0, marquee.y1),
+   717→                        width: Math.abs(marquee.x1 - marquee.x0),
+   718→                        height: Math.abs(marquee.y1 - marquee.y0),
+   719→                        borderColor: t.primary,
+   720→                        background: `${t.primary}12`,
+   721→                      }}
+   722→                    >
+   723→                      <span
+   724→                        className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-bold text-white shadow"
+   725→                        style={{ background: t.primary }}
+   726→                      >
+   727→                        框选 {marqueeHitRef.current.length}
+   728→                      </span>
+   729→                    </div>
+   730→                  )}
+   731→                  {page.components.filter((w: WidgetInstance) => !w.hidden).map((w: WidgetInstance) => {
+   732→                    const def = getWidget(w.type);
+   733→                    const selected = selectedWidgetId === w.id;
+   734→                    const resizing = sizeBadge !== null && selected;
+   735→                    return (
+   736→                      <div
+   737→                        key={w.id}
+   738→                        ref={(el) => {
+   739→                          if (el) itemRefs.current.set(w.id, el);
+   740→                          else itemRefs.current.delete(w.id);
+   741→                        }}
+   742→                        onPointerDown={(e) => {
+   743→                          if (e.button !== 0) return;
+   744→                          e.stopPropagation();
+   745→                          e.preventDefault();
+   746→                          const b = useBuilder.getState();
+   747→                          /* Shift：加入/移出多选，不启动拖拽 */
+   748→                          if (e.shiftKey) {
+   749→                            select(w.id, true);
+   750→                            return;
+   751→                          }
+   752→                          const groupDrag = b.selectedIds.length > 1 && b.selectedIds.includes(w.id);
+   753→                          if (groupDrag) {
+   754→                            const pageNow = b.pages.find((p) => p.id === b.currentPageId);
+   755→                            const map: Record<string, { x: number; y: number }> = {};
+   756→                            pageNow?.components.forEach((c) => {
+   757→                              if (b.selectedIds.includes(c.id) && !c.locked) map[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+   758→                            });
+   759→                            const local = toLocal(e.clientX, e.clientY);
+   760→                            groupStartRef.current = { map, ox: local.x, oy: local.y };
+   761→                          } else {
+   762→                            groupStartRef.current = null;
+   763→                          }
+   764→                          select(w.id);
+   765→                          if (w.locked) return; /* 锁定：只选中，不启动拖拽 */
+   766→                          const local = toLocal(e.clientX, e.clientY);
+   767→                          dragMetaRef.current = {
+   768→                            offX: local.x - (w.x ?? 0),
+   769→                            offY: local.y - (w.y ?? 0),
+   770→                            batch: false,
+   771→                          };
+   772→                          useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   773→                        }}
+   774→                        onClick={(e) => {
+   775→                          e.stopPropagation();
+   776→                          if (suppressClickRef.current) return;
+   777→                          if (!e.shiftKey) select(w.id);
+   778→                        }}
+   779→                        className={`group absolute rounded-xl ${
+   780→                          selected ? 'z-20 ring-2' : selectedIds.includes(w.id) ? 'z-20 ring-2 ring-dashed' : 'z-10 hover:ring-1'
+   781→                        }`}
+   782→                        style={{
+   783→                          left: w.x ?? 0,
+   784→                          top: w.y ?? 0,
+   785→                          width: w.w ?? 355,
+   786→                          height: w.h,
+   787→                          overflow: typeof w.h === 'number' ? 'hidden' : undefined,
+   788→                          cursor: 'grab',
+   789→                          touchAction: 'none',
+   790→                          '--tw-ring-color': selected
+   791→                            ? t.primary
+   792→                            : selectedIds.includes(w.id)
+   793→                              ? `${t.primary}88`
+   794→                              : 'rgba(0,0,0,0.12)',
+   795→                        } as React.CSSProperties}
+   796→                      >
+   797→                        <WidgetInner w={w} />
+   798→
+   799→                        {/* 坐标/尺寸徽标（拖动或缩放中） */}
+   800→                        {(resizing || posBadge !== null) && (
+   801→                          <span
+   802→                            className="pointer-events-none absolute -top-6 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white shadow"
+   803→                            style={{ background: t.primary }}
+   804→                          >
+   805→                            {posBadge !== null ? `${posBadge}` : sizeBadge}
+   806→                          </span>
+   807→                        )}
+   808→
+   809→                        {/* 多选中的非主选组件：序号徽标（主选显示类型名） */}
+   810→                        {selectedIds.includes(w.id) && !selected && (
+   811→                          <span
+   812→                            className="pointer-events-none absolute -left-1 -top-6 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+   813→                            style={{ background: `${t.primary}b3` }}
+   814→                          >
+   815→                            多选 · {def?.name ?? w.type}
+   816→                          </span>
+   817→                        )}
+   818→
+   819→                        {/* 类型徽标 */}
+   820→                        {selected && def && !resizing && (
+   821→                          <span
+   822→                            className="pointer-events-none absolute -left-1 -top-6 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+   823→                            style={{ background: t.primary }}
+   824→                          >
+   825→                            {def.name}
+   826→                          </span>
+   827→                        )}
+   828→
+   829→                        {/* 悬浮操作条（自由布局：复制/删除；锁定时不显示） */}
+   830→                        {!w.locked && (
+   831→                          <div
+   832→                            className={`absolute -top-2.5 right-2 z-30 flex items-center gap-0.5 rounded-lg bg-zinc-900/90 p-0.5 shadow-lg transition-opacity ${
+   833→                              selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+   834→                            }`}
+   835→                            onClick={(e) => e.stopPropagation()}
+   836→                            onPointerDown={(e) => e.stopPropagation()}
+   837→                          >
+   838→                            <ItemBtn title="复制" onClick={() => duplicateWidget(w.id)}>
+   839→                              <Copy className="size-3.5" />
+   840→                            </ItemBtn>
+   841→                            <ItemBtn title="删除" danger onClick={() => removeWidget(w.id)}>
+   842→                              <Trash2 className="size-3.5" />
+   843→                            </ItemBtn>
+   844→                          </div>
+   845→                        )}
+   846→
+   847→                        {/* 锁定徽标 */}
+   848→                        {w.locked && selected && (
+   849→                          <span className="pointer-events-none absolute -right-1 -top-6 z-30 flex items-center gap-1 rounded-md bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+   850→                            <Lock className="size-2.5" /> 已锁定
+   851→                          </span>
+   852→                        )}
+   853→
+   854→                        {/* 8 向缩放手柄（锁定时不显示） */}
+   855→                        {selected && !w.locked && (
+   856→                          <>
+   857→                            {HANDLE_DIRS.map((dir) => (
+   858→                              <span
+   859→                                key={dir}
+   860→                                onPointerDown={(e) => {
+   861→                                  e.stopPropagation();
+   862→                                  e.preventDefault();
+   863→                                  const el = itemRefs.current.get(w.id);
+   864→                                  resizeRef.current = {
+   865→                                    id: w.id,
+   866→                                    dir,
+   867→                                    startX: e.clientX,
+   868→                                    startY: e.clientY,
+   869→                                    rect: {
+   870→                                      x: w.x ?? 0,
+   871→                                      y: w.y ?? 0,
+   872→                                      w: w.w ?? 355,
+   873→                                      h: w.h ?? (el ? el.offsetHeight : 56),
+   874→                                    },
+   875→                                  };
+   876→                                  dragMetaRef.current.batch = false;
+   877→                                  useBuilder.getState().beginBatch();
+   878→                                  dragMetaRef.current.batch = true;
+   879→                                  useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   880→                                  useDnd.getState().markStarted();
+   881→                                }}
+   882→                                className={`absolute z-30 size-3 rounded-full border-2 bg-white shadow ${HANDLE_CLASS[dir]}`}
+   883→                                style={{ borderColor: t.primary, touchAction: 'none' }}
+   884→                                title={`拖动调整大小（${dir}）`}
+   885→                              />
+   886→                            ))}
+   887→                          </>
+   888→                        )}
+   889→                      </div>
+   890→                    );
+   891→                  })}
+   892→                </div>
+   893→              ) : (
+   894→                /* ---------- 流式布局：垂直排列 + 拖拽排序 ---------- */
+   895→                <>
+   896→                  {page.components.filter((w: WidgetInstance) => !w.hidden).map((w: WidgetInstance, idx: number) => {
+   897→                    const def = getWidget(w.type);
+   898→                    const selected = selectedWidgetId === w.id;
+   899→                    return (
+   900→                      <div
+   901→                        key={w.id}
+   902→                        ref={(el) => {
+   903→                          if (el) itemRefs.current.set(w.id, el);
+   904→                          else itemRefs.current.delete(w.id);
+   905→                        }}
+   906→                        onPointerDown={(e) => {
+   907→                          if (e.button !== 0) return;
+   908→                          e.stopPropagation();
+   909→                          if (w.locked) { select(w.id); return; } /* 锁定：只选中，不启动排序拖拽 */
+   910→                          dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   911→                          useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   912→                        }}
+   913→                        onClick={(e) => {
+   914→                          e.stopPropagation();
+   915→                          if (suppressClickRef.current) return;
+   916→                          select(w.id);
+   917→                        }}
+   918→                        className={`group relative cursor-grab touch-none rounded-xl active:cursor-grabbing ${
+   919→                          selected ? 'ring-2' : 'hover:ring-1'
+   920→                        }`}
+   921→                        style={{
+   922→                          '--tw-ring-color': selected ? t.primary : 'rgba(0,0,0,0.12)',
+   923→                        } as React.CSSProperties}
+   924→                      >
+   925→                        <WidgetRenderer w={w} />
+   926→
+   927→                        {/* 悬浮操作条 */}
+   928→                        {!w.locked && (
+   929→                        <div
+   930→                          className={`absolute -top-2.5 right-2 z-30 flex items-center gap-0.5 rounded-lg bg-zinc-900/90 p-0.5 shadow-lg transition-opacity ${
+   931→                            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+   932→                          }`}
+   933→                          onClick={(e) => e.stopPropagation()}
+   934→                          onPointerDown={(e) => e.stopPropagation()}
+   935→                        >
+   936→                          <ItemBtn
+   937→                            title="上移"
+   938→                            disabled={idx === 0}
+   939→                            onClick={() => useBuilder.getState().moveWidget(w.id, idx - 1)}
+   940→                          >
+   941→                            <ChevronUp className="size-3.5" />
+   942→                          </ItemBtn>
+   943→                          <ItemBtn
+   944→                            title="下移"
+   945→                            disabled={idx === page.components.length - 1}
+   946→                            onClick={() => useBuilder.getState().moveWidget(w.id, idx + 2)}
+   947→                          >
+   948→                            <ChevronDown className="size-3.5" />
+   949→                          </ItemBtn>
+   950→                          <ItemBtn title="复制" onClick={() => duplicateWidget(w.id)}>
+   951→                            <Copy className="size-3.5" />
+   952→                          </ItemBtn>
+   953→                          <ItemBtn title="删除" danger onClick={() => removeWidget(w.id)}>
+   954→                            <Trash2 className="size-3.5" />
+   955→                          </ItemBtn>
+   956→                        </div>
+   957→                        )}
+   958→                        {w.locked && selected && (
+   959→                          <span className="absolute -right-1 -top-6 z-30 flex items-center gap-1 rounded-md bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+   960→                            <Lock className="size-2.5" /> 已锁定
+   961→                          </span>
+   962→                        )}
+   963→
+   964→                        {/* 类型徽标 */}
+   965→                        {selected && def && (
+   966→                          <span
+   967→                            className="pointer-events-none absolute -left-1 -top-6 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+   968→                            style={{ background: t.primary }}
+   969→                          >
+   970→                            {def.name}
+   971→                          </span>
+   972→                        )}
+   973→                      </div>
+   974→                    );
+   975→                  })}
+   976→                </>
+   977→              )}
+   978→
+   979→              {/* 底部留白便于拖入 */}
+   980→              <div className="h-16" />
+   981→            </div>
+   982→          </PhoneFrame>
+   983→        </div>
+   984→      </div>
+   985→
+   986→      {/* 多选批量操作工具条（自由布局） */}
+   987→      {isFreeMode && selectedIds.length > 1 && (
+   988→        <div className="fixed left-1/2 top-16 z-50 -translate-x-1/2">
+   989→          <div className="flex items-center gap-0.5 rounded-2xl border border-zinc-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur animate-in fade-in slide-in-from-top-2 duration-200">
+   990→            <span
+   991→              className="mr-1 flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold text-white"
+   992→              style={{ background: t.primary }}
+   993→            >
+   994→              <Scan className="size-3.5" />
+   995→              已选 {selectedIds.length}
+   996→            </span>
+   997→            <ToolbarBtn title="左对齐" onClick={() => useBuilder.getState().alignWidgets('left')}>
+   998→              <AlignStartVertical className="size-4" />
+   999→            </ToolbarBtn>
+  1000→            <ToolbarBtn title="水平居中" onClick={() => useBuilder.getState().alignWidgets('hcenter')}>
+  1001→              <AlignCenterVertical className="size-4" />
+  1002→            </ToolbarBtn>
+  1003→            <ToolbarBtn title="右对齐" onClick={() => useBuilder.getState().alignWidgets('right')}>
+  1004→              <AlignEndVertical className="size-4" />
+  1005→            </ToolbarBtn>
+  1006→            <span className="mx-0.5 h-5 w-px bg-zinc-200" />
+  1007→            <ToolbarBtn title="顶对齐" onClick={() => useBuilder.getState().alignWidgets('top')}>
+  1008→              <AlignStartHorizontal className="size-4" />
+  1009→            </ToolbarBtn>
+  1010→            <ToolbarBtn title="垂直居中" onClick={() => useBuilder.getState().alignWidgets('vcenter')}>
+  1011→              <AlignCenterHorizontal className="size-4" />
+  1012→            </ToolbarBtn>
+  1013→            <ToolbarBtn title="底对齐" onClick={() => useBuilder.getState().alignWidgets('bottom')}>
+  1014→              <AlignEndHorizontal className="size-4" />
+  1015→            </ToolbarBtn>
+  1016→            <span className="mx-0.5 h-5 w-px bg-zinc-200" />
+  1017→            <ToolbarBtn
+  1018→              title="横向等间距分布"
+  1019→              disabled={selectedIds.length < 3}
+  1020→              onClick={() => {
+  1021→                const sizes: Record<string, { w?: number; h?: number }> = {};
+  1022→                selectedIds.forEach((id) => {
+  1023→                  const el = itemRefs.current.get(id);
+  1024→                  if (el) sizes[id] = { w: el.offsetWidth, h: el.offsetHeight };
+  1025→                });
+  1026→                useBuilder.getState().distributeWidgets('h', sizes);
+  1027→              }}
+  1028→            >
+  1029→              <AlignHorizontalSpaceAround className="size-4" />
+  1030→            </ToolbarBtn>
+  1031→            <ToolbarBtn
+  1032→              title="纵向等间距分布"
+  1033→              disabled={selectedIds.length < 3}
+  1034→              onClick={() => {
+  1035→                const sizes: Record<string, { w?: number; h?: number }> = {};
+  1036→                selectedIds.forEach((id) => {
+  1037→                  const el = itemRefs.current.get(id);
+  1038→                  if (el) sizes[id] = { w: el.offsetWidth, h: el.offsetHeight };
+  1039→                });
+  1040→                useBuilder.getState().distributeWidgets('v', sizes);
+  1041→              }}
+  1042→            >
+  1043→              <AlignVerticalSpaceAround className="size-4" />
+  1044→            </ToolbarBtn>
+  1045→            <span className="mx-0.5 h-5 w-px bg-zinc-200" />
+  1046→            <ToolbarBtn
+  1047→              title="批量复制"
+  1048→              onClick={() => {
+  1049→                const n = useBuilder.getState().duplicateWidgets(selectedIds).length;
+  1050→                if (n > 0) toast(`已复制 ${n} 个组件`);
+  1051→              }}
+  1052→            >
+  1053→              <Copy className="size-4" />
+  1054→            </ToolbarBtn>
+  1055→            <ToolbarBtn
+  1056→              title="批量删除"
+  1057→              danger
+  1058→              onClick={() => {
+  1059→                const n = selectedIds.length;
+  1060→                useBuilder.getState().removeWidgets(selectedIds);
+  1061→                toast(`已删除 ${n} 个组件`);
+  1062→              }}
+  1063→            >
+  1064→              <Trash2 className="size-4" />
+  1065→            </ToolbarBtn>
+  1066→          </div>
+  1067→        </div>
+  1068→      )}
+  1069→
+  1070→      {/* 缩放控制 */}
+  1071→      <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
+  1072→        <button
+  1073→          className="flex size-7 items-center justify-center rounded-full hover:bg-zinc-100 disabled:opacity-30"
+  1074→          onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.05).toFixed(2)))}
+  1075→          disabled={zoom <= 0.5}
+  1076→          aria-label="缩小"
+  1077→        >
+  1078→          <ZoomOut className="size-4" />
+  1079→        </button>
+  1080→        <span className="w-12 text-center text-xs font-semibold tabular-nums">{Math.round(zoom * 100)}%</span>
+  1081→        <button
+  1082→          className="flex size-7 items-center justify-center rounded-full hover:bg-zinc-100 disabled:opacity-30"
+  1083→          onClick={() => setZoom((z) => Math.min(1.2, +(z + 0.05).toFixed(2)))}
+  1084→          disabled={zoom >= 1.2}
+  1085→          aria-label="放大"
+  1086→        >
+  1087→          <ZoomIn className="size-4" />
+  1088→        </button>
+  1089→        <span className="mx-1 h-4 w-px bg-zinc-200" />
+  1090→        <span className="flex h-7 items-center gap-1 px-2 text-xs text-zinc-500">
+  1091→          <Scan className="size-3.5" /> {page.components.filter((c) => !c.hidden).length} 组件
+  1092→        </span>
+  1093→      </div>
+  1094→    </div>
+  1095→  );
+  1096→}
+  1097→
+  1098→function dirClampWest(dir: string) {
+  1099→  return dir.includes('w');
+  1100→}
+  1101→function dirClampNorth(dir: string) {
+  1102→  return dir.includes('n');
+  1103→}
+  1104→
+  1105→/** 多选批量工具条按钮 */
+  1106→function ToolbarBtn({
+  1107→  children,
+  1108→  onClick,
+  1109→  title,
+  1110→  disabled,
+  1111→  danger,
+  1112→}: {
+  1113→  children: React.ReactNode;
+  1114→  onClick: () => void;
+  1115→  title: string;
+  1116→  disabled?: boolean;
+  1117→  danger?: boolean;
+  1118→}) {
+  1119→  return (
+  1120→    <button
+  1121→      title={title}
+  1122→      aria-label={title}
+  1123→      disabled={disabled}
+  1124→      onClick={onClick}
+  1125→      onPointerDown={(e) => e.stopPropagation()}
+  1126→      className={`flex size-8 items-center justify-center rounded-xl text-zinc-600 transition-colors disabled:opacity-25 ${
+  1127→        danger ? 'hover:bg-rose-50 hover:text-rose-600' : 'hover:bg-zinc-100 hover:text-zinc-900'
+  1128→      }`}
+  1129→    >
+  1130→      {children}
+  1131→    </button>
+  1132→  );
+  1133→}
+  1134→
+  1135→function ItemBtn({
+  1136→  children,
+  1137→  onClick,
+  1138→  title,
+  1139→  disabled,
+  1140→  danger,
+  1141→}: {
+  1142→  children: React.ReactNode;
+  1143→  onClick: () => void;
+  1144→  title: string;
+  1145→  disabled?: boolean;
+  1146→  danger?: boolean;
+  1147→}) {
+  1148→  return (
+  1149→    <button
+  1150→      title={title}
+  1151→      disabled={disabled}
+  1152→      onClick={onClick}
+  1153→      onPointerDown={(e) => e.stopPropagation()}
+  1154→      className={`flex size-6 items-center justify-center rounded-md text-white transition-colors disabled:opacity-30 ${
+  1155→        danger ? 'hover:bg-rose-500' : 'hover:bg-white/20'
+  1156→      }`}
+  1157→    >
+  1158→      {children}
+  1159→    </button>
+  1160→  );
+  1161→}
+  1162→

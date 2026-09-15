@@ -1,0 +1,653 @@
+     1→'use client';
+     2→
+     3→import { useMemo, useState } from 'react';
+     4→import {
+     5→  SlidersHorizontal, LayoutPanelLeft, Zap, X, Trash2, Copy, Palette,
+     6→  Home, Plus, Link2, ArrowRight, CheckCircle2, Crown, Move3d, Maximize2,
+     7→} from 'lucide-react';
+     8→import { useBuilder } from '@/lib/store';
+     9→import { getWidget } from '@/components/widgets/registry';
+    10→import { Button } from '@/components/ui/button';
+    11→import { Input } from '@/components/ui/input';
+    12→import { Textarea } from '@/components/ui/textarea';
+    13→import { Slider } from '@/components/ui/slider';
+    14→import { Switch } from '@/components/ui/switch';
+    15→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    16→import {
+    17→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    18→} from '@/components/ui/select';
+    19→import {
+    20→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    21→  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+    22→} from '@/components/ui/alert-dialog';
+    23→import type { PropField } from '@/lib/widget-types';
+    24→
+    25→const THEME_COLORS = [
+    26→  '#f97316', '#f43f5e', '#10b981', '#22c55e', '#8b5cf6',
+    27→  '#f59e0b', '#e11d48', '#14b8a6', '#a855f7', '#64748b',
+    28→];
+    29→
+    30→const BG_PRESETS = ['#f6f7fb', '#ffffff', '#fdf6ec', '#f0fdf4', '#faf5ff', '#101014'];
+    31→
+    32→const ANIM_OPTIONS = [
+    33→  { label: '滑入', value: 'slide' },
+    34→  { label: '淡入', value: 'fade' },
+    35→  { label: '推入', value: 'push' },
+    36→  { label: '无动画', value: 'none' },
+    37→];
+    38→
+    39→/** 右侧面板：属性 / 布局 / 交互 / 页面设置 / 主题 */
+    40→export function InspectorPanel() {
+    41→  const pages = useBuilder((s) => s.pages);
+    42→  const currentPageId = useBuilder((s) => s.currentPageId);
+    43→  const selectedWidgetId = useBuilder((s) => s.selectedWidgetId);
+    44→  const theme = useBuilder((s) => s.project?.theme);
+    45→  const connections = useBuilder((s) => s.connections);
+    46→  const select = useBuilder((s) => s.select);
+    47→  const updateWidget = useBuilder((s) => s.updateWidget);
+    48→  const updateWidgetProps = useBuilder((s) => s.updateWidgetProps);
+    49→  const removeWidget = useBuilder((s) => s.removeWidget);
+    50→  const duplicateWidget = useBuilder((s) => s.duplicateWidget);
+    51→  const updatePage = useBuilder((s) => s.updatePage);
+    52→  const removePage = useBuilder((s) => s.removePage);
+    53→  const addConnection = useBuilder((s) => s.addConnection);
+    54→  const removeConnection = useBuilder((s) => s.removeConnection);
+    55→  const updateTheme = useBuilder((s) => s.updateTheme);
+    56→
+    57→  const page = pages.find((p) => p.id === currentPageId);
+    58→  const widget = page?.components.find((c) => c.id === selectedWidgetId) ?? null;
+    59→  const def = widget ? getWidget(widget.type) : null;
+    60→
+    61→  if (!page || !theme) return null;
+    62→
+    63→  /* ---------- 选中组件：属性 / 布局 / 交互 ---------- */
+    64→  if (widget && def) {
+    65→    const fromConnections = connections.filter(
+    66→      (c) => c.fromPageId === page.id && c.fromWidgetId === widget.id
+    67→    );
+    68→    const mergedProps = { ...def.defaultProps, ...widget.props };
+    69→    const widgetSlots = def.slots?.(mergedProps) ?? [];
+    70→    return (
+    71→      <aside className="flex w-[320px] shrink-0 flex-col border-l bg-white" aria-label="属性面板">
+    72→        <div className="flex items-center gap-2 border-b px-4 py-3">
+    73→          <span className="flex size-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+    74→            <def.icon className="size-4" />
+    75→          </span>
+    76→          <div className="min-w-0 flex-1">
+    77→            <p className="truncate text-sm font-bold">{def.name}</p>
+    78→            <p className="truncate text-[10px] text-zinc-400">{def.type}</p>
+    79→          </div>
+    80→          <Button variant="ghost" size="icon" className="size-7" title="复制" onClick={() => duplicateWidget(widget.id)}>
+    81→            <Copy className="size-3.5" />
+    82→          </Button>
+    83→          <Button variant="ghost" size="icon" className="size-7 text-rose-500 hover:bg-rose-50 hover:text-rose-600" title="删除" onClick={() => removeWidget(widget.id)}>
+    84→            <Trash2 className="size-3.5" />
+    85→          </Button>
+    86→          <Button variant="ghost" size="icon" className="size-7" title="取消选中" onClick={() => select(null)}>
+    87→            <X className="size-3.5" />
+    88→          </Button>
+    89→        </div>
+    90→
+    91→        <Tabs defaultValue="props" className="flex min-h-0 flex-1 flex-col">
+    92→          <TabsList className="mx-4 mt-3 grid grid-cols-3">
+    93→            <TabsTrigger value="props" className="text-xs"><SlidersHorizontal className="mr-1 size-3" />属性</TabsTrigger>
+    94→            <TabsTrigger value="layout" className="text-xs"><LayoutPanelLeft className="mr-1 size-3" />布局</TabsTrigger>
+    95→            <TabsTrigger value="action" className="text-xs"><Zap className="mr-1 size-3" />交互</TabsTrigger>
+    96→          </TabsList>
+    97→
+    98→          <div className="min-h-0 flex-1 overflow-y-auto p-4 thin-scroll">
+    99→            <TabsContent value="props" className="mt-0 space-y-4">
+   100→              {def.fields.map((f) => (
+   101→                <FieldControl
+   102→                  key={f.key}
+   103→                  field={f}
+   104→                  value={widget.props[f.key]}
+   105→                  onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
+   106→                />
+   107→              ))}
+   108→              {def.fields.length === 0 && <p className="text-xs text-zinc-400">该组件没有可配置属性</p>}
+   109→            </TabsContent>
+   110→
+   111→            <TabsContent value="layout" className="mt-0 space-y-5">
+   112→              {page.layout === 'free' ? (
+   113→                <>
+   114→                  <div className="rounded-xl bg-zinc-50 p-3 text-[11px] leading-4 text-zinc-500">
+   115→                    当前页面为<span className="font-bold text-zinc-700">自由布局</span>：在画布上直接拖动组件任意摆放，
+   116→                    选中后拖动四角/四边手柄调整大小，自动吸附网格与相邻组件。
+   117→                  </div>
+   118→                  <div className="grid grid-cols-2 gap-2">
+   119→                    <NumField label="X 位置" value={widget.x ?? 0} min={0} max={375} onChange={(v) => updateWidget(widget.id, { x: v })} />
+   120→                    <NumField label="Y 位置" value={widget.y ?? 0} min={0} max={4000} onChange={(v) => updateWidget(widget.id, { y: v })} />
+   121→                    <NumField label="宽度" value={widget.w ?? 355} min={48} max={375} onChange={(v) => updateWidget(widget.id, { w: v })} />
+   122→                    <div>
+   123→                      <Label>高度（空 = 自动）</Label>
+   124→                      <Input
+   125→                        type="number"
+   126→                        className="h-8 text-xs"
+   127→                        value={typeof widget.h === 'number' ? widget.h : ''}
+   128→                        placeholder="自动"
+   129→                        onChange={(e) => updateWidget(widget.id, { h: e.target.value === '' ? undefined : Number(e.target.value) })}
+   130→                      />
+   131→                    </div>
+   132→                  </div>
+   133→                  <Button
+   134→                    variant="outline"
+   135→                    size="sm"
+   136→                    className="w-full"
+   137→                    onClick={() => updateWidget(widget.id, { h: undefined })}
+   138→                  >
+   139→                    <Maximize2 className="mr-1 size-3.5" /> 恢复自动高度
+   140→                  </Button>
+   141→                </>
+   142→              ) : (
+   143→                <>
+   144→              <div>
+   145→                <Label>宽度</Label>
+   146→                <Select
+   147→                  value={widget.width ?? 'full'}
+   148→                  onValueChange={(v) => updateWidget(widget.id, { width: v as never })}
+   149→                >
+   150→                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   151→                  <SelectContent>
+   152→                    <SelectItem value="full">通栏 100%</SelectItem>
+   153→                    <SelectItem value="three-quarter">四分之三 75%</SelectItem>
+   154→                    <SelectItem value="half">一半 50%</SelectItem>
+   155→                    <SelectItem value="third">三分之一 33%</SelectItem>
+   156→                  </SelectContent>
+   157→                </Select>
+   158→              </div>
+   159→              <div>
+   160→                <Label>对齐（非通栏时生效）</Label>
+   161→                <Select
+   162→                  value={widget.align ?? 'left'}
+   163→                  onValueChange={(v) => updateWidget(widget.id, { align: v as never })}
+   164→                >
+   165→                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   166→                  <SelectContent>
+   167→                    <SelectItem value="left">居左</SelectItem>
+   168→                    <SelectItem value="center">居中</SelectItem>
+   169→                    <SelectItem value="right">居右</SelectItem>
+   170→                  </SelectContent>
+   171→                </Select>
+   172→              </div>
+   173→              <div>
+   174→                <div className="mb-1.5 flex items-center justify-between">
+   175→                  <Label>上边距</Label>
+   176→                  <span className="text-xs font-semibold tabular-nums text-zinc-500">{widget.mt ?? 0}px</span>
+   177→                </div>
+   178→                <Slider
+   179→                  value={[widget.mt ?? 0]}
+   180→                  min={0} max={32} step={2}
+   181→                  onValueChange={([v]) => updateWidget(widget.id, { mt: v })}
+   182→                />
+   183→              </div>
+   184→              <div>
+   185→                <div className="mb-1.5 flex items-center justify-between">
+   186→                  <Label>下边距</Label>
+   187→                  <span className="text-xs font-semibold tabular-nums text-zinc-500">{widget.mb ?? 8}px</span>
+   188→                </div>
+   189→                <Slider
+   190→                  value={[widget.mb ?? 8]}
+   191→                  min={0} max={32} step={2}
+   192→                  onValueChange={([v]) => updateWidget(widget.id, { mb: v })}
+   193→                />
+   194→              </div>
+   195→                </>
+   196→              )}
+   197→            </TabsContent>
+   198→
+   199→            <TabsContent value="action" className="mt-0 space-y-4">
+   200→              <ConnectionEditor
+   201→                pageId={page.id}
+   202→                widgetId={widget.id}
+   203→                widgetName={def.name}
+   204→                fromConnections={fromConnections}
+   205→                slots={widgetSlots}
+   206→                onAdd={addConnection}
+   207→                onRemove={removeConnection}
+   208→              />
+   209→            </TabsContent>
+   210→          </div>
+   211→        </Tabs>
+   212→      </aside>
+   213→    );
+   214→  }
+   215→
+   216→  /* ---------- 未选中：页面设置 + 主题 ---------- */
+   217→  return (
+   218→    <aside className="flex w-[320px] shrink-0 flex-col border-l bg-white" aria-label="页面与主题">
+   219→      <div className="flex items-center gap-2 border-b px-4 py-3">
+   220→        <span className="flex size-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+   221→          <Palette className="size-4" />
+   222→        </span>
+   223→        <div className="min-w-0 flex-1">
+   224→          <p className="text-sm font-bold">页面 & 主题</p>
+   225→          <p className="text-[10px] text-zinc-400">选中画布组件可编辑属性</p>
+   226→        </div>
+   227→      </div>
+   228→
+   229→      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 thin-scroll">
+   230→        {/* 页面设置 */}
+   231→        <section className="space-y-3">
+   232→          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">页面设置</h3>
+   233→          <div>
+   234→            <Label>页面名称</Label>
+   235→            <Input
+   236→              className="h-8 text-xs"
+   237→              value={page.name}
+   238→              onChange={(e) => updatePage(page.id, { name: e.target.value })}
+   239→            />
+   240→          </div>
+   241→          <div>
+   242→            <Label>页面背景</Label>
+   243→            <div className="flex flex-wrap items-center gap-1.5">
+   244→              {BG_PRESETS.map((c) => (
+   245→                <button
+   246→                  key={c}
+   247→                  title={c}
+   248→                  onClick={() => updatePage(page.id, { background: c })}
+   249→                  className={`size-7 rounded-lg border-2 transition-transform hover:scale-110 ${page.background === c ? 'border-zinc-900' : 'border-zinc-200'}`}
+   250→                  style={{ background: c }}
+   251→                />
+   252→              ))}
+   253→              <label className="relative size-7 cursor-pointer overflow-hidden rounded-lg border-2 border-dashed border-zinc-300">
+   254→                <input
+   255→                  type="color"
+   256→                  value={page.background}
+   257→                  onChange={(e) => updatePage(page.id, { background: e.target.value })}
+   258→                  className="absolute inset-0 size-full cursor-pointer opacity-0"
+   259→                />
+   260→                <span className="flex size-full items-center justify-center text-[9px] text-zinc-400">自定</span>
+   261→              </label>
+   262→            </div>
+   263→          </div>
+   264→          <div className="flex items-center justify-between rounded-xl border bg-zinc-50 px-3 py-2.5">
+   265→            <div className="flex items-center gap-2">
+   266→              <Move3d className="size-4 text-violet-500" />
+   267→              <div>
+   268→                <p className="text-xs font-semibold">
+   269→                  {page.layout === 'free' ? '自由布局' : '流式布局'}
+   270→                </p>
+   271→                <p className="text-[10px] text-zinc-400">
+   272→                  {page.layout === 'free' ? '组件可任意拖放位置与大小' : '组件自上而下排列，拖动仅调整顺序'}
+   273→                </p>
+   274→              </div>
+   275→            </div>
+   276→            <Switch
+   277→              checked={page.layout === 'free'}
+   278→              onCheckedChange={(v) => updatePage(page.id, { layout: v ? 'free' : 'flow' })}
+   279→              aria-label="切换自由布局"
+   280→            />
+   281→          </div>
+   282→          <div className="flex items-center justify-between rounded-xl border bg-zinc-50 px-3 py-2.5">
+   283→            <div className="flex items-center gap-2">
+   284→              <Home className="size-4 text-amber-500" />
+   285→              <div>
+   286→                <p className="text-xs font-semibold">设为主页</p>
+   287→                <p className="text-[10px] text-zinc-400">App 启动时打开的页面</p>
+   288→              </div>
+   289→            </div>
+   290→            <Switch
+   291→              checked={page.isHome}
+   292→              onCheckedChange={(v) => {
+   293→                if (!v || page.isHome) return;
+   294→                pages.forEach((p) => {
+   295→                  if (p.isHome) updatePage(p.id, { isHome: false });
+   296→                });
+   297→                updatePage(page.id, { isHome: true });
+   298→              }}
+   299→            />
+   300→          </div>
+   301→          <AlertDialog>
+   302→            <AlertDialogTrigger asChild>
+   303→              <Button
+   304→                variant="outline"
+   305→                size="sm"
+   306→                className="w-full border-rose-200 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+   307→                disabled={pages.length <= 1 || page.isHome}
+   308→              >
+   309→                <Trash2 className="mr-1 size-3.5" /> 删除此页面
+   310→              </Button>
+   311→            </AlertDialogTrigger>
+   312→            <AlertDialogContent>
+   313→              <AlertDialogHeader>
+   314→                <AlertDialogTitle>删除页面「{page.name}」？</AlertDialogTitle>
+   315→                <AlertDialogDescription>
+   316→                  将同时删除与该页面相关的所有跳转连接，此操作不可撤销。
+   317→                </AlertDialogDescription>
+   318→              </AlertDialogHeader>
+   319→              <AlertDialogFooter>
+   320→                <AlertDialogCancel>取消</AlertDialogCancel>
+   321→                <AlertDialogAction className="bg-rose-500 hover:bg-rose-600" onClick={() => removePage(page.id)}>
+   322→                  确认删除
+   323→                </AlertDialogAction>
+   324→              </AlertDialogFooter>
+   325→            </AlertDialogContent>
+   326→          </AlertDialog>
+   327→        </section>
+   328→
+   329→        {/* 主题 */}
+   330→        <section className="space-y-3">
+   331→          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">UI / UX 主题</h3>
+   332→          <div>
+   333→            <Label>主题色</Label>
+   334→            <div className="flex flex-wrap items-center gap-1.5">
+   335→              {THEME_COLORS.map((c) => (
+   336→                <button
+   337→                  key={c}
+   338→                  onClick={() => updateTheme({ primary: c })}
+   339→                  className={`flex size-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${theme.primary === c ? 'ring-2 ring-zinc-900 ring-offset-2' : ''}`}
+   340→                  style={{ background: c }}
+   341→                  aria-label={`主题色 ${c}`}
+   342→                >
+   343→                  {theme.primary === c && <CheckCircle2 className="size-4 text-white" />}
+   344→                </button>
+   345→              ))}
+   346→              <label className="relative size-8 cursor-pointer overflow-hidden rounded-full border-2 border-dashed border-zinc-300">
+   347→                <input
+   348→                  type="color"
+   349→                  value={theme.primary}
+   350→                  onChange={(e) => updateTheme({ primary: e.target.value })}
+   351→                  className="absolute inset-0 size-full cursor-pointer opacity-0"
+   352→                />
+   353→                <span className="flex size-full items-center justify-center text-[9px] text-zinc-400">+</span>
+   354→              </label>
+   355→            </div>
+   356→          </div>
+   357→          <div>
+   358→            <Label>圆角风格</Label>
+   359→            <div className="grid grid-cols-5 gap-1">
+   360→              {([
+   361→                { v: 'none', label: '无' },
+   362→                { v: 'sm', label: '小' },
+   363→                { v: 'md', label: '中' },
+   364→                { v: 'lg', label: '大' },
+   365→                { v: 'full', label: '全圆' },
+   366→              ] as const).map((r) => (
+   367→                <button
+   368→                  key={r.v}
+   369→                  onClick={() => updateTheme({ radius: r.v })}
+   370→                  className={`rounded-lg border py-1.5 text-[11px] font-semibold transition-colors ${
+   371→                    theme.radius === r.v ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 hover:bg-zinc-50'
+   372→                  }`}
+   373→                >
+   374→                  {r.label}
+   375→                </button>
+   376→              ))}
+   377→            </div>
+   378→          </div>
+   379→          <div className="flex items-center justify-between rounded-xl border bg-zinc-50 px-3 py-2.5">
+   380→            <div className="flex items-center gap-2">
+   381→              <Crown className="size-4 text-amber-500" />
+   382→              <div>
+   383→                <p className="text-xs font-semibold">暗色模式</p>
+   384→                <p className="text-[10px] text-zinc-400">预览界面整体变暗</p>
+   385→              </div>
+   386→            </div>
+   387→            <Switch checked={theme.dark} onCheckedChange={(v) => updateTheme({ dark: v })} />
+   388→          </div>
+   389→        </section>
+   390→
+   391→        {/* 项目统计 */}
+   392→        <section className="grid grid-cols-3 gap-2">
+   393→          <Stat label="页面" value={pages.length} />
+   394→          <Stat label="组件" value={pages.reduce((n, p) => n + p.components.length, 0)} />
+   395→          <Stat label="连接" value={connections.length} />
+   396→        </section>
+   397→      </div>
+   398→    </aside>
+   399→  );
+   400→}
+   401→
+   402→function Label({ children }: { children: React.ReactNode }) {
+   403→  return <p className="mb-1.5 text-[11px] font-semibold text-zinc-500">{children}</p>;
+   404→}
+   405→
+   406→/** 自由布局数值输入（X/Y/W/H） */
+   407→function NumField({
+   408→  label, value, min, max, onChange,
+   409→}: {
+   410→  label: string;
+   411→  value: number;
+   412→  min: number;
+   413→  max: number;
+   414→  onChange: (v: number) => void;
+   415→}) {
+   416→  return (
+   417→    <div>
+   418→      <Label>{label}</Label>
+   419→      <Input
+   420→        type="number"
+   421→        className="h-8 text-xs tabular-nums"
+   422→        value={Math.round(value)}
+   423→        min={min}
+   424→        max={max}
+   425→        onChange={(e) => {
+   426→          const v = Number(e.target.value);
+   427→          if (!Number.isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+   428→        }}
+   429→      />
+   430→    </div>
+   431→  );
+   432→}
+   433→
+   434→function Stat({ label, value }: { label: string; value: number }) {
+   435→  return (
+   436→    <div className="rounded-xl border bg-zinc-50 px-2 py-2.5 text-center">
+   437→      <p className="text-lg font-extrabold tabular-nums">{value}</p>
+   438→      <p className="text-[10px] text-zinc-400">{label}</p>
+   439→    </div>
+   440→  );
+   441→}
+   442→
+   443→/** 属性字段控件 */
+   444→function FieldControl({
+   445→  field, value, onChange,
+   446→}: {
+   447→  field: PropField;
+   448→  value: any;
+   449→  onChange: (v: any) => void;
+   450→}) {
+   451→  if (field.type === 'switch') {
+   452→    return (
+   453→      <div className="flex items-center justify-between">
+   454→        <Label>{field.label}</Label>
+   455→        <Switch checked={value !== false} onCheckedChange={onChange} />
+   456→      </div>
+   457→    );
+   458→  }
+   459→  if (field.type === 'textarea') {
+   460→    return (
+   461→      <div>
+   462→        <Label>{field.label}</Label>
+   463→        <Textarea
+   464→          className="min-h-16 text-xs"
+   465→          value={String(value ?? '')}
+   466→          onChange={(e) => onChange(e.target.value)}
+   467→          placeholder={field.placeholder}
+   468→        />
+   469→      </div>
+   470→    );
+   471→  }
+   472→  if (field.type === 'select') {
+   473→    return (
+   474→      <div>
+   475→        <Label>{field.label}</Label>
+   476→        <Select value={String(value ?? '')} onValueChange={onChange}>
+   477→          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   478→          <SelectContent>
+   479→            {(field.options ?? []).map((o) => (
+   480→              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   481→            ))}
+   482→          </SelectContent>
+   483→        </Select>
+   484→      </div>
+   485→    );
+   486→  }
+   487→  if (field.type === 'color') {
+   488→    return (
+   489→      <div>
+   490→        <Label>{field.label}</Label>
+   491→        <div className="flex items-center gap-2">
+   492→          <input
+   493→            type="color"
+   494→            value={String(value ?? '#000000')}
+   495→            onChange={(e) => onChange(e.target.value)}
+   496→            className="size-8 cursor-pointer rounded-lg border"
+   497→          />
+   498→          <Input className="h-8 flex-1 font-mono text-xs" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
+   499→        </div>
+   500→      </div>
+   501→    );
+   502→  }
+   503→  if (field.type === 'number') {
+   504→    return (
+   505→      <div>
+   506→        <div className="mb-1.5 flex items-center justify-between">
+   507→          <Label>{field.label}</Label>
+   508→          <span className="text-xs font-semibold tabular-nums text-zinc-500">{Number(value ?? 0)}</span>
+   509→        </div>
+   510→        <Slider
+   511→          value={[Number(value ?? 0)]}
+   512→          min={field.min ?? 0}
+   513→          max={field.max ?? 100}
+   514→          step={field.step ?? 1}
+   515→          onValueChange={([v]) => onChange(v)}
+   516→        />
+   517→      </div>
+   518→    );
+   519→  }
+   520→  return (
+   521→    <div>
+   522→      <Label>{field.label}</Label>
+   523→      <Input
+   524→        className="h-8 text-xs"
+   525→        value={String(value ?? '')}
+   526→        onChange={(e) => onChange(e.target.value)}
+   527→        placeholder={field.placeholder}
+   528→      />
+   529→    </div>
+   530→  );
+   531→}
+   532→
+   533→/** 交互（连接）编辑器 */
+   534→function ConnectionEditor({
+   535→  pageId, widgetId, widgetName, fromConnections, slots, onAdd, onRemove,
+   536→}: {
+   537→  pageId: string;
+   538→  widgetId: string;
+   539→  widgetName: string;
+   540→  fromConnections: { id: string; toPageId: string; animation: string; slot?: string }[];
+   541→  slots: { key: string; label: string }[];
+   542→  onAdd: (c: { fromPageId: string; fromWidgetId: string; toPageId: string; animation: 'slide' | 'fade' | 'push' | 'none'; slot?: string }) => void;
+   543→  onRemove: (id: string) => void;
+   544→}) {
+   545→  const pages = useBuilder((s) => s.pages);
+   546→  const [toPage, setToPage] = useState('');
+   547→  const [anim, setAnim] = useState<'slide' | 'fade' | 'push' | 'none'>('slide');
+   548→  const [slot, setSlot] = useState('widget');
+   549→
+   550→  const targets = useMemo(() => pages.filter((p) => p.id !== pageId), [pages, pageId]);
+   551→  const slotLabel = (key?: string) =>
+   552→    key ? (slots.find((s) => s.key === key)?.label ?? `槽位 ${key}`) : null;
+   553→
+   554→  return (
+   555→    <div className="space-y-3">
+   556→      <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+   557→        <Link2 className="size-3.5" />
+   558→        「{widgetName}」被点击后跳转到
+   559→      </div>
+   560→
+   561→      {fromConnections.length > 0 && (
+   562→        <div className="space-y-1.5">
+   563→          {fromConnections.map((c) => {
+   564→            const target = pages.find((p) => p.id === c.toPageId);
+   565→            const animLabel = ANIM_OPTIONS.find((a) => a.value === c.animation)?.label ?? c.animation;
+   566→            const sLabel = slotLabel(c.slot);
+   567→            return (
+   568→              <div key={c.id} className="flex items-center gap-2 rounded-xl border bg-zinc-50 px-2.5 py-2">
+   569→                <ArrowRight className="size-3.5 shrink-0 text-emerald-500" />
+   570→                <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+   571→                  {sLabel && <span className="mr-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold text-emerald-600">{sLabel}</span>}
+   572→                  {target?.name ?? '未知页面'}
+   573→                  <span className="ml-1.5 rounded bg-zinc-200 px-1 py-0.5 text-[9px] font-normal text-zinc-500">{animLabel}</span>
+   574→                </span>
+   575→                <button
+   576→                  className="text-zinc-400 hover:text-rose-500"
+   577→                  onClick={() => onRemove(c.id)}
+   578→                  title="删除连接"
+   579→                >
+   580→                  <X className="size-3.5" />
+   581→                </button>
+   582→              </div>
+   583→            );
+   584→          })}
+   585→        </div>
+   586→      )}
+   587→
+   588→      <div className="space-y-2 rounded-xl border border-dashed p-3">
+   589→        {slots.length > 0 && (
+   590→          <div>
+   591→            <Label>绑定目标</Label>
+   592→            <Select value={slot} onValueChange={setSlot}>
+   593→              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   594→              <SelectContent>
+   595→                <SelectItem value="widget">整个组件（任意点击）</SelectItem>
+   596→                {slots.map((s) => (
+   597→                  <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+   598→                ))}
+   599→              </SelectContent>
+   600→            </Select>
+   601→            {slot !== 'widget' && (
+   602→              <p className="mt-1 text-[10px] leading-3.5 text-zinc-400">
+   603→                预览中点击该标签即跳转，适合底部导航切换页面
+   604→              </p>
+   605→            )}
+   606→          </div>
+   607→        )}
+   608→        <Select value={toPage} onValueChange={setToPage}>
+   609→          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择目标页面" /></SelectTrigger>
+   610→          <SelectContent>
+   611→            {targets.map((p) => (
+   612→              <SelectItem key={p.id} value={p.id}>
+   613→                {p.name}
+   614→                {p.isHome ? '（主页）' : ''}
+   615→              </SelectItem>
+   616→            ))}
+   617→          </SelectContent>
+   618→        </Select>
+   619→        <Select value={anim} onValueChange={(v) => setAnim(v as never)}>
+   620→          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   621→          <SelectContent>
+   622→            {ANIM_OPTIONS.map((a) => (
+   623→              <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+   624→            ))}
+   625→          </SelectContent>
+   626→        </Select>
+   627→        <Button
+   628→          size="sm"
+   629→          className="w-full"
+   630→          disabled={!toPage}
+   631→          onClick={() => {
+   632→            if (!toPage) return;
+   633→            onAdd({
+   634→              fromPageId: pageId,
+   635→              fromWidgetId: widgetId,
+   636→              toPageId: toPage,
+   637→              animation: anim,
+   638→              slot: slot === 'widget' ? undefined : slot,
+   639→            });
+   640→            setToPage('');
+   641→          }}
+   642→        >
+   643→          <Plus className="mr-1 size-3.5" /> 添加跳转连接
+   644→        </Button>
+   645→      </div>
+   646→
+   647→      {targets.length === 0 && (
+   648→        <p className="text-center text-[11px] text-zinc-400">只有一页，先添加新页面才能建立连接</p>
+   649→      )}
+   650→    </div>
+   651→  );
+   652→}
+   653→

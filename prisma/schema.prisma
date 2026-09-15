@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// DIY App 项目
+model Project {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  template    String?
+  theme       String       @default("{}")
+  pages       Page[]
+  connections Connection[]
+  publishes   Publish[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+/// App 的一个界面（页面）
+model Page {
+  id         String  @id
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  order      Int     @default(0)
+  background String  @default("#f6f7fb")
+  isHome     Boolean @default(false)
+  /// WidgetInstance[] JSON
+  components String  @default("[]")
+  /// 布局模式：null=旧数据（首次打开自动升级） / 'flow'=流式 / 'free'=自由布局
+  layout     String?
+  flowX      Float?
+  flowY      Float?
+
+  @@index([projectId])
+}
+
+/// 页面连接：某页某组件点击跳转到目标页（slot 用于 tabbar 每个标签独立绑定）
+model Connection {
+  id           String  @id
+  projectId    String
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromPageId   String
+  fromWidgetId String
+  action       String  @default("click")
+  toPageId     String
+  animation    String  @default("slide")
+  /// 复合组件槽位（如 tabbar 标签序号 '0'/'1'…）；空 = 整个组件点击
+  slot         String?
+
+  @@index([projectId])
+}
+
+/// 上架快照
+model Publish {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  version     Int      @default(1)
+  /// AppSnapshot JSON
+  snapshot    String
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+}
+
+/// 组件市场：用户保存的可复用资源（kind=combo 组件组合 / page 页面模板）
+model WidgetPreset {
+  id        String   @id @default(cuid())
+  name      String
+  /// emoji 图标
+  icon      String   @default("✨")
+  /// WidgetInstance[] JSON（保留相对坐标，插入时以锚点还原）
+  widgets   String   @default("[]")
+  /// 资源类型：'combo'=组件组合（默认） / 'page'=页面模板（整页复用）
+  kind      String   @default("combo")
+  /// 附加元信息 JSON（页面模板存 { background, layout }）
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,895 @@
+     1→'use client';
+     2→
+     3→import { useCallback, useEffect, useRef, useState } from 'react';
+     4→import {
+     5→  ChevronUp, ChevronDown, Copy, Trash2, ZoomIn, ZoomOut, Scan,
+     6→  Move3d, Rows3, Info, X,
+     7→} from 'lucide-react';
+     8→import { toast } from 'sonner';
+     9→import { useBuilder } from '@/lib/store';
+    10→import { useDnd } from '@/lib/dnd-store';
+    11→import { getWidget } from '@/components/widgets/registry';
+    12→import { PhoneFrame } from './PhoneFrame';
+    13→import { WidgetRenderer, WidgetInner } from './WidgetRenderer';
+    14→import { DragGhost } from './DragGhost';
+    15→import type { WidgetInstance } from '@/lib/types';
+    16→
+    17→const SNAP = 4;
+    18→const MIN_W = 48;
+    19→const MIN_H = 32;
+    20→const SCREEN_W = 375;
+    21→const EMPTY_GUIDES: { v: number[]; h: number[] } = { v: [], h: [] };
+    22→const HANDLE_DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
+    23→const HANDLE_CLASS: Record<string, string> = {
+    24→  n: 'left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize',
+    25→  s: 'left-1/2 -bottom-1.5 -translate-x-1/2 cursor-ns-resize',
+    26→  e: '-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize',
+    27→  w: '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize',
+    28→  ne: '-right-1.5 -top-1.5 cursor-nesw-resize',
+    29→  sw: '-left-1.5 -bottom-1.5 cursor-nesw-resize',
+    30→  nw: '-left-1.5 -top-1.5 cursor-nwse-resize',
+    31→  se: '-right-1.5 -bottom-1.5 cursor-nwse-resize',
+    32→};
+    33→
+    34→/**
+    35→ * 编辑画布（指针拖拽系统）：
+    36→ * - 从组件仓库拖入（Pointer Events，鼠标/触屏通吃，替代不可靠的 HTML5 DnD）
+    37→ * - 流式布局：拖拽排序 + 插入指示线
+    38→ * - 自由布局：任意摆放位置 + 8 向手柄调整大小 + 对齐吸附线 + 4px 网格吸附
+    39→ * - 旧页面自动升级为自由布局（视觉无感迁移）；新建页面默认自由布局
+    40→ * - 流式布局下拖动时浮出提示，可一键切换自由布局
+    41→ */
+    42→
+    43→/** 本次会话只提示一次自动迁移 */
+    44→let freeMigrateToastShown = false;
+    45→
+    46→/** 组件缺少自由布局坐标（旧数据） */
+    47→function missingCoords(components: WidgetInstance[]): boolean {
+    48→  return components.some((c) => typeof c.x !== 'number' || typeof c.y !== 'number');
+    49→}
+    50→
+    51→export function Canvas() {
+    52→  const pages = useBuilder((s) => s.pages);
+    53→  const currentPageId = useBuilder((s) => s.currentPageId);
+    54→  const selectedWidgetId = useBuilder((s) => s.selectedWidgetId);
+    55→  const theme = useBuilder((s) => s.project?.theme);
+    56→  const select = useBuilder((s) => s.select);
+    57→  const removeWidget = useBuilder((s) => s.removeWidget);
+    58→  const duplicateWidget = useBuilder((s) => s.duplicateWidget);
+    59→
+    60→  const [zoom, setZoom] = useState(0.85);
+    61→  const [indicator, setIndicator] = useState<{ index: number; y: number } | null>(null);
+    62→  const [freePreview, setFreePreview] = useState<{ x: number; y: number; w: number } | null>(null);
+    63→  const [guides, setGuides] = useState<{ v: number[]; h: number[] }>(EMPTY_GUIDES);
+    64→  const [sizeBadge, setSizeBadge] = useState<string | null>(null);
+    65→  const [posBadge, setPosBadge] = useState<string | null>(null);
+    66→  const [freeHeight, setFreeHeight] = useState(700);
+    67→  const [showFlowTip, setShowFlowTip] = useState(true);
+    68→  const [flowDragHint, setFlowDragHint] = useState(false);
+    69→  const flowHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    70→
+    71→  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    72→  const contentRef = useRef<HTMLDivElement>(null);
+    73→  const suppressClickRef = useRef(false);
+    74→  const dragMetaRef = useRef<{ offX: number; offY: number; batch: boolean }>({ offX: 0, offY: 0, batch: false });
+    75→  const resizeRef = useRef<null | {
+    76→    id: string; dir: string; startX: number; startY: number;
+    77→    rect: { x: number; y: number; w: number; h: number };
+    78→  }>(null);
+    79→  const freePreviewRef = useRef<{ x: number; y: number; w: number } | null>(null);
+    80→  const zoomRef = useRef(zoom);
+    81→  const isFreeRef = useRef(false);
+    82→
+    83→  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+    84→  useEffect(() => {
+    85→    const b = useBuilder.getState();
+    86→    const pg = b.pages.find((p) => p.id === b.currentPageId);
+    87→    isFreeRef.current = pg?.layout === 'free' && !missingCoords(pg?.components ?? []);
+    88→  }, [pages, currentPageId]);
+    89→  useEffect(() => () => { useDnd.getState().end(); }, []);
+    90→
+    91→  const page = pages.find((p) => p.id === currentPageId);
+    92→  const isFreeMode = page?.layout === 'free';
+    93→  const isFree = isFreeMode && !missingCoords(page?.components ?? []);
+    94→  const t = theme ?? { primary: '#f97316', radius: 'md' as const, dark: false };
+    95→  const dndActive = useDnd((s) => s.active);
+    96→
+    97→  /* ---------- 坐标与落点计算 ---------- */
+    98→
+    99→  const toLocal = useCallback((clientX: number, clientY: number) => {
+   100→    const el = contentRef.current;
+   101→    const rect = el?.getBoundingClientRect();
+   102→    if (!el || !rect) return { x: 0, y: 0 };
+   103→    return {
+   104→      x: (clientX - rect.left) / zoomRef.current,
+   105→      y: (clientY - rect.top) / zoomRef.current + el.scrollTop,
+   106→    };
+   107→  }, []);
+   108→
+   109→  const insideContent = useCallback((clientX: number, clientY: number) => {
+   110→    const rect = contentRef.current?.getBoundingClientRect();
+   111→    if (!rect) return false;
+   112→    const pad = 8;
+   113→    return (
+   114→      clientX >= rect.left - pad && clientX <= rect.right + pad &&
+   115→      clientY >= rect.top - pad && clientY <= rect.bottom + pad
+   116→    );
+   117→  }, []);
+   118→
+   119→  const computeDrop = useCallback((clientY: number) => {
+   120→    const b = useBuilder.getState();
+   121→    const list = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   122→    const origin = contentRef.current?.getBoundingClientRect();
+   123→    const scrollTop = contentRef.current?.scrollTop ?? 0;
+   124→    for (let i = 0; i < list.length; i++) {
+   125→      const rect = itemRefs.current.get(list[i].id)?.getBoundingClientRect();
+   126→      if (!rect) continue;
+   127→      if (clientY < rect.top + rect.height / 2) {
+   128→        return { index: i, y: origin ? (rect.top - origin.top) / zoomRef.current + scrollTop : 0 };
+   129→      }
+   130→    }
+   131→    const last = list.length > 0 ? itemRefs.current.get(list[list.length - 1].id)?.getBoundingClientRect() : null;
+   132→    return { index: list.length, y: origin && last ? (last.bottom - origin.top) / zoomRef.current + scrollTop : 0 };
+   133→  }, []);
+   134→
+   135→  /** 自由布局吸附：其它组件边缘/中心 + 屏幕边缘/水平中心 + 4px 网格 */
+   136→  const snapPos = useCallback((x: number, y: number, movingId: string | null, w: number, h: number) => {
+   137→    const b = useBuilder.getState();
+   138→    const comps = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   139→    const T = 6;
+   140→    const vCands: { p: number; line: number }[] = [
+   141→      { p: 0, line: 0 },
+   142→      { p: (SCREEN_W - w) / 2, line: SCREEN_W / 2 },
+   143→      { p: SCREEN_W - w, line: SCREEN_W },
+   144→    ];
+   145→    const hCands: { p: number; line: number }[] = [{ p: 0, line: 0 }];
+   146→    comps.forEach((c) => {
+   147→      if (c.id === movingId) return;
+   148→      const cx = c.x ?? 0, cy = c.y ?? 0, cw = c.w ?? 355, ch = c.h ?? 56;
+   149→      vCands.push({ p: cx, line: cx }, { p: cx + cw / 2 - w / 2, line: cx + cw / 2 }, { p: cx + cw - w, line: cx + cw });
+   150→      hCands.push({ p: cy, line: cy }, { p: cy + ch / 2 - h / 2, line: cy + ch / 2 }, { p: cy + ch - h, line: cy + ch }, { p: cy + ch, line: cy + ch });
+   151→    });
+   152→    let nx = x, ny = y;
+   153→    const g: { v: number[]; h: number[] } = { v: [], h: [] };
+   154→    for (const c of vCands) {
+   155→      if (Math.abs(x - c.p) <= T) { nx = Math.max(0, Math.min(c.p, SCREEN_W - w)); g.v.push(c.line); break; }
+   156→    }
+   157→    for (const c of hCands) {
+   158→      if (Math.abs(y - c.p) <= T) { ny = Math.max(0, c.p); g.h.push(c.line); break; }
+   159→    }
+   160→    if (g.v.length === 0) nx = Math.round(x / SNAP) * SNAP;
+   161→    if (g.h.length === 0) ny = Math.round(y / SNAP) * SNAP;
+   162→    return { x: Math.max(0, Math.min(nx, SCREEN_W - w)), y: Math.max(0, ny), guides: g };
+   163→  }, []);
+   164→
+   165→  /* ---------- 拖拽过程 ---------- */
+   166→
+   167→  const handleDragMove = useCallback((clientX: number, clientY: number) => {
+   168→    const st = useDnd.getState();
+   169→
+   170→    /* 缩放手柄拖拽中 */
+   171→    if (resizeRef.current) {
+   172→      const r = resizeRef.current;
+   173→      setPosBadge(null);
+   174→      const dx = (clientX - r.startX) / zoomRef.current;
+   175→      const dy = (clientY - r.startY) / zoomRef.current;
+   176→      let { x, y, w, h } = r.rect;
+   177→      if (r.dir.includes('e')) w = r.rect.w + dx;
+   178→      if (r.dir.includes('s')) h = r.rect.h + dy;
+   179→      if (r.dir.includes('w')) { w = r.rect.w - dx; x = r.rect.x + dx; }
+   180→      if (r.dir.includes('n')) { h = r.rect.h - dy; y = r.rect.y + dy; }
+   181→      if (dirClampWest(r.dir) && x < 0) { w = r.rect.w + r.rect.x; x = 0; }
+   182→      if (dirClampNorth(r.dir) && y < 0) { h = r.rect.h + r.rect.y; y = 0; }
+   183→      w = Math.max(MIN_W, w);
+   184→      h = Math.max(MIN_H, h);
+   185→      if (x + w > SCREEN_W) w = SCREEN_W - x;
+   186→      x = Math.round(x / SNAP) * SNAP;
+   187→      y = Math.round(Math.max(0, y) / SNAP) * SNAP;
+   188→      w = Math.round(w / SNAP) * SNAP;
+   189→      h = Math.round(h / SNAP) * SNAP;
+   190→      useBuilder.getState().setWidgetRect(r.id, { x, y, w, h }, true);
+   191→      setSizeBadge(`${w} × ${h}`);
+   192→      return;
+   193→    }
+   194→
+   195→    if (!insideContent(clientX, clientY)) {
+   196→      setIndicator(null);
+   197→      setFreePreview(null);
+   198→      freePreviewRef.current = null;
+   199→      setGuides(EMPTY_GUIDES);
+   200→      setPosBadge(null);
+   201→      return;
+   202→    }
+   203→
+   204→    if (isFreeRef.current) {
+   205→      setIndicator(null);
+   206→      setPosBadge(null);
+   207→      if (st.kind === 'new') {
+   208→        const def = getWidget(st.widgetType ?? '');
+   209→        const w0 = def?.fullBleed ? SCREEN_W : 355;
+   210→        const { x, y } = toLocal(clientX, clientY);
+   211→        const snapped = snapPos(x - w0 / 2, y - 24, null, w0, 56);
+   212→        const preview = { x: snapped.x, y: snapped.y, w: w0 };
+   213→        freePreviewRef.current = preview;
+   214→        setFreePreview(preview);
+   215→        setGuides(snapped.guides);
+   216→      } else if (st.kind === 'move') {
+   217→        const id = st.moveId!;
+   218→        const b = useBuilder.getState();
+   219→        const comp = b.pages
+   220→          .find((p) => p.id === b.currentPageId)
+   221→          ?.components.find((c) => c.id === id);
+   222→        if (!comp) return;
+   223→        if (!dragMetaRef.current.batch) {
+   224→          b.beginBatch();
+   225→          dragMetaRef.current.batch = true;
+   226→        }
+   227→        const cw = comp.w ?? 355;
+   228→        const ch = comp.h ?? 56;
+   229→        const { x, y } = toLocal(clientX, clientY);
+   230→        const snapped = snapPos(x - dragMetaRef.current.offX, y - dragMetaRef.current.offY, id, cw, ch);
+   231→        b.setWidgetRect(id, { x: snapped.x, y: snapped.y }, true);
+   232→        setPosBadge(`${Math.round(snapped.x)} · ${Math.round(snapped.y)}`);
+   233→        setGuides(snapped.guides);
+   234→        setFreePreview(null);
+   235→        freePreviewRef.current = null;
+   236→      }
+   237→    } else {
+   238→      setFreePreview(null);
+   239→      freePreviewRef.current = null;
+   240→      setGuides(EMPTY_GUIDES);
+   241→      setPosBadge(null);
+   242→      setIndicator(computeDrop(clientY));
+   243→      /* 流式拖动：浮出提示（结束后再保留 6 秒，方便点击切换） */
+   244→      if (st.started && st.kind === 'move') {
+   245→        if (flowHintTimer.current) clearTimeout(flowHintTimer.current);
+   246→        setFlowDragHint(true);
+   247→      }
+   248→    }
+   249→  }, [computeDrop, insideContent, snapPos, toLocal]);
+   250→
+   251→  const handleUp = useCallback((clientX: number, clientY: number) => {
+   252→    const st = useDnd.getState();
+   253→    const b = useBuilder.getState();
+   254→    const pageNow = b.pages.find((p) => p.id === b.currentPageId);
+   255→    const freeNow = pageNow?.layout === 'free';
+   256→
+   257→    /* 缩放结束：合并历史 */
+   258→    if (resizeRef.current) {
+   259→      if (dragMetaRef.current.batch) b.endBatch();
+   260→      resizeRef.current = null;
+   261→      setSizeBadge(null);
+   262→      dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   263→      useDnd.getState().end();
+   264→      return;
+   265→    }
+   266→
+   267→    if (st.started) {
+   268→      suppressClickRef.current = true;
+   269→      useDnd.setState({ suppressNextClick: true });
+   270→      setTimeout(() => { suppressClickRef.current = false; }, 90);
+   271→    }
+   272→
+   273→    if (st.started && st.kind === 'new' && st.widgetType) {
+   274→      if (insideContent(clientX, clientY)) {
+   275→        if (freeNow) {
+   276→          const { x, y } = toLocal(clientX, clientY);
+   277→          const def = getWidget(st.widgetType);
+   278→          const w0 = def?.fullBleed ? SCREEN_W : 355;
+   279→          const fp = freePreviewRef.current;
+   280→          const rx = fp?.x ?? Math.max(0, Math.round((x - w0 / 2) / SNAP) * SNAP);
+   281→          const ry = fp?.y ?? Math.max(0, Math.round((y - 24) / SNAP) * SNAP);
+   282→          b.addWidget(st.widgetType, undefined, { x: rx, y: ry, w: w0 });
+   283→        } else {
+   284→          b.addWidget(st.widgetType, computeDrop(clientY).index);
+   285→        }
+   286→      }
+   287→    } else if (st.started && st.kind === 'move' && st.moveId) {
+   288→      if (freeNow) {
+   289→        if (dragMetaRef.current.batch) b.endBatch();
+   290→      } else if (insideContent(clientX, clientY)) {
+   291→        /* 仅画布内松手才排序；拖出画布松手视为取消 */
+   292→        b.moveWidget(st.moveId, computeDrop(clientY).index);
+   293→      }
+   294→    }
+   295→
+   296→    dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   297→    setIndicator(null);
+   298→    setFreePreview(null);
+   299→    freePreviewRef.current = null;
+   300→    setGuides(EMPTY_GUIDES);
+   301→    setSizeBadge(null);
+   302→    setPosBadge(null);
+   303→    /* 流式拖动结束后：提示再保留 6 秒，之后自动隐藏 */
+   304→    if (flowHintTimer.current) clearTimeout(flowHintTimer.current);
+   305→    flowHintTimer.current = setTimeout(() => setFlowDragHint(false), 6000);
+   306→    useDnd.getState().end();
+   307→  }, [computeDrop, insideContent, toLocal]);
+   308→
+   309→  /* 拖拽期间挂全局指针监听 */
+   310→  useEffect(() => {
+   311→    if (!dndActive) return;
+   312→    const onMove = (e: PointerEvent) => {
+   313→      useDnd.getState().move(e.clientX, e.clientY);
+   314→      if (!useDnd.getState().started) return;
+   315→      handleDragMove(e.clientX, e.clientY);
+   316→    };
+   317→    const onUp = (e: PointerEvent) => handleUp(e.clientX, e.clientY);
+   318→    window.addEventListener('pointermove', onMove);
+   319→    window.addEventListener('pointerup', onUp, true);
+   320→    window.addEventListener('pointercancel', onUp, true);
+   321→    return () => {
+   322→      window.removeEventListener('pointermove', onMove);
+   323→      window.removeEventListener('pointerup', onUp, true);
+   324→      window.removeEventListener('pointercancel', onUp, true);
+   325→    };
+   326→  }, [dndActive, handleDragMove, handleUp]);
+   327→
+   328→  /* ---------- 布局切换 ---------- */
+   329→
+   330→  /** 启用自由布局：已有坐标直接切；缺坐标（旧数据）先按当前渲染堆叠生成坐标 */
+   331→  const enableFree = useCallback(() => {
+   332→    const b = useBuilder.getState();
+   333→    const pg = b.pages.find((p) => p.id === b.currentPageId);
+   334→    if (!pg || pg.layout === 'free') return;
+   335→    if (!missingCoords(pg.components)) {
+   336→      b.updatePage(pg.id, { layout: 'free' });
+   337→      setFlowDragHint(false);
+   338→      return;
+   339→    }
+   340→    const rects: Record<string, { x: number; y: number; w: number }> = {};
+   341→    let y = 12;
+   342→    pg.components.forEach((c) => {
+   343→      const el = itemRefs.current.get(c.id);
+   344→      const h = el ? el.offsetHeight : 64;
+   345→      const full = getWidget(c.type)?.fullBleed;
+   346→      rects[c.id] = { x: full ? 0 : 10, y, w: full ? SCREEN_W : 355 };
+   347→      y += h + 12;
+   348→    });
+   349→    b.convertToFreeLayout(rects);
+   350→    setFlowDragHint(false);
+   351→    toast('已启用自由布局', { description: '拖动组件任意摆放，选中后拖手柄调整大小' });
+   352→  }, []);
+   353→
+   354→  /** 拖拽进行中一键切换：先干净结束拖拽，避免状态错乱 */
+   355→  const enableFreeNow = useCallback(() => {
+   356→    useDnd.getState().end();
+   357→    setIndicator(null);
+   358→    setFreePreview(null);
+   359→    freePreviewRef.current = null;
+   360→    setGuides(EMPTY_GUIDES);
+   361→    setPosBadge(null);
+   362→    dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   363→    resizeRef.current = null;
+   364→    enableFree();
+   365→  }, [enableFree]);
+   366→
+   367→  const setLayoutMode = useCallback(
+   368→    (mode: 'flow' | 'free') => {
+   369→      const b = useBuilder.getState();
+   370→      const pg = b.pages.find((p) => p.id === b.currentPageId);
+   371→      if (!pg) return;
+   372→      if (mode === 'free') {
+   373→        enableFree();
+   374→      } else if (pg.layout !== 'flow') {
+   375→        b.updatePage(pg.id, { layout: 'flow' });
+   376→      }
+   377→    },
+   378→    [enableFree]
+   379→  );
+   380→
+   381→  /* 旧页面自动升级为自由布局（显式选择流式的页面除外），视觉无感、不记历史
+   382→     - 旧数据 layout 为空：直接采用自由布局（已有坐标则原样保留，还原之前的自由排版） */
+   383→  useEffect(() => {
+   384→    if (!page || page.layout === 'flow') return;
+   385→    if (page.layout === 'free' && !missingCoords(page.components)) return;
+   386→    const comps = page.components;
+   387→    const b = useBuilder.getState();
+   388→    if (comps.length === 0 || !missingCoords(comps)) {
+   389→      b.migrateToFree(page.id);
+   390→      return;
+   391→    }
+   392→    const rects: Record<string, { x: number; y: number; w: number }> = {};
+   393→    let y = 12;
+   394→    comps.forEach((c) => {
+   395→      const el = itemRefs.current.get(c.id);
+   396→      const h = el ? el.offsetHeight : 64;
+   397→      const full = getWidget(c.type)?.fullBleed;
+   398→      rects[c.id] = { x: full ? 0 : 10, y, w: full ? SCREEN_W : 355 };
+   399→      y += h + 12;
+   400→    });
+   401→    b.migrateToFree(page.id, rects);
+   402→    if (!freeMigrateToastShown) {
+   403→      freeMigrateToastShown = true;
+   404→      toast('已自动启用自由布局', { description: '页面上的组件现在可以任意拖放位置了' });
+   405→    }
+   406→  }, [page?.id, page?.layout, page?.components]);
+   407→
+   408→  /* 自由布局：方向键微调选中组件（Shift = 10px 步进） */
+   409→  useEffect(() => {
+   410→    if (!isFreeMode) return;
+   411→    const onKey = (e: KeyboardEvent) => {
+   412→      const el = document.activeElement as HTMLElement | null;
+   413→      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+   414→      const dv: Record<string, [number, number]> = {
+   415→        ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+   416→      };
+   417→      const d = dv[e.key];
+   418→      if (!d) return;
+   419→      const b = useBuilder.getState();
+   420→      if (useDnd.getState().active || !b.selectedWidgetId) return;
+   421→      const comp = b.pages
+   422→        .find((p) => p.id === b.currentPageId)
+   423→        ?.components.find((c) => c.id === b.selectedWidgetId);
+   424→      if (!comp) return;
+   425→      e.preventDefault();
+   426→      const step = e.shiftKey ? 10 : 2;
+   427→      const w = comp.w ?? 355;
+   428→      const nx = Math.max(0, Math.min((comp.x ?? 0) + d[0] * step, SCREEN_W - w));
+   429→      const ny = Math.max(0, (comp.y ?? 0) + d[1] * step);
+   430→      b.setWidgetRect(comp.id, { x: nx, y: ny });
+   431→    };
+   432→    window.addEventListener('keydown', onKey);
+   433→    return () => window.removeEventListener('keydown', onKey);
+   434→  }, [isFreeMode]);
+   435→
+   436→  /* 切到自由布局后立即收起流式拖动提示 */
+   437→  useEffect(() => () => { if (flowHintTimer.current) clearTimeout(flowHintTimer.current); }, []);
+   438→
+   439→  /* 自由布局内容总高（含未被 h 固定的自适应组件）— ResizeObserver 订阅式测量 */
+   440→  useEffect(() => {
+   441→    if (!isFree) return;
+   442→    const measure = () => {
+   443→      let max = 700;
+   444→      const b = useBuilder.getState();
+   445→      const comps = b.pages.find((p) => p.id === b.currentPageId)?.components ?? [];
+   446→      comps.forEach((c) => {
+   447→        const el = itemRefs.current.get(c.id);
+   448→        if (el) max = Math.max(max, (c.y ?? 0) + el.offsetHeight + 24);
+   449→      });
+   450→      setFreeHeight((prev) => (Math.abs(prev - max) > 2 ? Math.max(700, max) : prev));
+   451→    };
+   452→    const ro = new ResizeObserver(measure);
+   453→    itemRefs.current.forEach((el) => ro.observe(el));
+   454→    return () => ro.disconnect();
+   455→  }, [isFree, page?.components, zoom]);
+   456→
+   457→  /* ---------- 渲染 ---------- */
+   458→
+   459→  if (!page) {
+   460→    return (
+   461→      <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
+   462→        正在加载画布…
+   463→      </div>
+   464→    );
+   465→  }
+   466→
+   467→  return (
+   468→    <div className="relative flex min-w-0 flex-1 flex-col items-center overflow-auto bg-dot bg-[#eef0f4] py-8 thin-scroll">
+   469→      <DragGhost />
+   470→
+   471→      {/* 流式布局拖动提示：拖动仅排序；结束后保留 6 秒，可一键切换自由布局 */}
+   472→      {flowDragHint && !isFree && (
+   473→        <div className="pointer-events-none fixed left-1/2 top-16 z-[70] -translate-x-1/2">
+   474→          <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-zinc-900/92 py-1.5 pl-3 pr-1.5 text-white shadow-2xl backdrop-blur">
+   475→            <Info className="size-3.5 shrink-0 text-amber-300" />
+   476→            <span className="whitespace-nowrap text-xs font-medium">流式布局下拖动仅调整上下顺序</span>
+   477→            <button
+   478→              onPointerDown={(e) => {
+   479→                e.stopPropagation();
+   480→                e.preventDefault();
+   481→                enableFreeNow();
+   482→                setFlowDragHint(false);
+   483→              }}
+   484→              onClick={enableFreeNow}
+   485→              className="shrink-0 rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-bold text-zinc-900 transition-colors hover:bg-amber-300"
+   486→            >
+   487→              切换自由布局
+   488→            </button>
+   489→          </div>
+   490→        </div>
+   491→      )}
+   492→
+   493→      {/* 画布信息 */}
+   494→      <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-500">
+   495→        <div
+   496→          className="flex items-center rounded-full bg-white p-0.5 shadow-sm ring-1 ring-zinc-200"
+   497→          role="group"
+   498→          aria-label="布局模式"
+   499→        >
+   500→          <button
+   501→            onClick={() => setLayoutMode('flow')}
+   502→            className={`flex items-center gap-1 rounded-full px-3 py-1 font-semibold transition-all ${
+   503→              !isFreeMode ? 'bg-zinc-900 text-white shadow' : 'text-zinc-500 hover:text-zinc-800'
+   504→            }`}
+   505→            title="流式布局：组件自上而下自动排列，拖动调整上下顺序"
+   506→          >
+   507→            <Rows3 className="size-3.5" />
+   508→            流式布局
+   509→          </button>
+   510→          <button
+   511→            onClick={() => setLayoutMode('free')}
+   512→            className={`flex items-center gap-1 rounded-full px-3 py-1 font-semibold transition-all ${
+   513→              isFreeMode ? 'bg-zinc-900 text-white shadow' : 'text-zinc-500 hover:text-zinc-800'
+   514→            }`}
+   515→            title="自由布局：组件可任意拖放位置、8 向手柄调整大小"
+   516→          >
+   517→            <Move3d className="size-3.5" />
+   518→            自由布局
+   519→          </button>
+   520→        </div>
+   521→        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+   522→          {isFree ? '拖动摆放位置 · 手柄调大小 · 方向键微调' : '拖入左侧组件 · 点击选中 · 拖动排序'}
+   523→        </span>
+   524→        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+   525→          {page.name} · {page.components.length} 个组件
+   526→        </span>
+   527→      </div>
+   528→
+   529→      {/* 流式布局提示横幅（可关闭） */}
+   530→      {!isFreeMode && showFlowTip && (
+   531→        <div className="mb-3 flex max-w-[395px] items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 shadow-sm">
+   532→          <Info className="size-4 shrink-0 text-amber-500" />
+   533→          <p className="flex-1 text-[11px] leading-4 text-amber-800">
+   534→            流式布局下组件只能上下排列。启用<b>自由布局</b>后可任意拖放位置、自由调整大小。
+   535→          </p>
+   536→          <button
+   537→            onClick={enableFree}
+   538→            className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm transition-colors hover:bg-amber-600"
+   539→          >
+   540→            启用自由布局
+   541→          </button>
+   542→          <button
+   543→            onClick={() => setShowFlowTip(false)}
+   544→            className="shrink-0 text-amber-400 transition-colors hover:text-amber-600"
+   545→            aria-label="关闭提示"
+   546→          >
+   547→            <X className="size-3.5" />
+   548→          </button>
+   549→        </div>
+   550→      )}
+   551→
+   552→      <div style={{ width: 395 * zoom, height: 832 * zoom }}>
+   553→        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: 395, height: 832 }}>
+   554→          <PhoneFrame theme={t} pageBg={page.background}>
+   555→            <div
+   556→              ref={contentRef}
+   557→              className="relative h-full overflow-y-auto thin-scroll"
+   558→              onClick={() => select(null)}
+   559→            >
+   560→              {isFree && (
+   561→                <div
+   562→                  className="pointer-events-none absolute inset-0"
+   563→                  style={{
+   564→                    backgroundImage: t.dark
+   565→                      ? 'radial-gradient(circle, rgba(255,255,255,0.10) 1px, transparent 1px)'
+   566→                      : 'radial-gradient(circle, rgba(0,0,0,0.09) 1px, transparent 1px)',
+   567→                    backgroundSize: '16px 16px',
+   568→                    minHeight: freeHeight,
+   569→                  }}
+   570→                />
+   571→              )}
+   572→
+   573→              {/* 插入指示线（流式） */}
+   574→              {indicator && (
+   575→                <div
+   576→                  className="pointer-events-none absolute left-1 right-1 z-40 flex items-center"
+   577→                  style={{ top: indicator.y }}
+   578→                >
+   579→                  <span className="h-[3px] flex-1 rounded-full" style={{ background: t.primary }} />
+   580→                  <span
+   581→                    className="absolute -left-0.5 size-2.5 rounded-full border-2 border-white shadow"
+   582→                    style={{ background: t.primary }}
+   583→                  />
+   584→                </div>
+   585→              )}
+   586→
+   587→              {/* 自由布局吸附线 */}
+   588→              {guides.v.map((v, i) => (
+   589→                <div
+   590→                  key={`gv${i}`}
+   591→                  className="pointer-events-none absolute z-30 border-l border-dashed"
+   592→                  style={{ left: v, top: 0, height: Math.max(freeHeight, 700), borderColor: '#ec4899' }}
+   593→                />
+   594→              ))}
+   595→              {guides.h.map((v, i) => (
+   596→                <div
+   597→                  key={`gh${i}`}
+   598→                  className="pointer-events-none absolute z-30 border-t border-dashed"
+   599→                  style={{ top: v, left: 0, right: 0, borderColor: '#ec4899' }}
+   600→                />
+   601→              ))}
+   602→
+   603→              {/* 自由布局：仓库拖入预览框 */}
+   604→              {freePreview && (
+   605→                <div
+   606→                  className="pointer-events-none absolute z-40 flex items-center justify-center rounded-xl border-2 border-dashed"
+   607→                  style={{
+   608→                    left: freePreview.x, top: freePreview.y, width: freePreview.w, height: 52,
+   609→                    borderColor: t.primary, background: `${t.primary}14`,
+   610→                  }}
+   611→                >
+   612→                  <span className="text-[10px] font-bold" style={{ color: t.primary }}>放置到这里</span>
+   613→                </div>
+   614→              )}
+   615→
+   616→              {/* 空状态 */}
+   617→              {page.components.length === 0 && !indicator && !freePreview && (
+   618→                <div className="m-3 flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-zinc-400">
+   619→                  <Scan className="size-7 opacity-50" />
+   620→                  <p className="text-sm font-medium">从左侧组件仓库拖入组件</p>
+   621→                  <p className="text-xs">或直接点击组件卡片快速添加</p>
+   622→                </div>
+   623→              )}
+   624→
+   625→              {isFree ? (
+   626→                /* ---------- 自由布局：绝对定位 + 拖拽移动 + 8 向缩放 ---------- */
+   627→                <div className="relative w-full" style={{ minHeight: freeHeight }}>
+   628→                  {page.components.map((w: WidgetInstance) => {
+   629→                    const def = getWidget(w.type);
+   630→                    const selected = selectedWidgetId === w.id;
+   631→                    const resizing = sizeBadge !== null && selected;
+   632→                    return (
+   633→                      <div
+   634→                        key={w.id}
+   635→                        ref={(el) => {
+   636→                          if (el) itemRefs.current.set(w.id, el);
+   637→                          else itemRefs.current.delete(w.id);
+   638→                        }}
+   639→                        onPointerDown={(e) => {
+   640→                          if (e.button !== 0) return;
+   641→                          e.stopPropagation();
+   642→                          e.preventDefault();
+   643→                          select(w.id);
+   644→                          const local = toLocal(e.clientX, e.clientY);
+   645→                          dragMetaRef.current = {
+   646→                            offX: local.x - (w.x ?? 0),
+   647→                            offY: local.y - (w.y ?? 0),
+   648→                            batch: false,
+   649→                          };
+   650→                          useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   651→                        }}
+   652→                        onClick={(e) => {
+   653→                          e.stopPropagation();
+   654→                          if (suppressClickRef.current) return;
+   655→                          select(w.id);
+   656→                        }}
+   657→                        className={`group absolute rounded-xl ${
+   658→                          selected ? 'z-20 ring-2' : 'z-10 hover:ring-1'
+   659→                        }`}
+   660→                        style={{
+   661→                          left: w.x ?? 0,
+   662→                          top: w.y ?? 0,
+   663→                          width: w.w ?? 355,
+   664→                          height: w.h,
+   665→                          overflow: typeof w.h === 'number' ? 'hidden' : undefined,
+   666→                          cursor: 'grab',
+   667→                          touchAction: 'none',
+   668→                          '--tw-ring-color': selected ? t.primary : 'rgba(0,0,0,0.12)',
+   669→                        } as React.CSSProperties}
+   670→                      >
+   671→                        <WidgetInner w={w} />
+   672→
+   673→                        {/* 坐标/尺寸徽标（拖动或缩放中） */}
+   674→                        {(resizing || posBadge !== null) && (
+   675→                          <span
+   676→                            className="pointer-events-none absolute -top-6 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white shadow"
+   677→                            style={{ background: t.primary }}
+   678→                          >
+   679→                            {posBadge !== null ? `${posBadge}` : sizeBadge}
+   680→                          </span>
+   681→                        )}
+   682→
+   683→                        {/* 类型徽标 */}
+   684→                        {selected && def && !resizing && (
+   685→                          <span
+   686→                            className="pointer-events-none absolute -left-1 -top-6 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+   687→                            style={{ background: t.primary }}
+   688→                          >
+   689→                            {def.name}
+   690→                          </span>
+   691→                        )}
+   692→
+   693→                        {/* 悬浮操作条（自由布局：复制/删除） */}
+   694→                        <div
+   695→                          className={`absolute -top-2.5 right-2 z-30 flex items-center gap-0.5 rounded-lg bg-zinc-900/90 p-0.5 shadow-lg transition-opacity ${
+   696→                            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+   697→                          }`}
+   698→                          onClick={(e) => e.stopPropagation()}
+   699→                          onPointerDown={(e) => e.stopPropagation()}
+   700→                        >
+   701→                          <ItemBtn title="复制" onClick={() => duplicateWidget(w.id)}>
+   702→                            <Copy className="size-3.5" />
+   703→                          </ItemBtn>
+   704→                          <ItemBtn title="删除" danger onClick={() => removeWidget(w.id)}>
+   705→                            <Trash2 className="size-3.5" />
+   706→                          </ItemBtn>
+   707→                        </div>
+   708→
+   709→                        {/* 8 向缩放手柄 */}
+   710→                        {selected && (
+   711→                          <>
+   712→                            {HANDLE_DIRS.map((dir) => (
+   713→                              <span
+   714→                                key={dir}
+   715→                                onPointerDown={(e) => {
+   716→                                  e.stopPropagation();
+   717→                                  e.preventDefault();
+   718→                                  const el = itemRefs.current.get(w.id);
+   719→                                  resizeRef.current = {
+   720→                                    id: w.id,
+   721→                                    dir,
+   722→                                    startX: e.clientX,
+   723→                                    startY: e.clientY,
+   724→                                    rect: {
+   725→                                      x: w.x ?? 0,
+   726→                                      y: w.y ?? 0,
+   727→                                      w: w.w ?? 355,
+   728→                                      h: w.h ?? (el ? el.offsetHeight : 56),
+   729→                                    },
+   730→                                  };
+   731→                                  dragMetaRef.current.batch = false;
+   732→                                  useBuilder.getState().beginBatch();
+   733→                                  dragMetaRef.current.batch = true;
+   734→                                  useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   735→                                  useDnd.getState().markStarted();
+   736→                                }}
+   737→                                className={`absolute z-30 size-3 rounded-full border-2 bg-white shadow ${HANDLE_CLASS[dir]}`}
+   738→                                style={{ borderColor: t.primary, touchAction: 'none' }}
+   739→                                title={`拖动调整大小（${dir}）`}
+   740→                              />
+   741→                            ))}
+   742→                          </>
+   743→                        )}
+   744→                      </div>
+   745→                    );
+   746→                  })}
+   747→                </div>
+   748→              ) : (
+   749→                /* ---------- 流式布局：垂直排列 + 拖拽排序 ---------- */
+   750→                <>
+   751→                  {page.components.map((w: WidgetInstance, idx: number) => {
+   752→                    const def = getWidget(w.type);
+   753→                    const selected = selectedWidgetId === w.id;
+   754→                    return (
+   755→                      <div
+   756→                        key={w.id}
+   757→                        ref={(el) => {
+   758→                          if (el) itemRefs.current.set(w.id, el);
+   759→                          else itemRefs.current.delete(w.id);
+   760→                        }}
+   761→                        onPointerDown={(e) => {
+   762→                          if (e.button !== 0) return;
+   763→                          e.stopPropagation();
+   764→                          dragMetaRef.current = { offX: 0, offY: 0, batch: false };
+   765→                          useDnd.getState().begin({ kind: 'move', moveId: w.id, px: e.clientX, py: e.clientY });
+   766→                        }}
+   767→                        onClick={(e) => {
+   768→                          e.stopPropagation();
+   769→                          if (suppressClickRef.current) return;
+   770→                          select(w.id);
+   771→                        }}
+   772→                        className={`group relative cursor-grab touch-none rounded-xl active:cursor-grabbing ${
+   773→                          selected ? 'ring-2' : 'hover:ring-1'
+   774→                        }`}
+   775→                        style={{
+   776→                          '--tw-ring-color': selected ? t.primary : 'rgba(0,0,0,0.12)',
+   777→                        } as React.CSSProperties}
+   778→                      >
+   779→                        <WidgetRenderer w={w} />
+   780→
+   781→                        {/* 悬浮操作条 */}
+   782→                        <div
+   783→                          className={`absolute -top-2.5 right-2 z-30 flex items-center gap-0.5 rounded-lg bg-zinc-900/90 p-0.5 shadow-lg transition-opacity ${
+   784→                            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+   785→                          }`}
+   786→                          onClick={(e) => e.stopPropagation()}
+   787→                          onPointerDown={(e) => e.stopPropagation()}
+   788→                        >
+   789→                          <ItemBtn
+   790→                            title="上移"
+   791→                            disabled={idx === 0}
+   792→                            onClick={() => useBuilder.getState().moveWidget(w.id, idx - 1)}
+   793→                          >
+   794→                            <ChevronUp className="size-3.5" />
+   795→                          </ItemBtn>
+   796→                          <ItemBtn
+   797→                            title="下移"
+   798→                            disabled={idx === page.components.length - 1}
+   799→                            onClick={() => useBuilder.getState().moveWidget(w.id, idx + 2)}
+   800→                          >
+   801→                            <ChevronDown className="size-3.5" />
+   802→                          </ItemBtn>
+   803→                          <ItemBtn title="复制" onClick={() => duplicateWidget(w.id)}>
+   804→                            <Copy className="size-3.5" />
+   805→                          </ItemBtn>
+   806→                          <ItemBtn title="删除" danger onClick={() => removeWidget(w.id)}>
+   807→                            <Trash2 className="size-3.5" />
+   808→                          </ItemBtn>
+   809→                        </div>
+   810→
+   811→                        {/* 类型徽标 */}
+   812→                        {selected && def && (
+   813→                          <span
+   814→                            className="pointer-events-none absolute -left-1 -top-6 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+   815→                            style={{ background: t.primary }}
+   816→                          >
+   817→                            {def.name}
+   818→                          </span>
+   819→                        )}
+   820→                      </div>
+   821→                    );
+   822→                  })}
+   823→                </>
+   824→              )}
+   825→
+   826→              {/* 底部留白便于拖入 */}
+   827→              <div className="h-16" />
+   828→            </div>
+   829→          </PhoneFrame>
+   830→        </div>
+   831→      </div>
+   832→
+   833→      {/* 缩放控制 */}
+   834→      <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
+   835→        <button
+   836→          className="flex size-7 items-center justify-center rounded-full hover:bg-zinc-100 disabled:opacity-30"
+   837→          onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.05).toFixed(2)))}
+   838→          disabled={zoom <= 0.5}
+   839→          aria-label="缩小"
+   840→        >
+   841→          <ZoomOut className="size-4" />
+   842→        </button>
+   843→        <span className="w-12 text-center text-xs font-semibold tabular-nums">{Math.round(zoom * 100)}%</span>
+   844→        <button
+   845→          className="flex size-7 items-center justify-center rounded-full hover:bg-zinc-100 disabled:opacity-30"
+   846→          onClick={() => setZoom((z) => Math.min(1.2, +(z + 0.05).toFixed(2)))}
+   847→          disabled={zoom >= 1.2}
+   848→          aria-label="放大"
+   849→        >
+   850→          <ZoomIn className="size-4" />
+   851→        </button>
+   852→        <span className="mx-1 h-4 w-px bg-zinc-200" />
+   853→        <span className="flex h-7 items-center gap-1 px-2 text-xs text-zinc-500">
+   854→          <Scan className="size-3.5" /> {page.components.length} 组件
+   855→        </span>
+   856→      </div>
+   857→    </div>
+   858→  );
+   859→}
+   860→
+   861→function dirClampWest(dir: string) {
+   862→  return dir.includes('w');
+   863→}
+   864→function dirClampNorth(dir: string) {
+   865→  return dir.includes('n');
+   866→}
+   867→
+   868→function ItemBtn({
+   869→  children,
+   870→  onClick,
+   871→  title,
+   872→  disabled,
+   873→  danger,
+   874→}: {
+   875→  children: React.ReactNode;
+   876→  onClick: () => void;
+   877→  title: string;
+   878→  disabled?: boolean;
+   879→  danger?: boolean;
+   880→}) {
+   881→  return (
+   882→    <button
+   883→      title={title}
+   884→      disabled={disabled}
+   885→      onClick={onClick}
+   886→      onPointerDown={(e) => e.stopPropagation()}
+   887→      className={`flex size-6 items-center justify-center rounded-md text-white transition-colors disabled:opacity-30 ${
+   888→        danger ? 'hover:bg-rose-500' : 'hover:bg-white/20'
+   889→      }`}
+   890→    >
+   891→      {children}
+   892→    </button>
+   893→  );
+   894→}
+   895→

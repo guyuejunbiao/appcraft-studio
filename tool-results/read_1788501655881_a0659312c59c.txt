@@ -1,0 +1,739 @@
+     1→import {
+     2→  ArrowLeft, MoreHorizontal, PanelTop, MousePointerClick, AlignLeft,
+     3→  Image as ImageIcon, Settings2, CircleCheck, List, TextCursorInput,
+     4→  ChartColumn, CloudSun, Sun, Moon, Droplets, Wind, Target, PanelBottom,
+     5→  Home, LayoutGrid, Compass, UserRound, Settings, Bell, PackageOpen,
+     6→  Play, Plus, Pencil, Camera, MessageCircle, Crown, ChevronRight,
+     7→  Volume2, Palette, Shield, Info, Globe, CircleUserRound,
+     8→  CircleHelp, ChevronDown, Timer, Trophy, QrCode, Share2, CalendarDays, MoveVertical,
+     9→} from 'lucide-react';
+    10→import type { WidgetDef } from '@/lib/widget-types';
+    11→import { FnTabbarInteractive, InputFieldInteractive, BigButtonInteractive } from './interactive';
+    12→
+    13→/**
+    14→ * 功能通用 组件库（目录：functional）
+    15→ * 与 login.tsx 同一套规范：只使用 Tailwind + CSS 变量（--p 主色 / --pr 圆角 / --pf 主色上文字）
+    16→ * 表面类：w-card(卡片) w-input(输入底) w-chip(浅色块) w-line(分割线颜色)
+    17→ * 主文字继承画布颜色，次要文字用 opacity-*，保证暗色模式自适应；渲染为纯函数，无 hooks / 无请求。
+    18→ */
+    19→
+    20→/** 逗号（中英文）分隔的列表解析 */
+    21→const toList = (v: unknown): string[] =>
+    22→  String(v ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+    23→
+    24→/** fn.list-item 左侧图标预设（按文案字符码循环取用） */
+    25→const LIST_ICONS = [Bell, Volume2, Palette, Shield, Info, Globe];
+    26→
+    27→/** fn.tabbar 底部导航图标预设（按下标循环取用） */
+    28→const TAB_ICONS = [Home, LayoutGrid, Compass, UserRound, Bell, Settings];
+    29→
+    30→/** fn.fab 图标映射 */
+    31→const FAB_ICONS: Record<string, typeof Plus> = {
+    32→  plus: Plus, edit: Pencil, camera: Camera, message: MessageCircle,
+    33→};
+    34→
+    35→export const widgets: WidgetDef[] = [
+    36→  {
+    37→    type: 'fn.navbar',
+    38→    category: 'functional',
+    39→    name: '页面导航',
+    40→    desc: '顶部导航栏：返回 + 居中标题 + 更多',
+    41→    icon: PanelTop,
+    42→    fullBleed: true,
+    43→    defaultProps: { title: '通知中心', showBack: true },
+    44→    fields: [
+    45→      { key: 'title', label: '标题', type: 'text' },
+    46→      { key: 'showBack', label: '显示返回箭头', type: 'switch' },
+    47→    ],
+    48→    render: (p) => (
+    49→      <div className="relative flex h-12 items-center border-b w-line px-3">
+    50→        <span className="flex w-8 justify-start">
+    51→          {p.showBack !== false && <ArrowLeft className="size-5" />}
+    52→        </span>
+    53→        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-[15px] font-bold">
+    54→          {p.title}
+    55→        </span>
+    56→        <span className="ml-auto flex w-8 justify-end">
+    57→          <MoreHorizontal className="size-5 opacity-70" />
+    58→        </span>
+    59→      </div>
+    60→    ),
+    61→  },
+    62→  {
+    63→    type: 'fn.big-button',
+    64→    category: 'functional',
+    65→    name: '主按钮',
+    66→    desc: '全宽主操作按钮：主色底 / 描边 / 浅底',
+    67→    icon: MousePointerClick,
+    68→    defaultProps: { text: '立即开始', style: 'primary', radius: 'full' },
+    69→    fields: [
+    70→      { key: 'text', label: '按钮文案', type: 'text' },
+    71→      { key: 'style', label: '风格', type: 'select', options: [{ label: '主色底', value: 'primary' }, { label: '主色描边', value: 'outline' }, { label: '浅底', value: 'ghost' }] },
+    72→      { key: 'radius', label: '圆角', type: 'select', options: [{ label: '全圆', value: 'full' }, { label: '主题圆角', value: 'normal' }] },
+    73→    ],
+    74→    Interactive: BigButtonInteractive,
+    75→    render: (p) => {
+    76→      const variant = p.style === 'outline' || p.style === 'ghost' ? p.style : 'primary';
+    77→      const br = p.radius === 'normal' ? 'var(--pr)' : '999px';
+    78→      const skin = variant === 'primary'
+    79→        ? { background: 'var(--p)', color: 'var(--pf)' }
+    80→        : variant === 'outline'
+    81→          ? { border: '1.5px solid var(--p)', color: 'var(--p)' }
+    82→          : { color: 'var(--p)' };
+    83→      return (
+    84→        <button
+    85→          className={`flex h-12 w-full items-center justify-center text-[15px] font-bold active:scale-[0.98] ${variant === 'primary' ? 'shadow-md' : variant === 'ghost' ? 'w-chip' : ''}`}
+    86→          style={{ borderRadius: br, ...skin }}
+    87→        >
+    88→          {p.text}
+    89→        </button>
+    90→      );
+    91→    },
+    92→  },
+    93→  {
+    94→    type: 'fn.text-block',
+    95→    category: 'functional',
+    96→    name: '富文本段落',
+    97→    desc: '标题 + 多行正文段落',
+    98→    icon: AlignLeft,
+    99→    defaultProps: {
+   100→      title: '产品介绍',
+   101→      content: '我们致力于把复杂的流程变得简单直观，让每一位用户都能快速上手、高效完成每天的工作。\n持续迭代，只为给你更好的使用体验。',
+   102→    },
+   103→    fields: [
+   104→      { key: 'title', label: '标题', type: 'text' },
+   105→      { key: 'content', label: '正文', type: 'textarea' },
+   106→    ],
+   107→    render: (p) => (
+   108→      <div className="py-1">
+   109→        <h2 className="text-base font-bold">{p.title}</h2>
+   110→        <p className="mt-2 whitespace-pre-line text-[13px] leading-[1.7] opacity-60">{p.content}</p>
+   111→      </div>
+   112→    ),
+   113→  },
+   114→  {
+   115→    type: 'fn.image-block',
+   116→    category: 'functional',
+   117→    name: '图片块',
+   118→    desc: '渐变占位图，可设高度与角标文字',
+   119→    icon: ImageIcon,
+   120→    defaultProps: { height: 160, label: '封面图片' },
+   121→    fields: [
+   122→      { key: 'height', label: '高度 (px)', type: 'number', min: 120, max: 260, step: 4 },
+   123→      { key: 'label', label: '角标文字', type: 'text' },
+   124→    ],
+   125→    render: (p) => (
+   126→      <div
+   127→        className="relative flex items-center justify-center overflow-hidden"
+   128→        style={{
+   129→          height: Math.min(320, Math.max(60, Number(p.height) || 160)),
+   130→          borderRadius: 'var(--pr)',
+   131→          background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #fff))',
+   132→        }}
+   133→      >
+   134→        <ImageIcon className="size-8" style={{ color: 'var(--pf)', opacity: 0.85 }} />
+   135→        <span className="absolute bottom-2 right-2.5 text-[10px]" style={{ color: 'var(--pf)', opacity: 0.75 }}>
+   136→          {p.label}
+   137→        </span>
+   138→      </div>
+   139→    ),
+   140→  },
+   141→  {
+   142→    type: 'fn.settings-group',
+   143→    category: 'functional',
+   144→    name: '设置分组',
+   145→    desc: '多行开关设置项卡片，行间细线分割',
+   146→    icon: Settings2,
+   147→    defaultProps: { labels: '开启推送通知,深色模式,自动播放视频,省流模式', onCount: 3 },
+   148→    fields: [
+   149→      { key: 'labels', label: '设置项（逗号分隔）', type: 'textarea' },
+   150→      { key: 'onCount', label: '前 N 项开启', type: 'number', min: 0, max: 8, step: 1 },
+   151→    ],
+   152→    render: (p) => {
+   153→      const rows = toList(p.labels);
+   154→      const onCount = Math.min(rows.length, Math.max(0, Math.round(Number(p.onCount) || 0)));
+   155→      return (
+   156→        <div className="w-card py-1">
+   157→          {rows.map((label, i) => {
+   158→            const on = i < onCount;
+   159→            return (
+   160→              <div
+   161→                key={i}
+   162→                className={`flex h-12 items-center gap-3 px-3.5 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
+   163→              >
+   164→                <CircleCheck
+   165→                  className={`size-4 shrink-0 ${on ? '' : 'opacity-30'}`}
+   166→                  style={on ? { color: 'var(--p)' } : undefined}
+   167→                />
+   168→                <span className="flex-1 truncate text-sm">{label}</span>
+   169→                <span
+   170→                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full ${on ? '' : 'w-chip border w-line'}`}
+   171→                  style={on ? { background: 'var(--p)' } : undefined}
+   172→                >
+   173→                  <span
+   174→                    className="absolute top-0.5 size-4 rounded-full bg-white shadow-sm"
+   175→                    style={{ left: on ? '18px' : '2px' }}
+   176→                  />
+   177→                </span>
+   178→              </div>
+   179→            );
+   180→          })}
+   181→        </div>
+   182→      );
+   183→    },
+   184→  },
+   185→  {
+   186→    type: 'fn.list-item',
+   187→    category: 'functional',
+   188→    name: '单行列表项',
+   189→    desc: '图标 + 文字 + 右侧值与箭头的入口行',
+   190→    icon: List,
+   191→    defaultProps: { label: '消息通知', value: '已开启' },
+   192→    fields: [
+   193→      { key: 'label', label: '标题', type: 'text' },
+   194→      { key: 'value', label: '右侧值', type: 'text' },
+   195→    ],
+   196→    render: (p) => {
+   197→      const label = String(p.label || '');
+   198→      const sum = [...label].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+   199→      const Icon = LIST_ICONS[sum % LIST_ICONS.length] || Bell;
+   200→      return (
+   201→        <div className="w-card flex h-12 items-center gap-3 px-3.5">
+   202→          <Icon className="size-4 shrink-0 opacity-55" />
+   203→          <span className="flex-1 truncate text-sm">{label}</span>
+   204→          <span className="text-xs opacity-45">{p.value}</span>
+   205→          <ChevronRight className="size-4 shrink-0 opacity-35" />
+   206→        </div>
+   207→      );
+   208→    },
+   209→  },
+   210→  {
+   211→    type: 'fn.input-field',
+   212→    category: 'functional',
+   213→    name: '表单输入',
+   214→    desc: '带标签的圆角输入框',
+   215→    icon: TextCursorInput,
+   216→    defaultProps: { label: '邮箱地址', placeholder: '请输入邮箱地址' },
+   217→    fields: [
+   218→      { key: 'label', label: '标签', type: 'text' },
+   219→      { key: 'placeholder', label: '提示文案', type: 'text' },
+   220→    ],
+   221→    Interactive: InputFieldInteractive,
+   222→    render: (p) => (
+   223→      <div>
+   224→        <label className="mb-1.5 block text-xs font-bold">{p.label}</label>
+   225→        <div className="w-input flex h-11 items-center px-3" style={{ borderRadius: 'var(--pr)' }}>
+   226→          <span className="text-sm opacity-40">{p.placeholder}</span>
+   227→        </div>
+   228→      </div>
+   229→    ),
+   230→  },
+   231→  {
+   232→    type: 'fn.stat-card',
+   233→    category: 'functional',
+   234→    name: '数据统计卡',
+   235→    desc: '2×2 数据概览格子',
+   236→    icon: ChartColumn,
+   237→    defaultProps: { items: '1280 访问量,328 新用户,86 订单,96.2% 好评率' },
+   238→    fields: [
+   239→      { key: 'items', label: '数据项（值 空格 标签，逗号分隔）', type: 'textarea' },
+   240→    ],
+   241→    render: (p) => (
+   242→      <div className="w-card grid grid-cols-2 gap-x-2 gap-y-4 p-4">
+   243→        {toList(p.items).map((raw, i) => {
+   244→          const [value, ...rest] = raw.split(/\s+/);
+   245→          return (
+   246→            <div key={i} className="flex flex-col items-center gap-1">
+   247→              <span className="text-xl font-extrabold tracking-tight" style={{ color: 'var(--p)' }}>
+   248→                {value}
+   249→              </span>
+   250→              <span className="text-[11px] opacity-50">{rest.join(' ')}</span>
+   251→            </div>
+   252→          );
+   253→        })}
+   254→      </div>
+   255→    ),
+   256→  },
+   257→  {
+   258→    type: 'fn.weather-card',
+   259→    category: 'functional',
+   260→    name: '天气卡',
+   261→    desc: '渐变主色的城市天气卡片',
+   262→    icon: CloudSun,
+   263→    defaultProps: { city: '上海市', date: '10月24日 周五', temp: '23°', desc: '多云转晴' },
+   264→    fields: [
+   265→      { key: 'city', label: '城市', type: 'text' },
+   266→      { key: 'date', label: '日期', type: 'text' },
+   267→      { key: 'temp', label: '温度', type: 'text' },
+   268→      { key: 'desc', label: '天气描述', type: 'text' },
+   269→    ],
+   270→    render: (p) => {
+   271→      const night = /夜|晚|月/.test(String(p.desc || ''));
+   272→      return (
+   273→        <div
+   274→          className="flex items-center justify-between p-4"
+   275→          style={{
+   276→            borderRadius: 'var(--pr)',
+   277→            background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #fff))',
+   278→            color: 'var(--pf)',
+   279→          }}
+   280→        >
+   281→          <div>
+   282→            <div className="text-base font-bold">{p.city}</div>
+   283→            <div className="mt-0.5 text-[11px] opacity-70">{p.date}</div>
+   284→            <div className="mt-2.5 text-4xl font-extrabold leading-none tracking-tight">{p.temp}</div>
+   285→            <div className="mt-1.5 text-xs opacity-80">{p.desc}</div>
+   286→          </div>
+   287→          <div className="flex flex-col items-end gap-2.5">
+   288→            {night ? <Moon className="size-9 opacity-90" /> : <Sun className="size-9 opacity-90" />}
+   289→            <div className="flex flex-col items-end gap-1 text-[11px] opacity-75">
+   290→              <span className="flex items-center gap-1"><Droplets className="size-3" /> 湿度 62%</span>
+   291→              <span className="flex items-center gap-1"><Wind className="size-3" /> 风速 3 级</span>
+   292→            </div>
+   293→          </div>
+   294→        </div>
+   295→      );
+   296→    },
+   297→  },
+   298→  {
+   299→    type: 'fn.progress-card',
+   300→    category: 'functional',
+   301→    name: '目标进度卡',
+   302→    desc: '标题 + 百分比 + 进度条卡片',
+   303→    icon: Target,
+   304→    defaultProps: { title: '本月阅读目标', percent: 68, sub: '已完成 17 本 / 总目标 25 本' },
+   305→    fields: [
+   306→      { key: 'title', label: '标题', type: 'text' },
+   307→      { key: 'percent', label: '进度 (%)', type: 'number', min: 0, max: 100, step: 1 },
+   308→      { key: 'sub', label: '底部小字', type: 'text' },
+   309→    ],
+   310→    render: (p) => {
+   311→      const pct = Math.max(0, Math.min(100, Math.round(Number(p.percent) || 0)));
+   312→      return (
+   313→        <div className="w-card p-4">
+   314→          <div className="flex items-end justify-between">
+   315→            <span className="text-sm font-bold">{p.title}</span>
+   316→            <span className="text-2xl font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+   317→              {pct}%
+   318→            </span>
+   319→          </div>
+   320→          <div className="w-chip mt-3 h-2 overflow-hidden" style={{ borderRadius: '999px' }}>
+   321→            <div className="h-full" style={{ width: `${pct}%`, borderRadius: '999px', background: 'var(--p)' }} />
+   322→          </div>
+   323→          <div className="mt-2 text-[11px] opacity-50">{p.sub}</div>
+   324→        </div>
+   325→      );
+   326→    },
+   327→  },
+   328→  {
+   329→    type: 'fn.tabbar',
+   330→    category: 'functional',
+   331→    name: '底部导航',
+   332→    desc: 'App 底部标签栏（通栏，激活项带顶部圆点）',
+   333→    icon: PanelBottom,
+   334→    fullBleed: true,
+   335→    defaultProps: { items: '首页,分类,发现,我的', active: 0, channel: 'tab' },
+   336→    fields: [
+   337→      { key: 'items', label: '标签（逗号分隔）', type: 'text' },
+   338→      { key: 'active', label: '激活项序号', type: 'number', min: 0, max: 5, step: 1 },
+   339→      { key: 'channel', label: '联动频道（高级）', type: 'text', placeholder: '其他组件订阅后可随标签切换显隐' },
+   340→    ],
+   341→    Interactive: FnTabbarInteractive,
+   342→    slots: (p) => toList(p.items).map((label, i) => ({ key: String(i), label: `「${label}」标签` })),
+   343→    render: (p) => {
+   344→      const tabs = toList(p.items);
+   345→      const active = Math.max(0, Math.min(tabs.length - 1, Math.round(Number(p.active) || 0)));
+   346→      return (
+   347→        <div className="w-card flex border-t w-line" style={{ borderRadius: 'var(--pr) var(--pr) 0 0' }}>
+   348→          {tabs.map((label, i) => {
+   349→            const on = i === active;
+   350→            const Icon = TAB_ICONS[i % TAB_ICONS.length] || Home;
+   351→            return (
+   352→              <span key={i} className="flex flex-1 flex-col items-center gap-1 pb-2 pt-1.5">
+   353→                <span className="size-1 rounded-full" style={{ background: on ? 'var(--p)' : 'transparent' }} />
+   354→                <Icon
+   355→                  className={`size-5 shrink-0 ${on ? '' : 'opacity-45'}`}
+   356→                  style={on ? { color: 'var(--p)' } : undefined}
+   357→                />
+   358→                <span
+   359→                  className={`text-[10px] ${on ? 'font-semibold' : 'opacity-45'}`}
+   360→                  style={on ? { color: 'var(--p)' } : undefined}
+   361→                >
+   362→                  {label}
+   363→                </span>
+   364→              </span>
+   365→            );
+   366→          })}
+   367→        </div>
+   368→      );
+   369→    },
+   370→  },
+   371→  {
+   372→    type: 'fn.empty-state',
+   373→    category: 'functional',
+   374→    name: '空状态',
+   375→    desc: '无数据占位：图标 + 文案 + 行动按钮',
+   376→    icon: PackageOpen,
+   377→    defaultProps: { title: '暂无数据', desc: '这里还没有内容，去看看别的吧', btn: '去逛逛' },
+   378→    fields: [
+   379→      { key: 'title', label: '主文字', type: 'text' },
+   380→      { key: 'desc', label: '副文字', type: 'text' },
+   381→      { key: 'btn', label: '按钮文案', type: 'text' },
+   382→    ],
+   383→    render: (p) => (
+   384→      <div className="flex flex-col items-center gap-2 py-6">
+   385→        <span className="w-chip flex size-16 items-center justify-center rounded-full">
+   386→          <PackageOpen className="size-7 opacity-45" />
+   387→        </span>
+   388→        <span className="mt-1 text-sm font-bold">{p.title}</span>
+   389→        <span className="text-xs opacity-50">{p.desc}</span>
+   390→        <button
+   391→          className="mt-2 flex h-8 items-center px-4 text-xs font-semibold active:scale-[0.97]"
+   392→          style={{ borderRadius: 'var(--pr)', border: '1.5px solid var(--p)', color: 'var(--p)' }}
+   393→        >
+   394→          {p.btn}
+   395→        </button>
+   396→      </div>
+   397→    ),
+   398→  },
+   399→  {
+   400→    type: 'fn.video-card',
+   401→    category: 'functional',
+   402→    name: '视频卡',
+   403→    desc: '16:9 封面 + 时长角标 + 标题与播放量',
+   404→    icon: Play,
+   405→    defaultProps: { title: '三分钟看懂设计系统', duration: '12:36', views: '3.2万次播放' },
+   406→    fields: [
+   407→      { key: 'title', label: '标题', type: 'text' },
+   408→      { key: 'duration', label: '时长', type: 'text' },
+   409→      { key: 'views', label: '播放量', type: 'text' },
+   410→    ],
+   411→    render: (p) => (
+   412→      <div>
+   413→        <div
+   414→          className="relative flex aspect-video items-center justify-center overflow-hidden"
+   415→          style={{
+   416→            borderRadius: 'var(--pr)',
+   417→            background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #fff))',
+   418→          }}
+   419→        >
+   420→          <span
+   421→            className="flex size-12 items-center justify-center rounded-full bg-black/30 active:scale-95"
+   422→            style={{ color: '#fff' }}
+   423→          >
+   424→            <Play className="size-5" fill="currentColor" />
+   425→          </span>
+   426→          <span className="absolute bottom-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+   427→            {p.duration}
+   428→          </span>
+   429→        </div>
+   430→        <div className="mt-2 truncate text-sm font-semibold">{p.title}</div>
+   431→        <div className="mt-1 text-[11px] opacity-50">{p.views}</div>
+   432→      </div>
+   433→    ),
+   434→  },
+   435→  {
+   436→    type: 'fn.fab',
+   437→    category: 'functional',
+   438→    name: '悬浮按钮',
+   439→    desc: '右下角悬浮操作圆钮（56px）',
+   440→    icon: Plus,
+   441→    defaultProps: { icon: 'plus' },
+   442→    fields: [
+   443→      { key: 'icon', label: '图标', type: 'select', options: [{ label: '加号', value: 'plus' }, { label: '编辑', value: 'edit' }, { label: '相机', value: 'camera' }, { label: '消息', value: 'message' }] },
+   444→    ],
+   445→    render: (p) => {
+   446→      const Icon = FAB_ICONS[p.icon] || Plus;
+   447→      return (
+   448→        <div className="flex justify-end p-1">
+   449→          <button
+   450→            className="flex size-14 items-center justify-center shadow-lg transition-transform active:scale-90"
+   451→            style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+   452→          >
+   453→            <Icon className="size-6" />
+   454→          </button>
+   455→        </div>
+   456→      );
+   457→    },
+   458→  },
+   459→  {
+   460→    type: 'fn.avatar-profile',
+   461→    category: 'functional',
+   462→    name: '个人中心头部',
+   463→    desc: '渐变头像信息栏：昵称 / ID / VIP / 主页入口',
+   464→    icon: CircleUserRound,
+   465→    fullBleed: true,
+   466→    defaultProps: { name: '云间漫步者', uid: 'ID: 88239012', vip: true },
+   467→    fields: [
+   468→      { key: 'name', label: '昵称', type: 'text' },
+   469→      { key: 'uid', label: 'UID', type: 'text' },
+   470→      { key: 'vip', label: '显示 VIP 徽标', type: 'switch' },
+   471→    ],
+   472→    render: (p) => (
+   473→      <div
+   474→        className="flex items-center gap-3 p-4"
+   475→        style={{
+   476→          background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 62%, #fff))',
+   477→          color: 'var(--pf)',
+   478→        }}
+   479→      >
+   480→        <span
+   481→          className="flex size-14 shrink-0 items-center justify-center rounded-full text-xl font-bold"
+   482→          style={{ background: 'color-mix(in srgb, #fff 22%, transparent)' }}
+   483→        >
+   484→          {String(p.name || '游').slice(0, 1)}
+   485→        </span>
+   486→        <div className="min-w-0 flex-1">
+   487→          <div className="flex items-center gap-1.5">
+   488→            <span className="truncate text-base font-bold">{p.name}</span>
+   489→            {p.vip !== false && (
+   490→              <span
+   491→                className="flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-amber-300"
+   492→                style={{ background: 'color-mix(in srgb, #000 18%, transparent)' }}
+   493→              >
+   494→                <Crown className="size-2.5" /> VIP
+   495→              </span>
+   496→            )}
+   497→          </div>
+   498→          <div className="mt-0.5 truncate text-[11px] opacity-70">{p.uid}</div>
+   499→        </div>
+   500→        <span
+   501→          className="flex shrink-0 items-center gap-0.5 rounded-full px-2.5 py-1 text-xs"
+   502→          style={{ background: 'color-mix(in srgb, #fff 20%, transparent)' }}
+   503→        >
+   504→          个人主页 <ChevronRight className="size-3.5" />
+   505→        </span>
+   506→      </div>
+   507→    ),
+   508→  },
+   509→  {
+   510→    type: 'fn.faq',
+   511→    category: 'functional',
+   512→    name: 'FAQ 折叠面板',
+   513→    desc: '常见问题列表（首条展开）',
+   514→    icon: CircleHelp,
+   515→    defaultProps: {
+   516→      items: '如何修改绑定手机号？\n会员如何自动续费？\n忘记密码怎么办？\n如何注销账号？',
+   517→      answer: '请在「账号与安全」中选择更换手机号，验证身份后即可完成换绑。',
+   518→    },
+   519→    fields: [
+   520→      { key: 'items', label: '问题列表（每行一个）', type: 'textarea' },
+   521→      { key: 'answer', label: '展开的答案示例', type: 'textarea' },
+   522→    ],
+   523→    render: (p) => {
+   524→      const items = String(p.items ?? '').split(/\n/).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+   525→      return (
+   526→        <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+   527→          {items.map((q, i) => (
+   528→            <div key={i} className={`px-3 py-2.5 ${i > 0 ? 'border-t w-line' : ''}`}>
+   529→              <div className="flex items-center gap-2">
+   530→                <CircleHelp className="size-3.5 shrink-0" style={{ color: 'var(--p)' }} />
+   531→                <span className="min-w-0 flex-1 truncate text-xs font-semibold">{q}</span>
+   532→                <ChevronDown className={`size-3.5 shrink-0 opacity-40 transition-transform ${i === 0 ? 'rotate-180' : ''}`} />
+   533→              </div>
+   534→              {i === 0 && (
+   535→                <p className="mt-1.5 pl-6 text-[11px] leading-4 opacity-55">{p.answer}</p>
+   536→              )}
+   537→            </div>
+   538→          ))}
+   539→        </div>
+   540→      );
+   541→    },
+   542→  },
+   543→  {
+   544→    type: 'fn.countdown',
+   545→    category: 'functional',
+   546→    name: '倒计时卡片',
+   547→    desc: '活动 / 纪念日倒计时',
+   548→    icon: Timer,
+   549→    defaultProps: { title: '距离双十一开场', days: 12, hours: 8, mins: 36, sub: '定好闹钟准时开抢' },
+   550→    fields: [
+   551→      { key: 'title', label: '标题', type: 'text' },
+   552→      { key: 'sub', label: '右侧小字', type: 'text' },
+   553→      { key: 'days', label: '天', type: 'number', min: 0, max: 99 },
+   554→      { key: 'hours', label: '时', type: 'number', min: 0, max: 23 },
+   555→      { key: 'mins', label: '分', type: 'number', min: 0, max: 59 },
+   556→    ],
+   557→    render: (p) => (
+   558→      <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+   559→        <div className="flex items-center justify-between">
+   560→          <span className="flex items-center gap-1.5 text-xs font-bold">
+   561→            <Timer className="size-3.5" style={{ color: 'var(--p)' }} /> {p.title}
+   562→          </span>
+   563→          <span className="text-[10px] opacity-45">{p.sub}</span>
+   564→        </div>
+   565→        <div className="mt-3 flex items-center justify-center gap-1">
+   566→        {[[p.days, '天'], [p.hours, '时'], [p.mins, '分']].map(([v, u], i) => (
+   567→            <div key={i} className="flex items-center gap-1">
+   568→              <span
+   569→                className="flex h-11 w-10 items-center justify-center text-lg font-extrabold tabular-nums"
+   570→                style={{ background: '#18181b', color: '#fff', borderRadius: 'calc(var(--pr) - 2px)' }}
+   571→              >
+   572→                {String(Number(v) || 0).padStart(2, '0')}
+   573→              </span>
+   574→              <span className="text-[11px] opacity-50">{u}</span>
+   575→              {i < 2 && <span className="ml-1 text-lg font-bold opacity-25">:</span>}
+   576→            </div>
+   577→          ))}
+   578→        </div>
+   579→      </div>
+   580→    ),
+   581→  },
+   582→  {
+   583→    type: 'fn.ranking',
+   584→    category: 'functional',
+   585→    name: '排行榜',
+   586→    desc: '金银铜牌排名列表',
+   587→    icon: Trophy,
+   588→    defaultProps: { title: '本周步数榜', unit: '步', items: '星云旅人 28616\n阿岚 25410\n小张 23188\n产品君 19802' },
+   589→    fields: [
+   590→      { key: 'title', label: '标题', type: 'text' },
+   591→      { key: 'items', label: '条目（每行：名字 值）', type: 'textarea' },
+   592→      { key: 'unit', label: '单位', type: 'text' },
+   593→    ],
+   594→    render: (p) => {
+   595→      const medal = ['bg-amber-400', 'bg-zinc-300', 'bg-amber-600'];
+   596→      const rows = String(p.items ?? '').split(/\n/).map((s) => s.trim()).filter(Boolean).slice(0, 5)
+   597→        .map((line) => {
+   598→          const idx = line.lastIndexOf(' ');
+   599→          return idx > 0 ? [line.slice(0, idx), line.slice(idx + 1)] : [line, ''];
+   600→        });
+   601→      return (
+   602→        <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+   603→          <div className="flex items-center gap-1.5 border-b w-line px-3 py-2">
+   604→            <Trophy className="size-3.5 text-amber-500" />
+   605→            <span className="text-xs font-bold">{p.title}</span>
+   606→          </div>
+   607→          {rows.map(([name, val], i) => (
+   608→            <div key={i} className={`flex items-center gap-2.5 px-3 py-2 ${i > 0 ? 'border-t w-line' : ''}`}>
+   609→              <span
+   610→                className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold ${i < 3 ? `${medal[i]} text-white` : 'w-chip opacity-70'}`}
+   611→              >
+   612→                {i + 1}
+   613→              </span>
+   614→              <span className="min-w-0 flex-1 truncate text-xs font-semibold">{name}</span>
+   615→              <span className="shrink-0 text-xs font-extrabold tabular-nums" style={{ color: 'var(--p)' }}>
+   616→                {val}
+   617→                <span className="ml-0.5 text-[9px] font-normal opacity-50">{p.unit}</span>
+   618→              </span>
+   619→            </div>
+   620→          ))}
+   621→        </div>
+   622→      );
+   623→    },
+   624→  },
+   625→  {
+   626→    type: 'fn.qrcode',
+   627→    category: 'functional',
+   628→    name: '二维码卡片',
+   629→    desc: '邀请 / 名片二维码 + 分享按钮',
+   630→    icon: QrCode,
+   631→    defaultProps: { title: '邀请好友赚奖励', sub: '扫码加入星云，双方各得 30 积分', seed: 7 },
+   632→    fields: [
+   633→      { key: 'title', label: '标题', type: 'text' },
+   634→      { key: 'sub', label: '副文案', type: 'text' },
+   635→      { key: 'seed', label: '码样变化', type: 'number', min: 1, max: 99 },
+   636→    ],
+   637→    render: (p) => {
+   638→      const n = 11;
+   639→      const cells = Array.from({ length: n * n }, (_, i) => {
+   640→        const x = i % n;
+   641→        const y = Math.floor(i / n);
+   642→        const corner = (x < 3 && y < 3) || (x > n - 4 && y < 3) || (x < 3 && y > n - 4);
+   643→        if (corner) return x % 3 !== 1 || y % 3 !== 1 ? 1 : 0;
+   644→        return (i * 73 + Number(p.seed || 7) * 131) % 97 > 47 ? 1 : 0;
+   645→      });
+   646→      return (
+   647→        <div className="w-card p-4 text-center" style={{ borderRadius: 'var(--pr)' }}>
+   648→          <p className="text-sm font-bold">{p.title}</p>
+   649→          <p className="mt-1 text-[11px] opacity-55">{p.sub}</p>
+   650→          <div className="mx-auto mt-3 w-fit rounded-xl border-2 p-2" style={{ borderColor: 'var(--p)' }}>
+   651→            <div className="grid" style={{ gridTemplateColumns: `repeat(${n}, 7px)` }}>
+   652→              {cells.map((c, i) => (
+   653→                <span key={i} className="size-[7px]" style={{ background: c ? '#18181b' : 'transparent' }} />
+   654→              ))}
+   655→            </div>
+   656→          </div>
+   657→          <button
+   658→            className="mt-3 inline-flex h-8 items-center gap-1.5 px-4 text-xs font-bold"
+   659→            style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: '999px' }}
+   660→          >
+   661→            <Share2 className="size-3.5" /> 立即分享
+   662→          </button>
+   663→        </div>
+   664→      );
+   665→    },
+   666→  },
+   667→  {
+   668→    type: 'fn.calendar',
+   669→    category: 'functional',
+   670→    name: '日历卡片',
+   671→    desc: '月历视图 + 今日高亮',
+   672→    icon: CalendarDays,
+   673→    defaultProps: { month: '2026年9月', today: 4, start: 2 },
+   674→    fields: [
+   675→      { key: 'month', label: '月份标题', type: 'text' },
+   676→      { key: 'today', label: '今日日期', type: 'number', min: 1, max: 28 },
+   677→      { key: 'start', label: '首日星期偏移', type: 'number', min: 0, max: 6 },
+   678→    ],
+   679→    render: (p) => {
+   680→      const start = Math.min(6, Math.max(0, Number(p.start) || 0));
+   681→      const cells = [...Array(start).fill(0), ...Array.from({ length: 28 }, (_, i) => i + 1)];
+   682→      return (
+   683→        <div className="w-card p-3" style={{ borderRadius: 'var(--pr)' }}>
+   684→          <div className="flex items-center justify-between px-1">
+   685→            <ChevronDown className="size-3.5 -rotate-90 opacity-40" />
+   686→            <span className="text-xs font-bold">{p.month}</span>
+   687→            <ChevronDown className="size-3.5 rotate-90 opacity-40" />
+   688→          </div>
+   689→          <div className="mt-2 grid grid-cols-7 gap-y-1 text-center text-[10px] opacity-40">
+   690→            {['日', '一', '二', '三', '四', '五', '六'].map((d) => (
+   691→              <span key={d}>{d}</span>
+   692→            ))}
+   693→          </div>
+   694→          <div className="mt-1 grid grid-cols-7 gap-y-0.5 text-center">
+   695→            {cells.map((d, i) =>
+   696→              d === 0 ? (
+   697→                <span key={i} />
+   698→              ) : (
+   699→                <span
+   700→                  key={i}
+   701→                  className="mx-auto flex size-6 items-center justify-center rounded-full text-[11px] tabular-nums"
+   702→                  style={
+   703→                    d === Number(p.today)
+   704→                      ? { background: 'var(--p)', color: 'var(--pf)', fontWeight: 700 }
+   705→                      : { opacity: i % 7 === 0 || i % 7 === 6 ? 0.4 : 0.85 }
+   706→                  }
+   707→                >
+   708→                  {d}
+   709→                </span>
+   710→              )
+   711→            )}
+   712→          </div>
+   713→        </div>
+   714→      );
+   715→    },
+   716→  },
+   717→  {
+   718→    type: 'fn.spacer',
+   719→    category: 'functional',
+   720→    name: '间距占位',
+   721→    desc: '调整页面留白高度',
+   722→    icon: MoveVertical,
+   723→    defaultProps: { height: 40, hint: true },
+   724→    fields: [
+   725→      { key: 'height', label: '高度', type: 'number', min: 8, max: 160, step: 4 },
+   726→      { key: 'hint', label: '显示占位提示', type: 'switch' },
+   727→    ],
+   728→    render: (p) => (
+   729→      <div className="flex items-center justify-center" style={{ height: Number(p.height) || 40 }}>
+   730→        {p.hint !== false && (
+   731→          <span className="flex items-center gap-1 text-[9px] opacity-30">
+   732→            <MoveVertical className="size-3" /> 间距 {p.height}px
+   733→          </span>
+   734→        )}
+   735→      </div>
+   736→    ),
+   737→  },
+   738→];
+   739→
