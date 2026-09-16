@@ -5,6 +5,8 @@ import {
   Bike, Phone, Hash, Tags,
 } from 'lucide-react';
 import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { useBusScope } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
 import { stopAct, useAction } from './action-kit';
 
 /**
@@ -171,12 +173,25 @@ function DishCardInteractive({ props, onTap }: InteractiveCtx) {
   );
 }
 
-/** 推荐横滑交互：每张迷你卡整卡可点 → onTap 或查看详情 */
-function DishRowInteractive({ props, onTap }: InteractiveCtx) {
-  const { toast } = useAction();
+/** 推荐横滑交互：逐菜品卡独立跳页（未绑定提示）→ 整卡兜底跳页 → 提示 */
+function DishRowInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
   const raw = splitList(props.items);
   const names = (raw.length ? raw : ['推荐菜']).slice(0, 3);
   const prices = splitList(props.prices);
+  const unboundHint = (i: number) =>
+    fireToast(scope, names[i] ? `「${names[i]}」尚未绑定页面，选中组件后在「交互」页绑定` : '该菜品尚未绑定页面', 'info');
+  const onDish = (i: number) => {
+    if (slotPush) {
+      if (!slotPush(String(i))) unboundHint(i);
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    unboundHint(i);
+  };
   return (
     <div className="flex gap-2 overflow-hidden">
       {names.map((n, i) => {
@@ -185,10 +200,12 @@ function DishRowInteractive({ props, onTap }: InteractiveCtx) {
           <div
             key={i}
             role="button"
+            tabIndex={0}
             aria-label={`查看菜品：${n}`}
             className="w-chip min-w-0 flex-1 cursor-pointer p-1.5 transition-transform active:scale-[0.97]"
             style={{ borderRadius: 'var(--pr)' }}
-            onClick={(e) => { stopAct(e); if (onTap) onTap(); else toast(`查看菜品详情：${n}`, 'info'); }}
+            onClick={(e) => { stopAct(e); onDish(i); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDish(i); } }}
           >
             <div
               className="flex h-14 items-center justify-center"
@@ -554,13 +571,18 @@ export const widgets: WidgetDef[] = [
     type: 'food.dish-row',
     category: 'food',
     name: '推荐横滑',
-    desc: '3 张迷你菜品卡横向排布',
+    desc: '3 张迷你菜品卡横向排布，每张菜品卡可分别绑定不同跳转页面',
     icon: Soup,
     defaultProps: { items: '宫保鸡丁,鱼香肉丝,水煮鱼片', prices: '28,32,45' },
     fields: [
       { key: 'items', label: '菜名（逗号分隔）', type: 'textarea' },
       { key: 'prices', label: '价格（逗号分隔）', type: 'text' },
     ],
+    slots: (p) => {
+      const raw = splitList(p.items);
+      const names = (raw.length ? raw : ['推荐菜']).slice(0, 3);
+      return names.map((n, i) => ({ key: String(i), label: `「${n}」菜品卡` }));
+    },
     Interactive: DishRowInteractive,
     render: (p) => {
       const raw = splitList(p.items);

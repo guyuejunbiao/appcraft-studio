@@ -479,6 +479,22 @@ export function InfiniteCanvas() {
   }, []);
   const pages = useBuilder((s) => s.pages);
   const connections = useBuilder((s) => s.connections);
+
+  /* 同一对页面的多条连接扇出参数（多个入口 → 同一页）：n = 组内序号，k = 组内总数 */
+  const fanConns = useMemo(() => {
+    const counts = new Map<string, number>();
+    connections.forEach((c) => {
+      const key = `${c.fromPageId}->${c.toPageId}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    const seen = new Map<string, number>();
+    return connections.map((c) => {
+      const key = `${c.fromPageId}->${c.toPageId}`;
+      const n = seen.get(key) ?? 0;
+      seen.set(key, n + 1);
+      return { c, n, k: counts.get(key) ?? 1 };
+    });
+  }, [connections]);
   const tabs = useBuilder((s) => s.tabs);
   const project = useBuilder((s) => s.project);
   const theme = project?.theme ?? { primary: '#f97316', radius: 'md' as const, dark: false };
@@ -813,7 +829,7 @@ export function InfiniteCanvas() {
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316" />
               </marker>
             </defs>
-            {connections.map((c) => {
+            {fanConns.map(({ c, n }) => {
               const from = positions[c.fromPageId];
               const to = positions[c.toPageId];
               if (!from || !to) return null;
@@ -821,7 +837,8 @@ export function InfiniteCanvas() {
               const sy = from.y + CHROME_H + AB_H / 2;
               const tx = to.x;
               const ty = to.y + CHROME_H + AB_H / 2;
-              const dx = Math.max(40, Math.abs(tx - sx) * 0.45);
+              /* 同一对页面多条连接：曲率逐条增大，扇形展开不重叠 */
+              const dx = Math.max(40, Math.abs(tx - sx) * 0.45) + n * 24;
               return (
                 <path
                   key={c.id}
@@ -846,25 +863,33 @@ export function InfiniteCanvas() {
             )}
           </svg>
 
-          {/* 连线标签 */}
-          {connections.map((c) => {
+          {/* 连线标签：槽位级连接附槽位名；同对页面多条连接纵向错开 */}
+          {fanConns.map(({ c, n, k }) => {
             const from = positions[c.fromPageId];
             const to = positions[c.toPageId];
             if (!from || !to) return null;
             const widget = pages.find((p) => p.id === c.fromPageId)?.components.find((w) => w.id === c.fromWidgetId);
-            const widgetName = widget ? getWidget(widget.type)?.name ?? widget.type : '未知组件';
+            const widgetDef = widget ? getWidget(widget.type) : null;
+            const widgetName = widget ? widgetDef?.name ?? widget.type : '未知组件';
+            const slotLabel =
+              c.slot && widget && widgetDef
+                ? widgetDef.slots?.({ ...widgetDef.defaultProps, ...widget.props })?.find((s) => s.key === c.slot)?.label ?? `槽位 ${c.slot}`
+                : null;
             const targetName = pages.find((p) => p.id === c.toPageId)?.name ?? '';
             return (
               <div
                 key={`lb-${c.id}`}
                 className="group absolute z-20 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[10px] font-semibold shadow-sm transition-shadow hover:shadow-md hover:ring-2 hover:ring-violet-200"
-                style={{ left: (from.x + AB_W + to.x) / 2, top: (from.y + to.y) / 2 + CHROME_H + AB_H / 2 }}
+                style={{ left: (from.x + AB_W + to.x) / 2, top: (from.y + to.y) / 2 + CHROME_H + AB_H / 2 + (n - (k - 1) / 2) * 24 }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => setDialog({ edit: c })}
                 role="button"
                 title="点击编辑这条连接"
               >
                 <span className="max-w-20 truncate text-violet-500">{widgetName}</span>
+                {slotLabel && (
+                  <span className="max-w-16 truncate rounded bg-emerald-100 px-1 text-[9px] font-semibold text-emerald-600">{slotLabel}</span>
+                )}
                 <ChevronRight className="size-3 text-zinc-300" />
                 <span className="max-w-20 truncate">{targetName}</span>
                 <button

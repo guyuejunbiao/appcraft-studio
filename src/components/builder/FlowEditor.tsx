@@ -208,6 +208,23 @@ export function FlowEditor() {
     return map;
   }, [pages]);
 
+  /* 同一对页面的多条连接（多个入口 → 同一页）扇出参数：n = 组内序号，k = 组内总数。
+   * 曲率与标签纵向错开，让「Banner / 商品 A / 商品 B 都指向同一个详情页」在图上一目了然 */
+  const fanConns = useMemo(() => {
+    const counts = new Map<string, number>();
+    connections.forEach((c) => {
+      const key = `${c.fromPageId}->${c.toPageId}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    const seen = new Map<string, number>();
+    return connections.map((c) => {
+      const key = `${c.fromPageId}->${c.toPageId}`;
+      const n = seen.get(key) ?? 0;
+      seen.set(key, n + 1);
+      return { c, n, k: counts.get(key) ?? 1 };
+    });
+  }, [connections]);
+
   /** 拖拽连线时指针悬停命中的目标页（高亮提示） */
   const hoverTarget = useMemo(() => {
     if (!linkDrag) return null;
@@ -320,7 +337,7 @@ export function FlowEditor() {
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316" />
               </marker>
             </defs>
-            {connections.map((c) => {
+            {fanConns.map(({ c, n }) => {
               const from = positions[c.fromPageId];
               const to = positions[c.toPageId];
               if (!from || !to) return null;
@@ -328,7 +345,8 @@ export function FlowEditor() {
               const sy = from.y + 46;
               const tx = to.x;
               const ty = to.y + 46;
-              const dx = Math.max(46, Math.abs(tx - sx) * 0.45);
+              /* 同一对页面多条连接：曲率逐条增大，扇形展开不重叠 */
+              const dx = Math.max(46, Math.abs(tx - sx) * 0.45) + n * 26;
               return (
                 <g key={c.id}>
                   <path
@@ -355,28 +373,36 @@ export function FlowEditor() {
             )}
           </svg>
 
-          {/* 连线标签（可点击编辑） */}
-          {connections.map((c) => {
+          {/* 连线标签（可点击编辑）：槽位级连接附槽位名；同对页面多条连接纵向错开 */}
+          {fanConns.map(({ c, n, k }) => {
             const from = positions[c.fromPageId];
             const to = positions[c.toPageId];
             if (!from || !to) return null;
             const widget = pages
               .find((p) => p.id === c.fromPageId)
               ?.components.find((w) => w.id === c.fromWidgetId);
-            const widgetName = widget ? getWidget(widget.type)?.name ?? widget.type : '未知组件';
+            const widgetDef = widget ? getWidget(widget.type) : null;
+            const widgetName = widget ? widgetDef?.name ?? widget.type : '未知组件';
+            const slotLabel =
+              c.slot && widget && widgetDef
+                ? widgetDef.slots?.({ ...widgetDef.defaultProps, ...widget.props })?.find((s) => s.key === c.slot)?.label ?? `槽位 ${c.slot}`
+                : null;
             const animLabel = ANIM_OPTS.find((a) => a.value === c.animation)?.label ?? c.animation;
             const target = pages.find((p) => p.id === c.toPageId);
             return (
               <div
                 key={`label-${c.id}`}
                 className="group absolute z-20 flex -translate-x-1/2 -translate-y-full cursor-pointer items-center gap-1 rounded-full border bg-white px-2.5 py-1 text-[10px] font-semibold shadow-md transition-shadow hover:shadow-lg hover:ring-2 hover:ring-violet-200"
-                style={{ left: (from.x + NODE_W + to.x) / 2, top: (from.y + to.y) / 2 + 46 - 8 }}
+                style={{ left: (from.x + NODE_W + to.x) / 2, top: (from.y + to.y) / 2 + 46 - 8 + (n - (k - 1) / 2) * 26 }}
                 onClick={() => setEditing(c)}
                 role="button"
                 title="点击编辑这条连接"
                 aria-label={`连接：${widgetName} 跳转到 ${target?.name}，点击编辑`}
               >
                 <span className="text-violet-500">{widgetName}</span>
+                {slotLabel && (
+                  <span className="max-w-24 truncate rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold text-emerald-600">{slotLabel}</span>
+                )}
                 <MoveRight className="size-3 text-zinc-300" />
                 <span>{target?.name}</span>
                 <span className="rounded bg-zinc-100 px-1 text-[9px] text-zinc-400">{animLabel}</span>

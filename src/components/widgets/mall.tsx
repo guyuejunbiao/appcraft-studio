@@ -52,7 +52,7 @@ function CategoryGridView({
             key={`${c.label}-${i}`}
             type="button"
             aria-label={c.label}
-            onClick={() => onTapCell(i)}
+            onClick={(e) => { stopAct(e); onTapCell(i); }}
             className="flex min-w-0 flex-col items-center gap-1.5 transition-opacity active:opacity-60"
           >
             {body}
@@ -328,7 +328,7 @@ function ProductGridView({
             role="button"
             tabIndex={0}
             aria-label={it.name ? `查看商品 ${it.name}` : `查看商品 ${i + 1}`}
-            onClick={() => onTapItem(i)}
+            onClick={(e) => { stopAct(e); onTapItem(i); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTapItem(i); } }}
             className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
             style={{ borderRadius: 'var(--pr)' }}
@@ -364,31 +364,42 @@ function ProductGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   return <ProductGridView items={items} onTapItem={onItem} />;
 }
 
-/** 限时秒杀横条：整卡点击 → 已绑定页面则跳页，否则 toast 查看秒杀 */
-function FlashSaleInteractive({ props, onTap }: InteractiveCtx) {
-  const { toast } = useAction();
+/* ------------------------------------------------------------------ */
+/* 限时秒杀：每个秒杀商品位都是独立个体——名称/价格逐个编辑、逐个绑定跳页 */
+/* ------------------------------------------------------------------ */
+
+/** 秒杀位默认数据（新增组件初始值；老项目无 items 时回退，价格对齐历史硬编码视觉零跳变） */
+const FLASH_FALLBACK_ITEMS: ProductItem[] = [
+  { name: '爆款加绒卫衣', price: '29', original: '69' },
+  { name: '无线蓝牙耳机', price: '99', original: '199' },
+  { name: '304 不锈钢保温杯', price: '59', original: '129' },
+];
+
+/** 秒杀商品位解析：items 存档优先（逐商品独立数据）；旧数据/缺省回退默认三件 */
+const flashItems = (p: WidgetProps): ProductItem[] =>
+  Array.isArray(p.items) && p.items.length ? normalizeProducts(p.items) : FLASH_FALLBACK_ITEMS;
+
+/** 限时秒杀视图（静态/交互共用；onTapTile 存在时逐商品位可点击） */
+function FlashSaleView({
+  items, title, hours, minutes, onTapTile,
+}: {
+  items: ProductItem[];
+  title: unknown;
+  hours: unknown;
+  minutes: unknown;
+  onTapTile?: (i: number) => void;
+}) {
   /* 时 / 分均取两位数字（容忍 '2 h' 之类写法，非法按 0） */
   const pad2 = (v: unknown) =>
     String(Math.min(99, Math.max(0, Math.round(Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0)))).padStart(2, '0');
-  const blocks = [pad2(props.hours), pad2(props.minutes)];
-  const prices = ['29', '99', '59'];
-  const originals = ['69', '199', '129'];
+  const blocks = [pad2(hours), pad2(minutes)];
+  const tiles = items.slice(0, 6);
   return (
-    <div
-      role="button"
-      aria-label="查看秒杀"
-      onClick={(e) => {
-        stopAct(e);
-        if (onTap) onTap();
-        else toast('查看秒杀', 'info');
-      }}
-      className="w-card cursor-pointer p-3 transition-opacity active:opacity-90"
-      style={{ borderRadius: 'var(--pr)' }}
-    >
+    <div className="w-card p-3" style={{ borderRadius: 'var(--pr)' }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Flame className="size-4" style={{ color: 'var(--p)' }} />
-          <span className="text-[15px] font-extrabold">{props.title}</span>
+          <span className="text-[15px] font-extrabold">{String(title ?? '')}</span>
         </div>
         {/* 倒计时色块（时 : 分，黑底白字） */}
         <div className="flex items-center gap-1">
@@ -400,30 +411,68 @@ function FlashSaleInteractive({ props, onTap }: InteractiveCtx) {
           ))}
         </div>
       </div>
-      {/* 横排 3 个秒杀商品位（图块 + 主色价格） */}
+      {/* 横排秒杀商品位：图块 + 商品名 + 秒杀价/划线原价，每格独立个体 */}
       <div className="mt-3 grid grid-cols-3 gap-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i}>
+        {tiles.map((it, i) => {
+          const body = (
+            <>
+              <div
+                className="flex h-20 items-center justify-center"
+                style={{
+                  borderRadius: 'calc(var(--pr) - 4px)',
+                  background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${16 + (i % 3) * 8}%, transparent), color-mix(in srgb, var(--p) ${40 + (i % 3) * 8}%, transparent))`,
+                }}
+              >
+                <ImageIcon className="size-6 opacity-30" />
+              </div>
+              <div className="mt-1 truncate px-0.5 text-center text-[10px] leading-3.5 opacity-60">{it.name || `秒杀 ${i + 1}`}</div>
+              <div className="mt-1 flex items-baseline justify-center gap-1">
+                <span className="text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+                  <span className="text-[10px]">¥</span>{it.price || '0'}
+                </span>
+                {it.original && <span className="text-[10px] line-through opacity-40">¥{it.original}</span>}
+              </div>
+            </>
+          );
+          return onTapTile ? (
             <div
-              className="flex h-20 items-center justify-center"
-              style={{
-                borderRadius: 'calc(var(--pr) - 4px)',
-                background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${16 + i * 8}%, transparent), color-mix(in srgb, var(--p) ${40 + i * 8}%, transparent))`,
-              }}
+              key={i}
+              role="button"
+              tabIndex={0}
+              aria-label={it.name ? `查看秒杀商品 ${it.name}` : `查看秒杀商品 ${i + 1}`}
+              onClick={(e) => { stopAct(e); onTapTile(i); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTapTile(i); } }}
+              className="min-w-0 cursor-pointer transition-opacity active:opacity-80"
             >
-              <ImageIcon className="size-6 opacity-30" />
+              {body}
             </div>
-            <div className="mt-1.5 flex items-baseline justify-center gap-1">
-              <span className="text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
-                <span className="text-[10px]">¥</span>{prices[i]}
-              </span>
-              <span className="text-[10px] line-through opacity-40">¥{originals[i]}</span>
-            </div>
-          </div>
-        ))}
+          ) : (
+            <div key={i} className="min-w-0">{body}</div>
+          );
+        })}
       </div>
     </div>
   );
+}
+
+/** 限时秒杀交互：逐商品位独立跳页（未绑定提示）→ 整卡兜底跳页 → 提示 */
+function FlashSaleInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const items = flashItems(props);
+  const scope = useBusScope();
+  const unboundHint = (i: number) =>
+    fireToast(scope, items[i]?.name ? `「${items[i].name}」尚未绑定页面，选中组件后在「交互」页绑定` : '该商品尚未绑定页面', 'info');
+  const onTile = (i: number) => {
+    if (slotPush) {
+      if (!slotPush(String(i))) unboundHint(i);
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    unboundHint(i);
+  };
+  return <FlashSaleView items={items} title={props.title} hours={props.hours} minutes={props.minutes} onTapTile={onTile} />;
 }
 
 /** 优惠券：票券钮点击原地变「已领取」灰态；已领取再点提示 */
@@ -514,21 +563,33 @@ function CouponRowInteractive({ props }: InteractiveCtx) {
   );
 }
 
-/** 品牌馆：每张品牌卡可点击进入品牌馆 */
-function BrandRowInteractive({ props, onTap }: InteractiveCtx) {
-  const { toast } = useAction();
+/** 品牌馆交互：逐品牌卡独立跳页（未绑定提示）→ 整卡兜底跳页 → 提示 */
+function BrandRowInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  const brands = splitList(props.brands).slice(0, 3);
+  const unboundHint = (i: number) =>
+    fireToast(scope, brands[i] ? `「${brands[i]}」尚未绑定页面，选中组件后在「交互」页绑定` : '该品牌卡尚未绑定页面', 'info');
+  const onBrand = (i: number) => {
+    if (slotPush) {
+      if (!slotPush(String(i))) unboundHint(i);
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    unboundHint(i);
+  };
   return (
     <div className="flex gap-2 overflow-hidden">
-      {splitList(props.brands).slice(0, 3).map((brand, i) => (
+      {brands.map((brand, i) => (
         <div
           key={`${brand}-${i}`}
           role="button"
+          tabIndex={0}
           aria-label={`进入${brand}品牌馆`}
-          onClick={(e) => {
-            stopAct(e);
-            if (onTap) onTap();
-            else toast('进入品牌馆', 'info');
-          }}
+          onClick={(e) => { stopAct(e); onBrand(i); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBrand(i); } }}
           className="flex h-20 w-[32%] shrink-0 cursor-pointer flex-col justify-end gap-1 overflow-hidden p-2.5 transition-opacity active:opacity-85"
           style={{
             borderRadius: 'var(--pr)',
@@ -759,64 +820,21 @@ export const widgets: WidgetDef[] = [
     type: 'mall.flash-sale',
     category: 'mall',
     name: '限时秒杀横条',
-    desc: '标题 + 时:分 倒计时色块 + 横排秒杀商品位',
+    desc: '标题 + 倒计时 + 横排秒杀商品位，逐个商品可编辑、可分别绑定不同跳转页面',
     icon: Flame,
-    defaultProps: { title: '限时秒杀', hours: '02', minutes: '45' },
+    defaultProps: {
+      title: '限时秒杀', hours: '02', minutes: '45',
+      items: FLASH_FALLBACK_ITEMS.map((x) => ({ ...x })),
+    },
     fields: [
       { key: 'title', label: '标题', type: 'text' },
       { key: 'hours', label: '倒计时 · 时', type: 'text', placeholder: '如 02' },
       { key: 'minutes', label: '倒计时 · 分', type: 'text', placeholder: '如 45' },
+      { key: 'items', label: '秒杀商品（逐个编辑）', type: 'products', max: 6 },
     ],
+    slots: (p) => productsToSlots(flashItems(p).slice(0, 6), 3),
     Interactive: FlashSaleInteractive,
-    render: (p) => {
-      /* 时 / 分均取两位数字（容忍 '2 h' 之类写法，非法按 0） */
-      const pad2 = (v: unknown) =>
-        String(Math.min(99, Math.max(0, Math.round(Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0)))).padStart(2, '0');
-      const blocks = [pad2(p.hours), pad2(p.minutes)];
-      const prices = ['29', '99', '59'];
-      const originals = ['69', '199', '129'];
-      return (
-        <div className="w-card p-3" style={{ borderRadius: 'var(--pr)' }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Flame className="size-4" style={{ color: 'var(--p)' }} />
-              <span className="text-[15px] font-extrabold">{p.title}</span>
-            </div>
-            {/* 倒计时色块（时 : 分，黑底白字） */}
-            <div className="flex items-center gap-1">
-              {blocks.map((t, i) => (
-                <span key={i} className="flex items-center gap-1">
-                  {i > 0 && <span className="text-[10px] font-bold opacity-40">:</span>}
-                  <span className="rounded-md bg-zinc-900 px-1.5 py-1 font-mono text-[11px] font-bold leading-none text-white">{t}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-          {/* 横排 3 个秒杀商品位（图块 + 主色价格） */}
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i}>
-                <div
-                  className="flex h-20 items-center justify-center"
-                  style={{
-                    borderRadius: 'calc(var(--pr) - 4px)',
-                    background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${16 + i * 8}%, transparent), color-mix(in srgb, var(--p) ${40 + i * 8}%, transparent))`,
-                  }}
-                >
-                  <ImageIcon className="size-6 opacity-30" />
-                </div>
-                <div className="mt-1.5 flex items-baseline justify-center gap-1">
-                  <span className="text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
-                    <span className="text-[10px]">¥</span>{prices[i]}
-                  </span>
-                  <span className="text-[10px] line-through opacity-40">¥{originals[i]}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    },
+    render: (p) => <FlashSaleView items={flashItems(p)} title={p.title} hours={p.hours} minutes={p.minutes} />,
   },
   {
     type: 'mall.coupon-card',
@@ -905,12 +923,14 @@ export const widgets: WidgetDef[] = [
     type: 'mall.brand-row',
     category: 'mall',
     name: '品牌馆',
-    desc: '横滑品牌卡片位',
+    desc: '横滑品牌卡片位，每张品牌卡可分别绑定不同跳转页面',
     icon: Crown,
     defaultProps: { brands: '悦颜美妆,星曜数码,沐光家居' },
     fields: [
       { key: 'brands', label: '品牌名', type: 'textarea', placeholder: '逗号分隔，最多 3 个' },
     ],
+    slots: (p) =>
+      splitList(p.brands).slice(0, 3).map((b, i) => ({ key: String(i), label: `「${b}」品牌卡` })),
     Interactive: BrandRowInteractive,
     render: (p) => (
       <div className="flex gap-2 overflow-hidden">

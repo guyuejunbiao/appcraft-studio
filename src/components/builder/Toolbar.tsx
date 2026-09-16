@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft, Plus, Undo2, Redo2, Home, Crown, GitBranch, Play, Save, Loader2,
+  ArrowLeft, Plus, Undo2, Redo2, Home, Crown, GitBranch, Play, Save, Loader2, Network,
   Pencil, Copy, Trash2, Download, Upload, Keyboard, Ellipsis, FileCode2,
   LayoutTemplate, FilePlus2, GripVertical, FolderTree, PanelBottom, X,
 } from 'lucide-react';
@@ -375,6 +375,9 @@ export function Toolbar() {
 
         <Button variant="outline" size="sm" className="hidden border-violet-200 text-violet-600 hover:bg-violet-50 hover:text-violet-700 sm:flex" onClick={() => setView('canvas')} title="无限画布：画板内直接添加/编辑内容、拖拽连线">
           <GitBranch className="size-4" /> 无限画布
+        </Button>
+        <Button variant="outline" size="sm" className="hidden border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 sm:flex" onClick={() => setView('flow')} title="流程图：页面间跳转关系总览，多个入口指向同一页一目了然">
+          <Network className="size-4" /> 流程图
         </Button>
         <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => setTabOpen(true)} title="App 级底部导航：每个图标绑定一整页">
           <PanelBottom className="size-4" />

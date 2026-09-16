@@ -4,12 +4,15 @@ import { useState } from 'react';
 import {
   Plus, Pencil, Copy, Trash2, Home, ArrowUp, ArrowDown, LayoutTemplate,
   FolderTree, Check, X, LayoutGrid, Rows3, GitBranch, MousePointerClick,
+  ArrowRight, ArrowLeft,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
+import { getWidget } from '@/components/widgets/registry';
 import { PageTemplateDialog } from './PresetMarket';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { ANIM_OPTS } from '@/lib/types';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -48,6 +51,8 @@ export function PageManagerDialog({
   const [editingName, setEditingName] = useState('');
   /** 待确认删除的页面 */
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  /** 展开连接明细的页面 id */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
 
   const homePage = pages.find((p) => p.isHome);
@@ -94,8 +99,9 @@ export function PageManagerDialog({
         {/* 页面列表 */}
         <div className="thin-scroll max-h-96 space-y-2 overflow-y-auto pr-1">
           {pages.map((p, idx) => {
-            const outgoing = connections.filter((c) => c.fromPageId === p.id).length;
-            const incoming = connections.filter((c) => c.toPageId === p.id).length;
+            const pageConns = connections.filter((c) => c.fromPageId === p.id || c.toPageId === p.id);
+            const outgoing = pageConns.filter((c) => c.fromPageId === p.id).length;
+            const incoming = pageConns.filter((c) => c.toPageId === p.id).length;
             const isEditing = editingId === p.id;
             const isCurrent = p.id === currentPageId;
             return (
@@ -159,12 +165,20 @@ export function PageManagerDialog({
                         {p.components.length} 组件
                       </span>
                       {outgoing + incoming > 0 && (
-                        <span
-                          className="flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold text-violet-600"
-                          title={`出边 ${outgoing} · 入边 ${incoming}`}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                          className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
+                            expandedId === p.id ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'
+                          }`}
+                          title="点击查看连接明细（谁指向本页 / 本页指向谁）"
                         >
-                          <MousePointerClick className="size-2.5" /> {outgoing > 0 ? `出 ${outgoing}` : `入 ${incoming}`}
-                        </span>
+                          <MousePointerClick className="size-2.5" />
+                          {[
+                            outgoing > 0 ? `出 ${outgoing}` : '',
+                            incoming > 0 ? `入 ${incoming}` : '',
+                          ].filter(Boolean).join(' · ')}
+                        </button>
                       )}
                     </div>
                   )}
@@ -233,6 +247,55 @@ export function PageManagerDialog({
                     >
                       <Trash2 className="size-3" />
                     </Button>
+                  </div>
+                )}
+
+                {/* 连接明细：直观呈现「一个页面可以被多个触发组件指向」（多对一） */}
+                {expandedId === p.id && (
+                  <div className="mt-2 space-y-1 rounded-lg bg-violet-50/70 p-2">
+                    <p className="px-1 text-[10px] font-bold text-violet-700">
+                      连接明细 · {pageConns.length} 条（多个入口可指向同一页面）
+                    </p>
+                    {pageConns.length === 0 && (
+                      <p className="px-1 py-0.5 text-[10px] text-zinc-400">本页还没有跳转连接</p>
+                    )}
+                    {pageConns.map((c) => {
+                      const isOut = c.fromPageId === p.id;
+                      const otherId = isOut ? c.toPageId : c.fromPageId;
+                      const other = pages.find((q) => q.id === otherId);
+                      const srcPage = pages.find((q) => q.id === c.fromPageId);
+                      const srcWidget = srcPage?.components.find((x) => x.id === c.fromWidgetId);
+                      const wd = srcWidget ? getWidget(srcWidget.type) : null;
+                      const slotLabel =
+                        c.slot && wd
+                          ? wd.slots?.({ ...wd.defaultProps, ...srcWidget?.props })?.find((s) => s.key === c.slot)?.label ?? `槽位 ${c.slot}`
+                          : null;
+                      const animLabel = ANIM_OPTS.find((a) => a.value === c.animation)?.label ?? c.animation;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[10px] transition-colors hover:bg-white"
+                          onClick={() => { setCurrentPage(otherId); onOpenChange(false); }}
+                          title={`点击打开「${other?.name ?? '未知页面'}」`}
+                        >
+                          {isOut ? (
+                            <ArrowRight className="size-3 shrink-0 text-violet-500" />
+                          ) : (
+                            <ArrowLeft className="size-3 shrink-0 text-emerald-500" />
+                          )}
+                          <span className="shrink-0 font-semibold text-zinc-700">
+                            {isOut
+                              ? `「${wd?.name ?? '未知组件'}」${slotLabel ? `（${slotLabel}）` : ''}`
+                              : `「${srcPage?.name ?? '?'}」·「${wd?.name ?? '未知组件'}」${slotLabel ? `（${slotLabel}）` : ''}`}
+                          </span>
+                          <span className="min-w-0 truncate text-zinc-500">
+                            {isOut ? '→' : '→ 本页'}「{other?.name ?? '未知页面'}」
+                          </span>
+                          <span className="ml-auto shrink-0 rounded bg-white px-1 text-[9px] text-zinc-400">{animLabel}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -609,11 +609,17 @@ function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultPro
 
 /**
  * products 字段取值：显式 items 存档优先；
- * 旧项目（count/name/price 骨架模式）动态合成商品列表——首次编辑即无损升级为逐商品数据。
+ * 其次组件 defaultProps.items（如限时秒杀自带 3 个默认商品位）；
+ * 最后旧项目（count/name/price 骨架模式）动态合成商品列表——首次编辑即无损升级为逐商品数据。
  */
 function productsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
   if (f.type !== 'products') return widget.props[f.key] ?? def.defaultProps[f.key];
-  return normalizeProducts(widget.props.items, {
+  const raw = Array.isArray(widget.props.items) && widget.props.items.length
+    ? widget.props.items
+    : Array.isArray(def.defaultProps.items) && def.defaultProps.items.length
+      ? def.defaultProps.items
+      : undefined;
+  return normalizeProducts(raw, {
     count: widget.props.count ?? def.defaultProps.count,
     name: widget.props.name ?? def.defaultProps.name,
     price: widget.props.price ?? def.defaultProps.price,

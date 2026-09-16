@@ -147,12 +147,12 @@ export function normalizeProducts(
   }));
 }
 
-/** 商品槽位（交互面板逐商品绑定页面用）；cols:2 让静态导出的点击分区按双列网格均分 */
-export const productsToSlots = (items: ProductItem[]) =>
+/** 商品槽位（交互面板逐商品绑定页面用）；cols 让静态导出的点击分区按网格均分（双列 2 / 秒杀横排 3） */
+export const productsToSlots = (items: ProductItem[], cols = 2) =>
   items.map((it, i) => ({
     key: String(i),
     label: it.name ? `「${it.name.slice(0, 10)}」` : `商品 ${i + 1}`,
-    cols: 2,
+    cols,
   }));
 
 /**
