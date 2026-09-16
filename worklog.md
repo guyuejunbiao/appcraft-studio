@@ -1100,3 +1100,21 @@ Stage Summary:
 - "独立=单一个体"在商城/外卖全场景闭环：金刚区格、商品网格商品、秒杀商品位、品牌卡、菜品卡全部支持"逐条目编辑内容 + 逐条目绑定跳转页面"，多对一（任意多个组件/槽位/页面入口指向同一页）数据层本就支持，本轮补齐了可见性（扇形连线+槽位徽章+页面管理明细）与可发现性（流程图入口复活）
 - 排障备忘：①addPage() 无参（传 name 会被忽略产生"页面 3"）②Bash 双引号内 JS 模板字面量 ${} 会被 shell 吞——eval 一律单引号+字符串拼接 ③div[role=button] 不在 querySelectorAll("button") 里——按 [aria-label] 选择
 - 建议下一阶段：①coupon-row 领取态已是个体动作但可考虑逐券绑定跳券详情页 ②news.hot-board/flash-bar 等列表条目按同一模式逐条绑页 ③商品图支持选图标/emoji 自定义（Task 37 遗留）④git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+---
+Task ID: 39
+Agent: main (Z.ai Code)
+Task: 用户怒斥"单个！！！独立编辑！！！"——画布点谁编谁（单件定向编辑）落地
+
+Work Log:
+- 用户继续怒吼"单个/独立编辑"，实测用户操作路径找到真断点：画布上点击单个商品（如"极简无线蓝牙耳机"），弹出的就地编辑弹窗标题是"双列商品网格"、内容是全部 4 个商品摊开的 18 个输入框列表——点的明明是单一个体，看到的却是整体，这就是用户怒吼的根源（Task 37/38 的"逐条目能力"有了，但"点谁编谁"的单件交互语义没有）
+- 单件模式落地（focusItem 链路）：①mall 商品卡/秒杀位加 data-item-index、金刚区/订单宫格/服务九宫格/functional 设置行加 data-cell-index ②handleWidgetPointerDown 用 closest 提取命中索引（首次选中即记录、再点已选中组件即单件模式）③QuickEditor 接收 focusItem，ProductsEditor/CellsEditor 单件模式只渲染被点击的那一个条目（翡翠绿边框+"单件编辑·第 N 个"徽章），其余条目完全不出现
+- 闪关根因修复（架构级发现）：弹窗开着点同组件另一商品会闪关——Radix DismissableLayer 的 dismiss 检查的是自定义 CustomEvent 的 defaultPrevented（不是原始 pointerdown 的）且经 dispatchDiscreteCustomEvent+flushSync 同步执行，Task 36 的"pointerdown preventDefault"对 pointerdown-outside 链无效；修复：组件包装加 data-widget-host，PopoverContent onPointerDownOutside 识别点击落在当前选中组件内部时 preventDefault → 弹窗保持打开并由状态机切换单件目标
+- QuickEditor 新增 cells 分支：金刚区等格子此前在画布上完全没有就地编辑入口（弹窗显示"该组件没有可编辑文字"），现复用 InspectorPanel 的 CellsEditor/cellsFieldValue（改为 export）实现单格/全列表双模式；工具条「编辑内容」按钮对 cells/products 组件解除 disabled
+- ProductsEditor/CellsEditor 状态重置改用 QuickEditor key（f.key-focusItem）重挂载方案（react-hooks/set-state-in-effect lint 禁止 effect 内 setState，key 重置更干净）；单件索引越界（删除/移动后）自动回退全列表
+- agent-browser 实测全过：①商品2双击→弹窗仅耳机一件（6 输入框 vs 此前 18）徽章"单件编辑·第 2 个"②弹窗开着点商品1→不闪关、直接切到第 1 个（修复验证）③单件改名"连衣裙·新款"→画布卡片实时生效④"全部 4 个"→全列表管理（4 个商品齐全）⑤金刚区"女装"格双击→单格模式 3 输入框、改"女装爆款"画布实时生效⑥点"数码"格→无缝切到第 2 格⑦点其他组件→弹窗关闭+选中切换（回归正常）⑧测试数据全部还原（商品1/格子1 落盘复核）
+- tsc 0 错、lint 0 错；提交 66686a8（6 文件 +250/-28）
+
+Stage Summary:
+- "独立=单一个体"的交互语义终于完整：现在画布上点哪个商品/格子，弹窗里就只有那一个个体——单件编辑（翡翠绿视觉标识）+ 无缝切换 + 全列表管理三态齐备；金刚区/订单宫格/服务九宫格/设置行首次获得画布就地编辑能力
+- 关键技术沉淀：Radix 受控弹层的 dismiss 是 flushSync 同步 CustomEvent 链，宿主 pointerdown 的 preventDefault 拦不住 pointerdown-outside——必须在 onPointerDownOutside 的自定义事件上判定后 preventDefault
+- 建议下一阶段：①profile/functional 其余列表型组件（热榜/动态等）按同一模式补 data-* 标记与单件模式 ②商品图 emoji/图标自定义（Task 37 遗留）③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
