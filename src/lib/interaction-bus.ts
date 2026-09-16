@@ -94,3 +94,45 @@ export function busVisible(
   if (v === undefined) return true;
   return v === showValue;
 }
+
+/* ------------------------------------------------------------------ */
+/* 用户数据频道（user:: 前缀，全局共享、跨页保留）                       */
+/* 手机号 / 密码 / 验证码 / 协议勾选属于「用户会话数据」：               */
+/* 登录页输入的手机号跳到注册页应自动带过（正常 App 行为）；             */
+/* 而 loginMode 等 UI 联动状态按页面隔离，切页时被 resetUiValues 清除。  */
+/* ------------------------------------------------------------------ */
+
+const userKey = (key: string) => `user::${key}`;
+
+/** 读用户数据（响应式） */
+export function useUserValue(key: string): string | undefined {
+  return useInteractionBus((s) => s.values[userKey(key)]);
+}
+
+/** 写用户数据 */
+export function useUserSetter() {
+  const rawSet = useInteractionBus((s) => s.set);
+  return useCallback(
+    (key: string, value: string) => rawSet(userKey(key), value),
+    [rawSet]
+  );
+}
+
+/** 读用户数据（非响应式，事件回调内使用） */
+export const userGet = (key: string) =>
+  useInteractionBus.getState().values[userKey(key)];
+
+/**
+ * 仅清除 UI 联动状态（保留 user:: 用户数据）：
+ * 预览切页时调用——页面切换不应丢失用户已输入的手机号/密码，
+ * 但 loginMode 等页面级联动必须清空，防止串页残留。
+ */
+export function resetUiValues() {
+  useInteractionBus.setState((s) => {
+    const next: Record<string, string> = {};
+    Object.entries(s.values).forEach(([k, v]) => {
+      if (k.startsWith('user::')) next[k] = v;
+    });
+    return { values: next };
+  });
+}

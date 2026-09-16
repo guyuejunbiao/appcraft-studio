@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { BusScopeProvider } from '@/lib/interaction-bus';
+import { WidgetToast } from '@/lib/widget-toast';
 import { allWidgets, categories, getWidget } from '@/components/widgets/registry';
 import { PhoneFrame, PHONE_W, PHONE_H } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -395,6 +396,7 @@ function Artboard({
                 }}
                 data-canvas-blank="true"
               >
+                <WidgetToast />
                 {isFree ? (
                   <div className="relative w-full" style={{ minHeight: 700 }}>
                     {visible.map((w) => (

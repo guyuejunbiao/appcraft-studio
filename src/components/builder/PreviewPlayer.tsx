@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { useInteractionBus, BusScopeProvider } from '@/lib/interaction-bus';
+import { WidgetToast } from '@/lib/widget-toast';
 import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -39,11 +40,11 @@ export function PreviewPlayer() {
   /* 自由布局但组件缺坐标（模板种子/旧数据未经编辑器迁移）：回退流式渲染，避免全部堆叠在 (0,0)。进入编辑器访问后会自动测量升级 */
   const isFree = current?.layout === 'free' && !missingFreeCoords(current?.components);
 
-  /* 交互总线：切页/重置时清空，保证登录等联动状态从初始值开始 */
-  const resetBus = useInteractionBus((s) => s.reset);
-  useEffect(() => {
-    resetBus();
-  }, [currentId, resetBus]);
+  /* 总线 key 自带页面 scope 前缀，跨页天然隔离，无需切页时清理：
+   * 切页/返回时 loginMode 等页面状态保留（符合正常 App 返回行为），
+   * 用户输入（user::phone 等）跨页共享；「重置」按钮才全清重来。
+   * （勿在父 effect 里清总线：子组件写入标记的 effect 先于父 effect
+   *   执行，清掉后依赖值未变化不会自愈，登录按钮的校验标记会丢失） */
 
   /* 自由布局内容总高（测量绝对定位子元素）— ResizeObserver 订阅式测量 */
   const contentRef = useRef<HTMLDivElement>(null);
@@ -90,7 +91,9 @@ export function PreviewPlayer() {
   const reset = () => {
     setStack(null);
     setAnim('slide');
-    resetBus();
+    /* 全清（含用户输入 + 页面联动状态）：明确的「从头预览」意图；
+     * 事件回调里同步清空 → 子组件 useChannelDefault 会因依赖变化自愈重写默认值 */
+    useInteractionBus.getState().reset();
   };
 
   /* 四方向滑入 + 展开（对标 m3e-canvas：slide 四向 / fade / expand / none）*/
@@ -187,6 +190,7 @@ export function PreviewPlayer() {
               style={anim === 'zoom' ? { transformOrigin: '50% 50%' } : undefined}
             >
               <BusScopeProvider value={current?.id ?? ''}>
+              <WidgetToast />
               <div
                 ref={contentRef}
                 className={isFree ? 'relative w-full' : 'relative'}

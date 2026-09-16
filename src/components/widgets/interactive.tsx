@@ -10,8 +10,12 @@ import {
   Home, LayoutGrid, Compass, UserRound, Settings, BookUser,
   Minus, Plus, Search, X,
 } from 'lucide-react';
-import { useChannelDefault, useChannelSetter, useChannelValue } from '@/lib/interaction-bus';
+import { useChannelDefault, useChannelSetter, useChannelValue, useBusScope, useUserValue, useUserSetter, userGet, busGet, useInteractionBus } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
 import type { InteractiveCtx } from '@/lib/widget-types';
+
+/** 中国大陆手机号格式（正常登录流程的第一道校验） */
+const isPhoneValid = (v: string) => /^1[3-9]\d{9}$/.test(v);
 
 /* ------------------------------------------------------------------ */
 /* 登录方式切换：点击后真实切换，并通过总线联动其它组件的显隐           */
@@ -60,10 +64,16 @@ export function LoginTabsInteractive({ props }: InteractiveCtx) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 手机号输入：预览中可真实输入                                        */
+/* 手机号输入：预览中可真实输入；值存总线 user::phone（跨页保留）       */
+/* 号段校验：11 位且 1[3-9] 开头才亮绿勾，格式错亮红叉                 */
 /* ------------------------------------------------------------------ */
 export function PhoneInputInteractive({ props }: InteractiveCtx) {
-  const [val, setVal] = useState('');
+  const setUser = useUserSetter();
+  const val = useUserValue('phone') ?? '';
+  const full = val.length === 11;
+  const valid = isPhoneValid(val);
+  /* 页面级标记：登录按钮据此校验手机号 */
+  useChannelDefault('hasPhone', '1');
   return (
     <div className="w-input flex h-11 items-center gap-2.5 px-3" style={{ borderRadius: 'var(--pr)' }}>
       <Smartphone className="size-4 opacity-45" />
@@ -71,33 +81,39 @@ export function PhoneInputInteractive({ props }: InteractiveCtx) {
       <span className="h-4 w-px w-line border-l" />
       <input
         value={val}
-        onChange={(e) => setVal(e.target.value.replace(/\D/g, '').slice(0, 11))}
+        onChange={(e) => setUser('phone', e.target.value.replace(/\D/g, '').slice(0, 11))}
         placeholder={props.placeholder}
         inputMode="numeric"
+        aria-label="手机号"
         className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
       />
-      {val.length === 11 && <CircleCheck className="size-4" style={{ color: 'var(--p)' }} />}
+      {full && valid && <CircleCheck className="size-4" style={{ color: 'var(--p)' }} />}
+      {full && !valid && <CircleX className="size-4 text-rose-500" />}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* 密码输入：可输入 + 小眼睛真实切换明文/密文                          */
+/* 密码输入：可输入 + 小眼睛真实切换明文/密文；值存 user::password      */
+/* （修复：去掉与密文圆点重复的 •••• 装饰；tab 切换重挂载不再丢输入）   */
 /* ------------------------------------------------------------------ */
 export function PasswordInputInteractive({ props }: InteractiveCtx) {
-  const [val, setVal] = useState('');
+  const setUser = useUserSetter();
+  const val = useUserValue('password') ?? '';
   const [show, setShow] = useState(false);
+  /* 页面级标记：登录按钮据此校验密码 */
+  useChannelDefault('hasPassword', '1');
   return (
     <div className="w-input flex h-11 items-center gap-2.5 px-3" style={{ borderRadius: 'var(--pr)' }}>
       <Lock className="size-4 opacity-45" />
       <input
         type={show ? 'text' : 'password'}
         value={val}
-        onChange={(e) => setVal(e.target.value)}
+        onChange={(e) => setUser('password', e.target.value)}
         placeholder={props.placeholder}
+        aria-label="密码"
         className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
       />
-      {val && !show && <span className="text-xs tracking-widest opacity-40">••••</span>}
       {props.eye !== false && (
         <button
           type="button"
@@ -116,12 +132,19 @@ export function PasswordInputInteractive({ props }: InteractiveCtx) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 验证码输入：真实倒计时 + 模拟短信自动填充                           */
+/* 验证码输入：真实倒计时 + 模拟短信回填；值存 user::smsCode           */
+/* 正常流程：发码前校验手机号（未填/格式错 → toast 拦截）              */
 /* ------------------------------------------------------------------ */
+const MOCK_SMS_CODE = '284616';
+
 export function SmsInputInteractive({ props }: InteractiveCtx) {
-  const [code, setCode] = useState('');
+  const scope = useBusScope();
+  const setUser = useUserSetter();
+  const code = useUserValue('smsCode') ?? '';
   const [left, setLeft] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /* 页面级标记：登录按钮据此校验验证码 */
+  useChannelDefault('hasSms', '1');
 
   const counting = left > 0;
   useEffect(() => {
@@ -134,11 +157,23 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
 
   const send = () => {
     if (left > 0) return;
+    /* 正常流程：先校验手机号再发码 */
+    const phone = userGet('phone') ?? '';
+    if (!phone) {
+      fireToast(scope, '请先输入手机号', 'error');
+      return;
+    }
+    if (!isPhoneValid(phone)) {
+      fireToast(scope, '手机号格式不正确，请检查后重试', 'error');
+      return;
+    }
     setLeft(60);
+    fireToast(scope, '验证码已发送，请注意查收', 'success');
     timers.current.push(
       setTimeout(() => {
         // 模拟收到短信，自动填充验证码
-        setCode('284616');
+        setUser('smsCode', MOCK_SMS_CODE);
+        fireToast(scope, `收到验证码 ${MOCK_SMS_CODE}，已自动填入`, 'info');
       }, 1100)
     );
   };
@@ -148,9 +183,10 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
       <ShieldCheck className="size-4 opacity-45" />
       <input
         value={code}
-        onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+        onChange={(e) => setUser('smsCode', e.target.value.replace(/\D/g, '').slice(0, 6))}
         placeholder={props.placeholder}
         inputMode="numeric"
+        aria-label="验证码"
         className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
       />
       <button
@@ -174,16 +210,38 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 登录按钮：点击后 加载 → 成功，再触发已绑定的页面跳转                */
+/* 登录按钮：正常登录流程的完整校验引擎                                */
+/* 手机号 → 密码/验证码（按页面输入组合自动判定模式）→ 协议弹窗拦截    */
+/* → loading → 成功 → 跳转；错误逐项 toast 提示。                      */
+/* 页面无输入组件时保持旧行为（直接 loading → 成功），旧项目零破坏。    */
 /* ------------------------------------------------------------------ */
 export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  const setUser = useUserSetter();
   const [st, setSt] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [askAgree, setAskAgree] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  const click = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (st !== 'idle') return;
+  /* 页面输入组合（响应式：loginMode 驱动模式判定；hasXxx 由兄弟输入组件挂载后写入总线） */
+  const loginMode = useChannelValue('loginMode');
+  const busValues = useInteractionBus((s) => s.values);
+
+  /** 校验模式：tabs 优先；无 tabs 时按挂载的输入组件组合推断（双输入 = 注册场景） */
+  const modeOf = (hasPwd: boolean, hasSms: boolean): 'pwd' | 'sms' | 'reg' | 'none' => {
+    if (loginMode === 'right') return 'sms';
+    if (loginMode === 'left') return 'pwd';
+    if (hasPwd && hasSms) return 'reg';
+    if (hasPwd) return 'pwd';
+    if (hasSms) return 'sms';
+    return 'none';
+  };
+  const hasPwd = busValues[`${scope}::hasPassword`] !== undefined;
+  const hasSms = busValues[`${scope}::hasSms`] !== undefined;
+  const mode = modeOf(hasPwd, hasSms);
+  const isReg = mode === 'reg';
+
+  const doLogin = () => {
     setSt('loading');
     timers.current.push(
       setTimeout(() => {
@@ -192,43 +250,188 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
           setTimeout(() => {
             setSt('idle');
             onTap?.();
-          }, 650)
+          }, 700)
         );
       }, 900)
     );
   };
 
+  const click = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (st !== 'idle') return;
+
+    /* ① 手机号（页面挂载了手机号输入才校验） */
+    const phone = userGet('phone') ?? '';
+    const hasPhone = busValues[`${scope}::hasPhone`] !== undefined;
+    if (hasPhone) {
+      if (!phone) {
+        fireToast(scope, '请输入手机号', 'error');
+        return;
+      }
+      if (!isPhoneValid(phone)) {
+        fireToast(scope, '请输入正确的手机号', 'error');
+        return;
+      }
+    }
+
+    /* ② 验证码 / 密码（按模式；校验顺序跟随表单视觉顺序：验证码框在密码框上方） */
+    const password = userGet('password') ?? '';
+    const smsCode = userGet('smsCode') ?? '';
+    if (mode === 'sms' || mode === 'reg') {
+      if (!smsCode) {
+        fireToast(scope, '请输入验证码', 'error');
+        return;
+      }
+      if (smsCode.length < 6) {
+        fireToast(scope, '请输入 6 位验证码', 'error');
+        return;
+      }
+    }
+    if (mode === 'pwd' || mode === 'reg') {
+      if (!password) {
+        fireToast(scope, isReg ? '请设置登录密码' : '请输入密码', 'error');
+        return;
+      }
+      if (password.length < 6) {
+        fireToast(scope, '密码至少 6 位，请重新输入', 'error');
+        return;
+      }
+    }
+
+    /* ③ 协议（页面挂载了协议组件且未勾选 → 微信式确认弹窗） */
+    const hasAgreement = busValues[`${scope}::hasAgreement`] !== undefined;
+    if (hasAgreement && userGet('agreed') !== '1') {
+      setAskAgree(true);
+      return;
+    }
+
+    doLogin();
+  };
+
+  const agreeAndGo = () => {
+    setUser('agreed', '1');
+    setAskAgree(false);
+    doLogin();
+  };
+
+  const loadingText = isReg ? '正在注册…' : '正在登录…';
+  const doneText = String(props.successText || '') || (isReg ? '注册成功' : '登录成功');
+
+  /* 协议确认弹窗（微信式底部面板，覆盖整个手机屏） */
+  const wrapBook = (s: string) => (s.includes('《') ? s : `《${s}》`);
+  let links: string[] = ['《用户协议》', '《隐私政策》'];
+  try {
+    const raw = busValues[`${scope}::agreementLinks`];
+    if (raw) links = JSON.parse(raw) as string[];
+  } catch { /* 保持默认 */ }
+
+  const dialog =
+    askAgree && typeof document !== 'undefined'
+      ? createPortal(
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 z-[85] flex flex-col justify-end bg-black/50"
+            onClick={() => setAskAgree(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="同意协议确认"
+          >
+            <motion.div
+              initial={{ y: 220 }}
+              animate={{ y: 0 }}
+              exit={{ y: 220 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+              className="rounded-t-3xl bg-white px-5 pb-8 pt-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-200" />
+              <h3 className="text-center text-base font-bold text-zinc-900">服务协议及隐私保护</h3>
+              <p className="mt-2.5 text-center text-xs leading-5 text-zinc-500">
+                为了更好地保障您的合法权益，请阅读并同意以下协议
+                <span className="text-zinc-400">{wrapBook(links[0] ?? '《用户协议》')}{wrapBook(links[1] ?? '《隐私政策》')}</span>
+              </p>
+              <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3 text-xs leading-5 text-zinc-500">
+                <span style={{ color: 'var(--p)' }}>{wrapBook(links[0] ?? '《用户协议》')}</span>
+                与
+                <span style={{ color: 'var(--p)' }}>{wrapBook(links[1] ?? '《隐私政策》')}</span>
+                约定了您对本服务的使用规范与个人信息处理方式，请务必仔细阅读并充分理解相关条款。
+              </div>
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAskAgree(false)}
+                  className="h-11 flex-1 rounded-full border border-zinc-200 text-sm font-semibold text-zinc-500 transition-transform active:scale-[0.97]"
+                >
+                  不同意
+                </button>
+                <button
+                  type="button"
+                  onClick={agreeAndGo}
+                  className="flex h-11 flex-[1.6] items-center justify-center gap-1.5 rounded-full text-sm font-bold text-white shadow-md transition-transform active:scale-[0.97]"
+                  style={{ background: 'var(--p)', color: 'var(--pf)' }}
+                >
+                  <Check className="size-4" /> 同意并继续
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>,
+          document.getElementById('phone-screen') ?? document.body
+        )
+      : null;
+
   return (
-    <button
-      type="button"
-      onClick={click}
-      className="flex h-12 w-full items-center justify-center gap-2 text-[15px] font-bold shadow-md transition-transform active:scale-[0.98]"
-      style={{ borderRadius: 'var(--pr)', background: 'var(--p)', color: 'var(--pf)' }}
-    >
-      {st === 'loading' ? (
-        <><LoaderCircle className="size-4 animate-spin" /> 正在登录…</>
-      ) : st === 'done' ? (
-        <><Check className="size-4" /> 登录成功</>
-      ) : (
-        <><Lock className="size-4" /> {props.text}{props.sub ? <span className="text-xs font-normal opacity-70">{props.sub}</span> : null}</>
-      )}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={click}
+        className="flex h-12 w-full items-center justify-center gap-2 text-[15px] font-bold shadow-md transition-transform active:scale-[0.98]"
+        style={{ borderRadius: 'var(--pr)', background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        {st === 'loading' ? (
+          <><LoaderCircle className="size-4 animate-spin" /> {loadingText}</>
+        ) : st === 'done' ? (
+          <><Check className="size-4" /> {doneText}</>
+        ) : (
+          <><Lock className="size-4" /> {props.text}{props.sub ? <span className="text-xs font-normal opacity-70">{props.sub}</span> : null}</>
+        )}
+      </button>
+      {dialog}
+    </>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* 协议勾选：真实可勾选                                                */
+/* 协议勾选：真实可勾选；勾选状态存 user::agreed（跨页共享）           */
+/* 并上报 hasAgreement 标记 + 协议文案，供登录按钮拦截与弹窗展示       */
 /* ------------------------------------------------------------------ */
 export function AgreementCheckInteractive({ props }: InteractiveCtx) {
-  const [checked, setChecked] = useState(false);
+  const scope = useBusScope();
+  const setBus = useChannelSetter();
+  const setUser = useUserSetter();
+  const agreedRaw = useUserValue('agreed');
+  const checked = agreedRaw === '1';
+  /* 页面级标记：登录按钮据此决定是否拦截 + 弹协议确认框 */
+  useChannelDefault('hasAgreement', '1');
+
+  /* 协议文案写入总线（供确认弹窗展示），值变化时才写，避免死循环 */
+  const linksPayload = JSON.stringify([String(props.link1 ?? '用户协议'), String(props.link2 ?? '隐私政策')]);
+  useEffect(() => {
+    if (busGet(`${scope}::agreementLinks`) !== linksPayload) setBus('agreementLinks', linksPayload);
+  }, [scope, linksPayload, setBus]);
+
   return (
     <button
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        setChecked((v) => !v);
+        setUser('agreed', checked ? '0' : '1');
       }}
       className="flex items-start gap-2 px-0.5 text-left"
+      aria-checked={checked}
+      role="checkbox"
     >
       <span
         className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors"

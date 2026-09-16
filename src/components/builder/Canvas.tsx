@@ -18,6 +18,7 @@ import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer, WidgetInner } from './WidgetRenderer';
 import { BusScopeProvider } from '@/lib/interaction-bus';
+import { WidgetToast } from '@/lib/widget-toast';
 import { DragGhost } from './DragGhost';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { CanvasBlankMenu } from './CanvasBlankMenu';
@@ -835,6 +836,7 @@ export function Canvas() {
                 select(null);
               }}
             >
+              <WidgetToast />
               {isFree && canvasCfg.showGrid && (
                 <div
                   className="pointer-events-none absolute inset-0"

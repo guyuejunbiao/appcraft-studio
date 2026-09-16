@@ -138,12 +138,13 @@ export const widgets: WidgetDef[] = [
     type: 'login.primary-btn',
     category: 'login',
     name: '登录按钮',
-    desc: '主操作大按钮（预览带加载/成功态）',
+    desc: '主操作大按钮（预览带完整校验：手机号/密码/验证码/协议拦截）',
     icon: LogIn,
-    defaultProps: { text: '登 录', sub: '' },
+    defaultProps: { text: '登 录', sub: '', successText: '' },
     fields: [
       { key: 'text', label: '按钮文案', type: 'text' },
       { key: 'sub', label: '右侧小字', type: 'text' },
+      { key: 'successText', label: '成功提示（留空自动判断）', type: 'text', placeholder: '如：注册成功' },
     ],
     Interactive: PrimaryBtnInteractive,
     render: (p) => (
