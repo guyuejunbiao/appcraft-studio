@@ -20,6 +20,8 @@ export interface TemplateConnection {
   fromWidget: string;
   toPage: string;
   animation?: 'slide' | 'slide-up' | 'slide-down' | 'fade' | 'push' | 'zoom' | 'none';
+  /** 复合组件槽位（tabbar 第 N 个标签 / 宫格第 N 格） */
+  slot?: string;
 }
 
 export interface AppTemplate {
@@ -111,7 +113,18 @@ export const templates: AppTemplate[] = [
           { type: 'fn.navbar', props: { title: '星云 App', showBack: false } },
           { type: 'login.app-title', props: { title: '欢迎回来', subtitle: '登录成功，开始你的专属体验' } },
           { type: 'fn.avatar-profile' },
-          { type: 'fn.settings-group' },
+          /* 设置分组：深色模式行已绑定「切换昼夜」，预览中点击整个 App 真实变亮/变暗 */
+          {
+            type: 'fn.settings-group',
+            props: {
+              cells: [
+                { label: '开启推送通知', icon: 'bell', act: '', on: true },
+                { label: '深色模式', icon: 'moon', act: 'theme', on: false },
+                { label: '自动播放视频', icon: 'play', act: '', on: true },
+                { label: '省流模式', icon: 'zap', act: '', on: false },
+              ],
+            },
+          },
           { type: 'fn.list-item', props: { label: '账号与安全', value: '密码、设备管理' } },
           { type: 'fn.list-item', props: { label: '消息通知', value: '推送、免打扰' } },
           { type: 'fn.list-item', props: { label: '退出登录', value: '' } },
@@ -173,7 +186,7 @@ export const templates: AppTemplate[] = [
   {
     id: 'chat-demo',
     name: '即时聊天 App',
-    desc: '会话列表、消息气泡、语音、聊天输入栏',
+    desc: '会话列表、消息气泡、语音、聊天输入栏，四页底部导航',
     icon: 'MessageCircle',
     accent: '#22c55e',
     gradient: 'from-green-400 to-emerald-500',
@@ -189,7 +202,7 @@ export const templates: AppTemplate[] = [
           { type: 'chat.contact-item', props: { name: '设计部·阿岚', lastMsg: '图标已更新到最新版', time: '09:41', unread: 0 } },
           { type: 'chat.contact-item', props: { name: '研发小张', lastMsg: '[语音] 18″', time: '昨天', unread: 1 } },
           { type: 'chat.contact-item', props: { name: '星云内推官', lastMsg: '恭喜获得内推资格！', time: '周二', unread: 0 } },
-          { type: 'chat.tabbar', props: { active: 0 } },
+          { type: 'chat.tabbar', id: 'tpl_chat_tabbar_list', props: { active: 'msg' } },
         ],
       },
       {
@@ -206,8 +219,52 @@ export const templates: AppTemplate[] = [
           { type: 'chat.input-bar' },
         ],
       },
+      {
+        key: 'contacts',
+        name: '通讯录',
+        background: BG,
+        components: [
+          { type: 'fn.navbar', props: { title: '通讯录', showBack: false } },
+          { type: 'social.user-suggest', props: { users: '林小满,阿岚,陈默' } },
+          { type: 'social.fan-row', props: { name: '周叙', bio: '交互设计师 · 分享日常', followBack: false } },
+          { type: 'social.fan-row', props: { name: '苏叶', bio: '前端工程师 · 咖啡爱好者', followBack: true } },
+          { type: 'chat.tabbar', id: 'tpl_chat_tabbar_contacts', props: { active: 'contacts' } },
+        ],
+      },
+      {
+        key: 'discover',
+        name: '发现',
+        background: BG,
+        components: [
+          { type: 'fn.navbar', props: { title: '发现', showBack: false } },
+          { type: 'social.topic-wall', props: { topics: '深夜代码,今天穿什么,健身打卡,周末去哪儿' } },
+          { type: 'social.rank-list' },
+          { type: 'chat.tabbar', id: 'tpl_chat_tabbar_discover', props: { active: 'discover' } },
+        ],
+      },
+      {
+        key: 'me',
+        name: '我的',
+        background: BG,
+        components: [
+          { type: 'fn.navbar', props: { title: '我的', showBack: false } },
+          { type: 'fn.avatar-profile', props: { name: '云间漫步者', uid: 'ID 82390112', vip: true } },
+          { type: 'me.order-grid', props: { labels: '待付款,待发货,待收货,评价', badges: '1,0,2,0' } },
+          { type: 'me.theme-row' },
+          { type: 'chat.tabbar', id: 'tpl_chat_tabbar_me', props: { active: 'me' } },
+        ],
+      },
     ],
-    connections: [{ fromPage: 'list', fromWidget: 'tpl_chat_item1', toPage: 'chat' }],
+    connections: [
+      { fromPage: 'list', fromWidget: 'tpl_chat_item1', toPage: 'chat' },
+      /* 底部导航逐标签换根跳页（每页的 tabbar 都绑全套，真实 App 多页互切） */
+      ...(['list', 'contacts', 'discover', 'me'] as const).flatMap((from) => [
+        { fromPage: from, fromWidget: `tpl_chat_tabbar_${from}`, toPage: 'list', slot: 'msg', animation: 'fade' as const },
+        { fromPage: from, fromWidget: `tpl_chat_tabbar_${from}`, toPage: 'contacts', slot: 'contacts', animation: 'fade' as const },
+        { fromPage: from, fromWidget: `tpl_chat_tabbar_${from}`, toPage: 'discover', slot: 'discover', animation: 'fade' as const },
+        { fromPage: from, fromWidget: `tpl_chat_tabbar_${from}`, toPage: 'me', slot: 'me', animation: 'fade' as const },
+      ]),
+    ],
   },
   {
     id: 'food-demo',

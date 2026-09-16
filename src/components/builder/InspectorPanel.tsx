@@ -596,22 +596,25 @@ function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultPro
   const labels = splitList(widget.props.labels ?? def.defaultProps.labels);
   const iconNames = Array.isArray(def.defaultProps.cellsIcons) ? def.defaultProps.cellsIcons : [];
   const badges = f.withBadge ? splitList(widget.props.badges ?? def.defaultProps.badges) : [];
+  const onCount = f.withOn ? Math.max(0, Math.round(Number(widget.props.onCount ?? def.defaultProps.onCount) || 0)) : 0;
   return labels.map((label, i) => ({
     label,
     icon: iconNames[i],
     act: '',
     badge: badges[i] && Number(badges[i]) > 0 ? badges[i] : undefined,
+    on: f.withOn ? i < onCount : undefined,
   }));
 }
 
-/** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标），支持增删与上下移 */
+/** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标 / 默认开关），支持增删与上下移 */
 function CellsEditor({
-  value, onChange, max, withBadge,
+  value, onChange, max, withBadge, withOn,
 }: {
   value: GridCell[];
   onChange: (v: GridCell[]) => void;
   max: number;
   withBadge?: boolean;
+  withOn?: boolean;
 }) {
   const update = (i: number, patch: Partial<GridCell>) =>
     onChange(value.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -704,6 +707,16 @@ function CellsEditor({
                   onChange={(e) => update(i, { badge: e.target.value.replace(/[^\d]/g, '') })}
                 />
               )}
+              {withOn && (
+                <label className="flex shrink-0 items-center gap-1 text-[10px] text-zinc-500">
+                  默认开启
+                  <Switch
+                    checked={cell.on !== false}
+                    onCheckedChange={(v) => update(i, { on: v })}
+                    aria-label={`格子 ${i + 1} 默认开启`}
+                  />
+                </label>
+              )}
             </div>
           </div>
         ))}
@@ -737,6 +750,7 @@ function FieldControl({
         onChange={onChange}
         max={field.max ?? 8}
         withBadge={field.withBadge}
+        withOn={field.withOn}
       />
     );
   }

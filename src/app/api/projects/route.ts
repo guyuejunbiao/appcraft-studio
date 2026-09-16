@@ -128,6 +128,8 @@ export async function POST(req: NextRequest) {
           action: 'click',
           toPageId,
           animation: c.animation || 'slide',
+          /* 槽位连接（tabbar 标签 / 宫格格子级跳转）：模板缺省则不写 */
+          ...(c.slot ? { slot: c.slot } : {}),
         },
       });
     }

@@ -1,7 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import { iconByName } from '@/lib/app-icons';
+import { APP_ICONS, iconByName } from '@/lib/app-icons';
 import { useBusScope, useScene } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 
@@ -25,6 +25,8 @@ export interface GridCell {
   act: CellAct;
   /** 角标数量（订单宫格等待办数），'0'/空 = 不显示 */
   badge?: string;
+  /** 开关型行（设置分组）的默认开关态；theme 行运行时以真实场景为准 */
+  on?: boolean;
 }
 
 /** 属性面板「格动作」选项（Select）：'none' = 无内置动作，走槽位跳页/整卡跳页 */
@@ -39,6 +41,13 @@ export const CELL_ACT_LABEL: Record<CellAct, string> = {
   theme: '昼夜',
   toast: '提示',
 };
+
+const ICON_NAME_SET = new Set(APP_ICONS.map((i) => i.name));
+
+/** 图标名 → 组件；空/未知名返回 null（调用方自行回退），避免 iconByName 的 User 兜底误展示 */
+export function iconByNameSafe(name?: string): LucideIcon | null {
+  return name && ICON_NAME_SET.has(name) ? iconByName(name) : null;
+}
 
 /** 归档数据 → 规范 GridCell[]（容忍脏数据/缺字段；过滤空文案格） */
 export function normalizeCells(raw: unknown): GridCell[] {
@@ -55,6 +64,7 @@ export function sanitizeCells(raw: unknown): GridCell[] {
       icon: c.icon ? String(c.icon) : undefined,
       act: c.act === 'theme' || c.act === 'toast' ? (c.act as CellAct) : '',
       badge: c.badge != null && String(c.badge).trim() !== '' ? String(c.badge).trim() : undefined,
+      on: c.on === true ? true : c.on === false ? false : undefined,
     }));
 }
 
@@ -77,7 +87,7 @@ export function parseCells(
 ): (GridCell & { Icon: LucideIcon })[] {
   const cells = normalizeCells(cellsRaw);
   if (cells.length) {
-    return cells.map((c, i) => ({ ...c, Icon: c.icon ? iconByName(c.icon) : pool[i % pool.length] }));
+    return cells.map((c, i) => ({ ...c, Icon: iconByNameSafe(c.icon) ?? pool[i % pool.length] }));
   }
   return splitList(labelsRaw).map((label, i) => ({
     label,

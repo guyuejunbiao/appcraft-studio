@@ -52,6 +52,8 @@ export interface PropField {
   placeholder?: string;
   /** cells 类型：每格是否含角标数量输入（如订单宫格的待付款数） */
   withBadge?: boolean;
+  /** cells 类型：每格是否含「默认开启」开关（设置分组的开关型行） */
+  withOn?: boolean;
 }
 
 /** 组件大类 */

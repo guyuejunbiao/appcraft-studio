@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
@@ -14,9 +14,10 @@ import {
   LogOut,
 } from 'lucide-react';
 import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
-import { useBusScope, useUserValue } from '@/lib/interaction-bus';
+import { useBusScope, useUserValue, useScene } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 import { FnTabbarInteractive, InputFieldInteractive, BigButtonInteractive } from './interactive';
+import { normalizeCells, iconByNameSafe, type GridCell } from './grid-kit';
 
 /**
  * 功能通用 组件库（目录：functional）
@@ -28,6 +29,110 @@ import { FnTabbarInteractive, InputFieldInteractive, BigButtonInteractive } from
 /** 逗号（中英文）分隔的列表解析 */
 const toList = (v: unknown): string[] =>
   String(v ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+
+/* ------------------------------------------------------------------ */
+/* fn.settings-group 设置分组：逐行编辑（cells）+ 「切换昼夜」行真实生效  */
+/* ------------------------------------------------------------------ */
+
+/** 设置行解析：cells 优先；旧数据 labels + onCount（前 N 项开启）回退 */
+function parseSettingsCells(p: Record<string, unknown>) {
+  const cells = normalizeCells(p.cells);
+  if (cells.length) {
+    return cells.map((c) => ({ ...c, Icon: iconByNameSafe(c.icon) ?? CircleCheck }));
+  }
+  const rows = toList(p.labels);
+  const onCount = Math.max(0, Math.round(Number(p.onCount) || 0));
+  return rows.map((label, i) => ({
+    label,
+    act: '' as const,
+    on: i < onCount,
+    Icon: CircleCheck,
+  }));
+}
+
+/** 设置分组视图（静态/交互共用）：theme 行开关跟随真实昼夜场景 */
+function SettingsGroupView({
+  rows,
+  themeDark,
+  onRowTap,
+}: {
+  rows: (GridCell & { Icon: typeof CircleCheck })[];
+  /** 昼夜场景实际状态（静态渲染传 null → theme 行回退自身 on） */
+  themeDark: boolean | null;
+  onRowTap?: (i: number) => void;
+}) {
+  return (
+    <div className="w-card py-1">
+      {rows.map((row, i) => {
+        const isTheme = row.act === 'theme';
+        const on = isTheme && themeDark !== null ? themeDark : row.on !== false;
+        const content = (
+          <>
+            <row.Icon
+              className={`size-4 shrink-0 ${on ? '' : 'opacity-30'}`}
+              style={on ? { color: 'var(--p)' } : undefined}
+            />
+            <span className="flex-1 truncate text-sm">{row.label}</span>
+            <span
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full ${on ? '' : 'w-chip border w-line'}`}
+              style={on ? { background: 'var(--p)' } : undefined}
+            >
+              <span
+                className="absolute top-0.5 size-4 rounded-full bg-white shadow-sm"
+                style={{ left: on ? '18px' : '2px' }}
+              />
+            </span>
+          </>
+        );
+        return onRowTap ? (
+          <button
+            key={`${row.label}-${i}`}
+            type="button"
+            aria-label={row.label}
+            onClick={() => onRowTap(i)}
+            className={`flex h-12 w-full items-center gap-3 px-3.5 text-left transition-opacity active:opacity-70 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
+          >
+            {content}
+          </button>
+        ) : (
+          <div
+            key={`${row.label}-${i}`}
+            className={`flex h-12 items-center gap-3 px-3.5 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
+          >
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 设置分组交互：theme 行切真实场景；toast 行轻提示；其余行本地开关切换 */
+function SettingsGroupInteractive({ props }: InteractiveCtx) {
+  const rows = useMemo(() => parseSettingsCells(props), [props]);
+  const { dark, canToggle, toggle } = useScene();
+  const scope = useBusScope();
+  const [localOn, setLocalOn] = useState<boolean[]>(() => rows.map((r) => r.on !== false));
+  const onRowTap = (i: number) => {
+    const row = rows[i];
+    if (!row) return;
+    if (row.act === 'theme') {
+      if (canToggle) {
+        toggle();
+        fireToast(scope, dark ? '☀️ 已切换到白天场景' : '🌙 已切换到夜间场景', 'success');
+      } else {
+        fireToast(scope, '预览中点击可切换昼夜场景', 'info');
+      }
+      return;
+    }
+    if (row.act === 'toast') {
+      fireToast(scope, row.label ? `「${row.label}」` : '演示提示', 'info');
+      return;
+    }
+    setLocalOn((arr) => arr.map((v, j) => (j === i ? !v : v)));
+  };
+  return <SettingsGroupView rows={rows} themeDark={dark} onRowTap={onRowTap} />;
+}
 
 /** fn.list-item 左侧图标预设（按文案字符码循环取用） */
 const LIST_ICONS = [Bell, Volume2, Palette, Shield, Info, Globe];
@@ -382,45 +487,15 @@ export const widgets: WidgetDef[] = [
     type: 'fn.settings-group',
     category: 'functional',
     name: '设置分组',
-    desc: '多行开关设置项卡片，行间细线分割',
+    desc: '多行开关设置项，逐行可编辑；「切换昼夜」行真实生效',
     icon: Settings2,
+    canvasInteractive: true,
     defaultProps: { labels: '开启推送通知,深色模式,自动播放视频,省流模式', onCount: 3 },
     fields: [
-      { key: 'labels', label: '设置项（逗号分隔）', type: 'textarea' },
-      { key: 'onCount', label: '前 N 项开启', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'cells', label: '设置项（逐行编辑）', type: 'cells', max: 8, withOn: true },
     ],
-    render: (p) => {
-      const rows = toList(p.labels);
-      const onCount = Math.min(rows.length, Math.max(0, Math.round(Number(p.onCount) || 0)));
-      return (
-        <div className="w-card py-1">
-          {rows.map((label, i) => {
-            const on = i < onCount;
-            return (
-              <div
-                key={i}
-                className={`flex h-12 items-center gap-3 px-3.5 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
-              >
-                <CircleCheck
-                  className={`size-4 shrink-0 ${on ? '' : 'opacity-30'}`}
-                  style={on ? { color: 'var(--p)' } : undefined}
-                />
-                <span className="flex-1 truncate text-sm">{label}</span>
-                <span
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full ${on ? '' : 'w-chip border w-line'}`}
-                  style={on ? { background: 'var(--p)' } : undefined}
-                >
-                  <span
-                    className="absolute top-0.5 size-4 rounded-full bg-white shadow-sm"
-                    style={{ left: on ? '18px' : '2px' }}
-                  />
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      );
-    },
+    render: (p) => <SettingsGroupView rows={parseSettingsCells(p)} themeDark={null} />,
+    Interactive: SettingsGroupInteractive,
   },
   {
     type: 'fn.list-item',
