@@ -1077,3 +1077,26 @@ Stage Summary:
 - 用户诉求闭环：商品网格的每个商品现在都是独立个体——单独编辑（名称/价格/原价/已售）+ 单独绑定跳转页面（每个商品可跳不同界面），预览/导出 HTML/画布就地编辑三端一致；金刚区、订单宫格、服务九宫格本就支持逐格绑页，与商品网格形成统一的"逐单元编辑+绑定"心智
 - 关键架构沉淀：slots 机制（def.slots + Connection.slot + slotPush 压栈导航）证明可承载任意"组件内子单元"的独立跳页需求，后续 flash-sale 秒杀位/food.dish-row 横滑菜品等可低成本复制该模式
 - 建议下一阶段：①flash-sale 的 3 个秒杀商品位 items 化（同模式）②商品图支持选图标/ emoji 自定义（当前渐变占位）③git push 仍需用户新 token
+
+---
+Task ID: 38
+Agent: main (Z.ai Code)
+Task: 用户核心诉求二期——"独立=单一个体不是整体"全量落地 + 一个页面可被多个触发组件关联（多对一）
+
+Work Log:
+- 用户怒斥"独立代表单一的个体而不是整体"并新增需求"同一商品详情页在不同区域展示、多个触发组件指向同一页面"。以此为标准全量审计组件库"整体 vs 个体"差距
+- 审计结论：金刚区/双列商品网格已是独立个体（Task 36/37）；仍有三处"整体"残留——①mall.flash-sale 三个秒杀位价格硬编码（'29/99/59'）完全不可编辑、整卡一个链接 ②mall.brand-row 三张品牌卡共用整卡 onTap ③food.dish-row 三张菜品卡共用整卡 onTap
+- flash-sale 个体化（mall.tsx）：FLASH_FALLBACK_ITEMS 默认三件（价格对齐历史硬编码，老项目/新增零跳变）+ flashItems() 解析（items 存档优先）+ FlashSaleView 静态/交互共用视图（每格新增商品名行）+ def.defaultProps.items/fields(products)/slots(productsToSlots(...,3))/render 全面重写；Interactive 逐商品位 slotPush→onTap 兜底→语义化提示
+- grid-kit.tsx：productsToSlots 增加 cols 参数（双列 2 / 秒杀横排 3），export-html 的 cols 网格分区泛型支持自动覆盖秒杀位
+- brand-row / dish-row 个体化：def.slots 逐卡生成（label 含品牌名/菜名），Interactive 统一 slotPush 优先链 + 未绑定 fireToast 提示（food.tsx 补 useBusScope/fireToast import）
+- 冒泡双跳修复：金刚区格子/ProductGridView 商品卡/秒杀位/品牌卡/菜品卡的 onClick 统一加 stopAct(e)——此前整卡绑定+内部点击会 navigate 两次（页面栈压两个相同页，返回要点两次）
+- InspectorPanel productsFieldValue 泛化：items 存档优先 → def.defaultProps.items（秒杀自带 3 件）→ 旧 count/name/price 合成，products 编辑器对 flash-sale 开箱即用
+- 多对一可视化三件套：①InfiniteCanvas 与 FlowEditor 的同一对页面多条连线扇形展开（曲率 +n*24/26，标签纵向 (n-(k-1)/2)*24/26 错开，此前完全重叠看起来像只支持一条）②两处连线标签增加绿色槽位名徽章（def.slots(props) 解析 slot key→label，如「无线蓝牙耳机」「悦颜美妆」品牌卡）③PageManager「出/入」徽章改可点击按钮（出 N · 入 N 双计数），展开"连接明细 · N 条（多个入口可指向同一页面）"列表（来源页·组件名（槽位名）→本页·转场，点击直达对侧页）
+- 孤儿视图修复：发现 setView('flow') 零调用点——流程图自无限画布上线后不可达，此前对 FlowEditor 的扇出修复用户根本看不到；Toolbar 顶栏补「流程图」按钮（Network 图标，emerald 色系）
+- agent-browser 实测（新建商城模板测试项目"独立跳转测试"，store 搭建 8 条连接后全部走真实 UI/预览）：①秒杀属性面板逐商品编辑器 3/6 渲染（名称/售价/原价/已售/上下移/删除/添加）②改商品 1 名称画布实时生效 ③交互面板两条独立绑定带商品名槽位标签 ④UI 下拉真实添加「304 不锈钢保温杯」→商品详情（多对一 UI 路径）⑤预览导航矩阵 6 连击全过：商品网格卫衣→详情[滑入]/耳机→详情[淡入]（独立动画证明走独立连接）/秒杀蓝牙耳机→活动页[展开]（同组件不同商品不同页）/秒杀保温杯→详情/品牌卡悦颜美妆→详情/Banner→详情 ⑥流程图截图确认 7 入口→商品详情扇形展开+槽位徽章、无线蓝牙耳机独立飞活动页 ⑦PageManager 截图确认「入 7」明细面板逐条列出 ⑧console 无 error（仅 HMR 噪音）
+- tsc 0 错（src）、lint 0 错；测试项目已删（浏览器先回首页再 DELETE /api/projects/[id]，避开 autosave 竞态），用户项目"1"未动；提交 cbc43e8（8 文件 +293/-128）
+
+Stage Summary:
+- "独立=单一个体"在商城/外卖全场景闭环：金刚区格、商品网格商品、秒杀商品位、品牌卡、菜品卡全部支持"逐条目编辑内容 + 逐条目绑定跳转页面"，多对一（任意多个组件/槽位/页面入口指向同一页）数据层本就支持，本轮补齐了可见性（扇形连线+槽位徽章+页面管理明细）与可发现性（流程图入口复活）
+- 排障备忘：①addPage() 无参（传 name 会被忽略产生"页面 3"）②Bash 双引号内 JS 模板字面量 ${} 会被 shell 吞——eval 一律单引号+字符串拼接 ③div[role=button] 不在 querySelectorAll("button") 里——按 [aria-label] 选择
+- 建议下一阶段：①coupon-row 领取态已是个体动作但可考虑逐券绑定跳券详情页 ②news.hot-board/flash-bar 等列表条目按同一模式逐条绑页 ③商品图支持选图标/emoji 自定义（Task 37 遗留）④git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
