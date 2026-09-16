@@ -1012,3 +1012,25 @@ Stage Summary:
 - 同组件预设按「行业×数据形态×双态翻转」三轴差异化：up/down 涨跌、video 开关、报名状态四态、难度三档、杯数/容量梯度、点赞评论量级；文案全真实中文场景（电商看板/慢病监测/训练营体测/首马完赛等），name 无「组件/widget」字眼
 - 修复任务示例的非法字段（trend→up 布尔）；修复 chart.* 类目推导陷阱（显式传 'charts'，全部预设经 registry 校验类目相等）；props 字段合法性/id 唯一性/tags 数量校验全过
 - tsc 0 错（本 2 文件）；index.ts 聚合已就位无需改动，组件库「预设」tab 可直接消费；数据适配了 4 处组件级硬编码文案（环形图例/周报格标签/kg 单位/目标线 h 后缀），后续若组件开放这些字段可进一步释放语义
+
+---
+Task ID: 35
+Agent: main (Z.ai Code)
+Task: 产品体验全面重设计（产品经理视角）——小白零门槛"一眼就会、上来就能手搓专属 App"
+
+Work Log:
+- 以小白身份用 agent-browser 走通"首页→创建→编辑→预览"全流程，输出体验断点清单：
+  ①首页 Hero 文案过期（仍写 144 个组件，实际总模块已 1114）②空项目无"下一步"引导，小白最怕空画布 ③首页空状态单薄，模板成品不可见 ④PresetCard button 嵌套 button 非法 HTML（hydration 警告）⑤一键铺满后组件在自由布局页叠罗汉
+- 修复 PresetCard（WidgetLibrary.tsx）：外层 <button> 改 div[role=button]+tabIndex+键盘可达，预设缩略实渲内部含 <button>（如登录按钮）不再构成非法嵌套；console 复测 0 报错
+- 新建 src/components/builder/StarterKits.tsx（CanvasStarterGuide）：空画布 3 步引导卡（①挑套装铺满 ②改文案拖位置 ③预览变 App）+ 3 套示例套装（商城首页 8 组件/社区动态 6 组件/经营看板 6 组件，全部选用真实精选预设成品），点击一键铺满 + 成功 toast 引导"点组件改文案"
+- 架构级修复 store.addWidget 叠罗汉根因：自由布局页无落点添加时不再用 (c.h ?? 64) 估算坐标（banner 实际 200px+），改走"不写 x/y → 页面 missingFreeCoords=true 自动回退流式渲染 → Canvas 迁移 useEffect 用 DOM 实测 offsetHeight 生成正确坐标"的既有正确链路（流式分支 itemRefs 已注册，两帧内完成视觉无感迁移）
+- 首页 ProjectHome 重设计：Hero 文案更新为动态 totalModules（1114 个成品模块=组件+调好文案的预设）+ 按钮旁三步上手徽章（①选模板/空白→②拖组件改文案→③预览上架）；空状态全新形态：三步引导卡 + 5 个非空白模板"一键套用"直达卡（点击预选模板直接打开创建对话框）
+- agent-browser 实测全通过：新建空白项目→空画布引导卡呈现→点商城套装 8 组件瀑布流正常（Banner 完整无遮挡/公告独立/金刚区/商品卡）→新页铺社区套装 6 组件正常→编辑画布与预览双端一致→首页新 Hero/空状态/三步徽章渲染正确
+- bunx tsc 0 错（仅 examples/skills 既有 4 项）、bun run lint 0 错、agent-browser console 0 error；提交 6228112（5 文件 +276/-31，新增 StarterKits.tsx）
+- 排障备忘：Bash 工具文本输出通道会吞 "[m" 等字符（grep/sed 显示 const [marquee 变 const arquee），实为显示 bug 非文件损坏，od -c 字节级核实文件健康，tsc/bun 转译双确认
+
+Stage Summary:
+- 小白闭环达成：打开首页即看到"1114 可用模块+三步上手"；新建空项目后画布自带 3 步引导与 3 套示例套装，点一下 10 秒内获得一个调好文案的成品页面，改字即成自己的 App——"上来就能手搓"落地
+- 关键质量修复 2 项：button 嵌套（hydration 风险清零）、自由布局批量添加叠罗汉（架构级根因修复，点击添加/批量铺满/拖拽定位三种路径语义分离：拖拽=落点坐标、点击=流式回退+实测迁移）
+- 组件库规模现状：144 基础组件 + 970 精选预设 = 1114 总模块（上轮提交 4716fb8），超用户 1000+ 目标
+- 建议下一阶段：①模板卡加真实页面缩略（用模板 pages 前几组件实渲缩小版）②"我的组合"空状态引导 ③移动端窄屏编辑器布局实测 ④git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
