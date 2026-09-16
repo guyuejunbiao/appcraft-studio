@@ -252,7 +252,7 @@ function Artboard({
   selWidgetId: string | null;
   linkDragging: boolean;
   /** 点击组件：选中（pageId, widgetId）；widgetId 为空 = 清除选择 */
-  onWidgetPointerDown: (pageId: string, widgetId: string) => void;
+  onWidgetPointerDown: (pageId: string, widgetId: string, e?: React.PointerEvent) => void;
   onBodyPointerDown: (pageId: string) => void;
   onOpenEditor: (pageId: string) => void;
   onLinkStart: (pageId: string, e: React.PointerEvent) => void;
@@ -377,7 +377,7 @@ function Artboard({
         onPointerDown={(e) => {
           e.stopPropagation();
           /* 命中机身空白（未被组件拦截）= 清除选择 */
-          if (e.target === e.currentTarget) onWidgetPointerDown(page.id, '');
+          if (e.target === e.currentTarget) onWidgetPointerDown(page.id, '', e);
         }}
       >
         <div
@@ -393,7 +393,7 @@ function Artboard({
                 onPointerDown={(e) => {
                   /* 内容空白点击 = 清除选择（组件内部会 stopPropagation） */
                   if (e.target === e.currentTarget || (e.target as HTMLElement).dataset?.canvasBlank) {
-                    onWidgetPointerDown(page.id, '');
+                    onWidgetPointerDown(page.id, '', e);
                   }
                 }}
                 data-canvas-blank="true"
@@ -406,7 +406,7 @@ function Artboard({
                         key={w.id}
                         className="absolute"
                         style={{ left: w.x ?? 0, top: w.y ?? 0, width: w.w ?? 355 }}
-                        onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id); }}
+                        onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-1 outline-violet-500' : 'rounded hover:outline hover:outline-1 hover:outline-violet-300'}>
                           <WidgetRenderer w={w} canvasLive />
@@ -425,7 +425,7 @@ function Artboard({
                     {visible.map((w) => (
                       <div
                         key={w.id}
-                        onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id); }}
+                        onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-[-1px] outline-violet-500' : ''}>
                           <WidgetRenderer w={w} canvasLive />
@@ -533,27 +533,32 @@ export function InfiniteCanvas() {
     return w ? { page, widget: w } : null;
   }, [sel, pages]);
 
-  const handleWidgetPointerDown = useCallback((pageId: string, widgetId: string) => {
+  const selRef = useRef<{ pageId: string; widgetId: string } | null>(null);
+  const handleWidgetPointerDown = useCallback((pageId: string, widgetId: string, e?: React.PointerEvent) => {
     if (!widgetId) {
+      selRef.current = null;
       setSel(null);
       setEditing(false);
       return;
     }
     setCurrentPage(pageId); /* store 的 update/remove API 作用于 currentPage */
     useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
-    setSel((prev) => {
-      if (prev?.pageId === pageId && prev.widgetId === widgetId) {
-        /* 再点已选中的组件 = 打开就地编辑 */
-        setEditing(true);
-        return prev;
-      }
-      setEditing(false);
-      return { pageId, widgetId };
-    });
+    if (selRef.current?.pageId === pageId && selRef.current.widgetId === widgetId) {
+      /* 再点已选中的组件 = 打开就地编辑。
+         preventDefault 阻止浏览器把焦点抢给画布内按钮（focusin 落在弹层外会触发
+         Radix DismissableLayer 的 onFocusOutside 自动关闭弹层 → 弹窗一闪而过） */
+      e?.preventDefault();
+      setEditing(true);
+      return;
+    }
+    selRef.current = { pageId, widgetId };
+    setEditing(false);
+    setSel({ pageId, widgetId });
   }, [setCurrentPage]);
 
   /* 关闭编辑弹层时同步清除 store 选中 */
   const clearSel = useCallback(() => {
+    selRef.current = null;
     setSel(null);
     setEditing(false);
     useBuilder.setState({ selectedWidgetId: null, selectedIds: [] });
@@ -912,7 +917,14 @@ export function InfiniteCanvas() {
                   <Type className="size-3.5" /> 编辑内容
                 </button>
               </PopoverTrigger>
-              <PopoverContent side="top" align="center" className="w-auto p-0">
+              <PopoverContent
+                side="top"
+                align="center"
+                className="w-auto p-0"
+                /* 焦点移出弹层不关闭：画布内点按钮/弹层内下拉展开都会把焦点带出弹层，
+                   若不阻止会误触发「焦点在外面 → 自动关闭」，弹窗一闪而过 */
+                onFocusOutside={(e) => e.preventDefault()}
+              >
                 <QuickEditor widget={selWidget.widget} onDone={() => setEditing(false)} />
               </PopoverContent>
             </Popover>
