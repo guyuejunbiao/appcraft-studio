@@ -783,3 +783,28 @@ Stage Summary:
 - 关键架构决策：密码/验证码=页面级数据（scope 隔离）；手机号/协议勾选=会话级（user::）；loginMode/tab=页面级 UI 状态（退出保留）；登录成功=全 App 密钥作废；新授权=旧身份失效
 - 本轮修复同时消除了「退出预览再进预览残留上一会话」的隐性问题
 - 涉及文件：interaction-bus.ts / widget-types.ts / interactive.tsx / functional.tsx / WidgetRenderer.tsx / PreviewPlayer.tsx / store.ts / templates.ts
+
+---
+Task ID: 33
+Agent: main (Z.ai Code)
+Task: 用户指令「不要只盯着登录页面！商城、购物、聊天全部！九宫格/四宫格组合要可编辑、要有实际功能——例如个人中心点击按钮自动切换白天/晚上场景，组件要生效！」
+
+Work Log:
+- 架构设计：组合组件（宫格/设置组）统一升级为「逐格编辑 + 格动作系统 + 槽位跳页」三层能力；昼夜场景做成 App 级运行时状态（interaction-bus.themeOverride），PhoneFrame 合并项目主题与运行时覆盖后经 SceneProvider 下发 useScene
+- interaction-bus：新增 themeOverride('day'|'night'|undefined) + setThemeOverride，reset() 一并清空；SceneProvider/useScene（dark/canToggle/toggle）；store.setView 任何切视图都重置总线（防预览昼夜覆盖泄漏回编辑画板）
+- PhoneFrame 新增 liveTheme prop：PreviewPlayer/Canvas/InfiniteCanvas 三处全部接入——预览与编辑画板内点击昼夜组件整个屏幕真实变亮/变暗（所见即所得）
+- 新增 grid-kit.tsx：GridCell{label,icon,act,badge,on} + sanitizeCells/normalizeCells（旧 labels/badges/onCount 数据零破坏回退）+ cellsToSlots（逐格绑定页面槽位）+ useCellAct（格动作 hook）+ iconByNameSafe
+- 三大宫格升级：mall.category-grid 金刚区 / me.service-grid 服务九宫格 / me.order-grid 订单宫格——属性面板逐格编辑（IconPicker 图标 + 文案 + 动作下拉 + 角标数），增删/上下移；slots() 逐格绑定页面；Interactive 优先级：格动作→压栈跳页→整卡跳页→「尚未绑定页面」toast；canvasInteractive 画板内即点即验
+- 新增 me.theme-row 昼夜切换行：月亮/太阳随场景切换，开关跟随真实场景，预览/画板点击真实切换整个 App 明暗
+- fn.settings-group 设置分组升级：逐行 cells 编辑（图标/文案/动作/默认开关 withOn），「切换昼夜」行运行时以真实场景为准，其余行本地开关切换
+- InspectorPanel：新增 cells 字段类型 CellsEditor（图标+文案+动作+角标/默认开关+增删+上下移+最大格数），cellsFieldValue 旧数据无损合成（labels→cells 首次编辑即升级）
+- 产品架构修正：宫格逐格跳页用「压栈式」slotPush（真实 App 金刚区→分类页语义，返回箭头/预览返回可回来源页），tabbar 保持「换根式」tabNav——修复宫格跳页后返回按钮禁用问题
+- 模板升级：tool-demo 效率工具加入资产/订单/服务宫格+昼夜行；chat-demo 即时聊天从 2 页扩为 5 页（消息/聊天/通讯录/发现/我），每页 tabbar 槽位互绑 16 条连接（真实 App 底部导航）；login-demo 首页设置分组深色模式行绑昼夜动作；API 模板连接支持 slot 字段
+- agent-browser 实测 20+ 项全过：逐格改文案/图标画布实时更新→切动作 theme→画板点击整个画布翻夜→再点翻回；预览格动作+toast「已切换到夜间场景」；深色模式行开关双向同步；未绑格 toast；客服格绑页面 2 压栈跳页→返回键可用→回主页夜保持；重置回项目主题；商城金刚区新序渲染+SKU/数量/加购/跳详情回归；聊天 5 页 tab 互切+我的页夜切；登录全流程回归（空表单拦截/协议弹窗/成功/身份/退出确认）；旧项目 legacy 渲染零回归
+- tsc 0 错、lint 0 错、dev.log 无错误；提交 c0daa3d（cron 自动）+ 4680983
+
+Stage Summary:
+- 用户点名的能力已全部落地：九宫格/四宫格/设置分组组合全部「可编辑 + 有实际功能」；个人中心点击按钮切换白天/黑夜场景在预览与编辑画板都真实生效（非演示动画），且跨页面保持、重置归位
+- 关键决策：①昼夜=App 级全局状态而非页面级（真实 App 深色模式语义），总线单字段+SceneProvider 上下文避免逐层透传 ②格跳页压栈、tabbar 换根——两种导航语义显式区分 ③旧数据(labels/onCount/badges)渲染路径完全保留，首次在属性面板编辑时才无损升级为 cells
+- 已知边界：themeOverride 是内存态不落库（刷新/重置回项目主题，符合预览会话语义）；聊天回归测试项目与个人中心昼夜测试项目保留作演示
+- 建议下一阶段：①shopping/food/social 目录其余列表类组件同样接入 cells 体系 ②格动作扩展「打开弹窗/复制」等 ③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
