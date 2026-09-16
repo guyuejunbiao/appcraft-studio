@@ -721,3 +721,29 @@ Work Log:
 Stage Summary:
 - 登录界面从"无脑成功动画"升级为完整校验引擎，14 项浏览器实测全过，tsc/lint 0 错，提交 6721f66
 - 核心教训：①预览交互组件的状态必须共享（总线驱动），孤岛 useState 是登录逻辑 bug 的根源 ②父 effect 清状态会与子 effect 写状态产生时序竞态且依赖值不变时无法自愈——scope 前缀隔离优于清除 ③校验顺序要跟随表单视觉顺序 ④演示性校验必须向后兼容（无输入组件时跳过校验，旧项目零破坏）
+
+---
+Task ID: 32
+Agent: main (Z.ai Code)
+Task: 用户指令「所有界面组件逻辑都必须要正确，不能仅仅是登录」——全站组件静态审查 + 动态 QA，修复全部发现 bug
+
+Work Log:
+- 登录主流程回归（上轮重构无回归）：空表单拦截→无效号段拦截→协议弹窗→同意并继续→登录成功→跳首页 ✓
+- 双线排查：①子代理静态审查 14 个核心文件（interaction-bus/WidgetRenderer/PreviewPlayer/12 个 widget 库/InspectorPanel/TabManager/PublishDialog/store/registry/Canvas 系），148 处组件定义核验（type 唯一、fields↔defaultProps 对齐、除零保护、ForwardRef 无直调）②agent-browser 动态实测
+- 【P1·数据丢失】自动保存 bindAutosave 原绑定在 EditorShell，view==='editor' 条件渲染导致切到无限画布/流程图视图即卸载停止保存——画布中拖动画板/连线/就地编辑的修改不回编辑器就关页全部静默丢失。修复：提升到 page.tsx 全局 useEffect 绑定（bindAutosave 自带 view!=='home' 判断）
+- 【P1】四个联动源头组件（FnTabbar/ChatTabbar/QtyStepper/SkuSelect）不回读总线：useState 只在点击时写总线，预览跳页/返回重挂载后视觉态回 props 默认值而总线保留点击态 → tabbar 显示 tab 0 联动内容停留 tab 2（LoginTabs 修复的漏网之鱼）。修复：统一「本地 state + useChannelValue 回读，总线有效值优先」模式；SkuSelect 解析 'c · v' 组合字符串反查索引
+- 【P2】ConnectionEditor slot 状态跨组件残留（选 tabbar 槽位 '0' 后切普通组件再添加连接 → 写入永不生效的隐形连接）→ key=widgetId 重挂复位
+- 【P2】流式布局上移/下移用「过滤 hidden 后索引」操作真实数组 → 相邻隐藏组件时错位/无效。修复：store 新增 moveWidgetRelative(id, dir) 按可见顺序定位邻居；Canvas 操作条改用 + disabled 边界用可见数
+- 【P2】removePage 不清理 tabs → 预览点死标签整屏空白。修复：removePage 级联删除绑定该页的 tab + PreviewPlayer/InfiniteCanvas 渲染侧过滤悬空 tab（防 DB 旧脏数据）双保险
+- 【P2】WidgetToast scope 变化时 early-return 跳过复位且 cleanup 已清掉定时器 → 旧 toast 永久停留。修复：early-return 分支用 raf 显式 setOn(false)
+- 【P3】PrimaryBtn 手工拼 `${scope}::hasXxx` 与 busKey 空作用域规则不一致（空 scope 时永久 miss）→ 导出 busKeyOf 统一 5 处读写；删除 resetUiValues 死代码（切页清总线方案已被 scope 前缀取代且引入过时序竞态，注释同步修正防复发）
+- 【P3】InspectorPanel 四连修：属性值合并 defaultProps 显示（旧实例缺字段不再显示空/0）；页面名 PageNameInput（本地 draft + 失焦/回车一次提交，渲染期比较重置替代 effect，不再每键一条撤销）；设主页改原子 setHomePage（原来两次 updatePage 两条历史）；自由布局高度输入钳制 ≥24（0/负高会吞掉组件）
+- 【P3】PreviewPlayer/Canvas 的 free 高度测量 ResizeObserver 补 MutationObserver 兜底：总线驱动显隐只增删 DOM 不触发 RO，重挂观察+重测避免底部组件恢复显示后滚动区截断；PreviewPlayer 快速跳转同页不重复入栈
+- agent-browser 动态验证 7 项全过：登录全链路回归/页面名 draft 生效/moveWidgetRelative 普通场景（logo 上移落库）/hidden 跳过场景（password 隐藏时 sms 上移与 phone 交换）/removePage 级联清理 tabs/FnTabbar 跳页返回视觉态保持（我的=true 与总线一致）/画布视图下自动保存落库（layout=free）
+- tsc 0 错、lint 0 错、dev.log 无错误；测试数据全部还原（13 组件原始顺序/tabs=[]/layout=free）；提交 277b44a（10 文件 +206 -70）
+
+Stage Summary:
+- 核心教训：①「全局单例订阅」的生命周期必须与功能无关视图解耦——自动保存这类横切关注点绑在某个视图组件里，其它视图就裸奔（数据丢失是最高级 bug）②联动源头组件的视觉态必须以总线为唯一数据源（local state 仅作首帧兜底），任何「点击写总线、渲染读本地」的组件在重挂载场景必然脱节 ③store 索引类 API 的调用方传入「过滤后索引」是隐形炸弹，应在 store 内提供按语义定位的 API（moveWidgetRelative）
+- 用户新体验：预览跳页返回后 tabbar/SKU/数量步进器保持操作状态；流式布局上移下移在有隐藏组件时行为正确；画布修改自动保存不再依赖回编辑器
+- 遗留观察：WidgetRenderer 订阅整个 values 表（每次键入全页重渲染）——演示规模可接受，组件多时可改选择器粒度；ConnectionEditor 的 key 重挂依赖 React 卸载语义，若未来加「保持面板状态」需求需改为显式 effect 复位
+- 建议下一阶段：①继续用户要求的全面 QA：预览动画细节/发布快照链路/注册页与短信登录页的独立校验组合 ②PresetMarket 预设与模板市场内容扩充 ③git push 需用户新 token（旧 token 已泄露须删除）
