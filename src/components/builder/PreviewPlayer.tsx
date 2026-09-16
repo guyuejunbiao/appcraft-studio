@@ -61,7 +61,18 @@ export function PreviewPlayer() {
     };
     const ro = new ResizeObserver(measure);
     root.querySelectorAll<HTMLElement>('[data-free-item]').forEach((el) => ro.observe(el));
-    return () => ro.disconnect();
+    /* 总线驱动的显隐（登录 tab 切换等）只会增删 DOM 节点，不触发 ResizeObserver：
+     * MutationObserver 兑底重挂观察 + 重测，避免底部组件恢复显示后滚动区被截断 */
+    const mo = new MutationObserver(() => {
+      root.querySelectorAll<HTMLElement>('[data-free-item]').forEach((el) => ro.observe(el));
+      measure();
+    });
+    mo.observe(root, { childList: true, subtree: true });
+    measure();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [isFree, pages, currentId]);
 
   const connMap = useMemo(() => {
@@ -73,6 +84,7 @@ export function PreviewPlayer() {
   }, [connections, current?.id]);
 
   const navigate = (pageId: string, animation: string) => {
+    if (pageId === current?.id) return; /* 同页不重复入栈（快速跳转条点击当前页） */
     setAnim(animation);
     setStack((s) => [...(s ?? (currentId ? [currentId] : [])), pageId]);
   };
@@ -95,6 +107,13 @@ export function PreviewPlayer() {
      * 事件回调里同步清空 → 子组件 useChannelDefault 会因依赖变化自愈重写默认值 */
     useInteractionBus.getState().reset();
   };
+
+  /* 悬空 tab 防御：历史数据可能含指向已删除页面的标签（removePage 级联清理之前遗留），
+   * 渲染/点击侧双重过滤，避免点死标签后页面区域全空白 */
+  const validTabs = useMemo(
+    () => activeTabs.filter((t) => pages.some((p) => p.id === t.pageId)),
+    [activeTabs, pages]
+  );
 
   /* 四方向滑入 + 展开（对标 m3e-canvas：slide 四向 / fade / expand / none）*/
   const variants = (
@@ -266,10 +285,10 @@ export function PreviewPlayer() {
           </AnimatePresence>
 
           {/* App 级底部导航：点击换根切换整页（项目级配置，与无限画布/编辑器同步） */}
-          {activeTabs.length > 0 && (
+          {validTabs.length > 0 && (
             <div className="absolute inset-x-0 bottom-0 z-30">
               <AppTabBar
-                tabs={activeTabs}
+                tabs={validTabs}
                 activePageId={currentId}
                 onSelect={(tab) => navigateTab(tab.pageId, 'fade')}
               />

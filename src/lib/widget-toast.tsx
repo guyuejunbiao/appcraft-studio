@@ -45,7 +45,12 @@ export function WidgetToast() {
   const [on, setOn] = useState(false);
 
   useEffect(() => {
-    if (tScope !== scope || !msg) return;
+    /* scope 不匹配或消息为空：显式收起（如编辑画布切页后旧 toast 残留），
+     * 否则 on 停留 true 且 cleanup 已清掉复位定时器 → toast 永久显示 */
+    if (tScope !== scope || !msg) {
+      const raf = requestAnimationFrame(() => setOn(false));
+      return () => cancelAnimationFrame(raf);
+    }
     /* 下一帧再显示：避免 effect 内同步 setState 造成级联渲染（react-hooks 规则） */
     const raf = requestAnimationFrame(() => setOn(true));
     const t = setTimeout(() => setOn(false), 2000);

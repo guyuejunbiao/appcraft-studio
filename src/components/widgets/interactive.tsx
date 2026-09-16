@@ -10,7 +10,7 @@ import {
   Home, LayoutGrid, Compass, UserRound, Settings, BookUser,
   Minus, Plus, Search, X,
 } from 'lucide-react';
-import { useChannelDefault, useChannelSetter, useChannelValue, useBusScope, useUserValue, useUserSetter, userGet, busGet, useInteractionBus } from '@/lib/interaction-bus';
+import { useChannelDefault, useChannelSetter, useChannelValue, useBusScope, useUserValue, useUserSetter, userGet, busGet, useInteractionBus, busKeyOf } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 import type { InteractiveCtx } from '@/lib/widget-types';
 
@@ -236,8 +236,9 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
     if (hasSms) return 'sms';
     return 'none';
   };
-  const hasPwd = busValues[`${scope}::hasPassword`] !== undefined;
-  const hasSms = busValues[`${scope}::hasSms`] !== undefined;
+  /* key 拼接统一用 busKeyOf：与 useChannelDefault 写入侧同规则，空作用域时才不会永久 miss */
+  const hasPwd = busValues[busKeyOf(scope, 'hasPassword')] !== undefined;
+  const hasSms = busValues[busKeyOf(scope, 'hasSms')] !== undefined;
   const mode = modeOf(hasPwd, hasSms);
   const isReg = mode === 'reg';
 
@@ -262,7 +263,7 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
 
     /* ① 手机号（页面挂载了手机号输入才校验） */
     const phone = userGet('phone') ?? '';
-    const hasPhone = busValues[`${scope}::hasPhone`] !== undefined;
+    const hasPhone = busValues[busKeyOf(scope, 'hasPhone')] !== undefined;
     if (hasPhone) {
       if (!phone) {
         fireToast(scope, '请输入手机号', 'error');
@@ -299,7 +300,7 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
     }
 
     /* ③ 协议（页面挂载了协议组件且未勾选 → 微信式确认弹窗） */
-    const hasAgreement = busValues[`${scope}::hasAgreement`] !== undefined;
+    const hasAgreement = busValues[busKeyOf(scope, 'hasAgreement')] !== undefined;
     if (hasAgreement && userGet('agreed') !== '1') {
       setAskAgree(true);
       return;
@@ -321,7 +322,7 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
   const wrapBook = (s: string) => (s.includes('《') ? s : `《${s}》`);
   let links: string[] = ['《用户协议》', '《隐私政策》'];
   try {
-    const raw = busValues[`${scope}::agreementLinks`];
+    const raw = busValues[busKeyOf(scope, 'agreementLinks')];
     if (raw) links = JSON.parse(raw) as string[];
   } catch { /* 保持默认 */ }
 
@@ -823,16 +824,26 @@ export function FnTabbarInteractive({ props, tabNav }: InteractiveCtx) {
   const channel = String(props.channel || 'tab');
   const tabs = useMemo(() => splitListI(props.items), [props.items]);
 
-  const [active, setActive] = useState(() => {
+  const [localActive, setLocalActive] = useState(() => {
     const a = Math.round(Number(props.active) || 0);
     return Math.max(0, Math.min(Math.max(tabs.length - 1, 0), a));
   });
   /* 频道默认值：初始选中项同步到总线（订阅 tab 频道显隐的组件初始即可见） */
-  useChannelDefault(channel, String(active));
+  useChannelDefault(channel, String(localActive));
+  /* 回读总线：页面重挂载（预览跳转/返回）后总线保留点击态，
+   * 视觉选中必须以总线为准，否则 tabbar 显示 tab 0 而联动内容停留在其他 tab（与 LoginTabs 同款修复） */
+  const busVal = useChannelValue(channel);
+  const active = useMemo(() => {
+    const n = Math.round(Number(busVal));
+    if (busVal !== undefined && !Number.isNaN(n)) {
+      return Math.max(0, Math.min(Math.max(tabs.length - 1, 0), n));
+    }
+    return localActive;
+  }, [busVal, tabs.length, localActive]);
 
   const switchTab = (i: number) => {
     if (i === active) return;
-    setActive(i);
+    setLocalActive(i);
     setBus(channel, String(i));
     tabNav?.(String(i));
   };
@@ -894,15 +905,18 @@ const CHAT_TABS_I = [
 export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
   const setBus = useChannelSetter();
   const channel = String(props.channel || 'chatTab');
-  const [active, setActive] = useState(() =>
+  const [localActive, setLocalActive] = useState(() =>
     CHAT_TABS_I.some((t) => t.key === props.active) ? String(props.active) : 'msg'
   );
   /* 频道默认值：初始选中项同步到总线 */
-  useChannelDefault(channel, active);
+  useChannelDefault(channel, localActive);
+  /* 回读总线：页面重挂载后选中态以总线为准（与 LoginTabs 同款修复） */
+  const busVal = useChannelValue(channel);
+  const active = busVal !== undefined && CHAT_TABS_I.some((t) => t.key === busVal) ? busVal : localActive;
 
   const switchTab = (key: string) => {
     if (key === active) return;
-    setActive(key);
+    setLocalActive(key);
     setBus(channel, key);
     tabNav?.(key);
   };
@@ -949,14 +963,21 @@ export function ChatTabbarInteractive({ props, tabNav }: InteractiveCtx) {
 export function QtyStepperInteractive({ props }: InteractiveCtx) {
   const setBus = useChannelSetter();
   const channel = String(props.channel || 'qty');
-  const [count, setCount] = useState(() => Math.max(1, Math.min(99, Math.round(Number(props.value) || 1))));
+  const [localCount, setLocalCount] = useState(() => Math.max(1, Math.min(99, Math.round(Number(props.value) || 1))));
   /* 频道默认值：初始数量同步到总线 */
-  useChannelDefault(channel, String(count));
+  useChannelDefault(channel, String(localCount));
+  /* 回读总线：页面重挂载后数量以总线为准（与 LoginTabs 同款修复） */
+  const busVal = useChannelValue(channel);
+  const count = useMemo(() => {
+    const n = Math.round(Number(busVal));
+    if (busVal !== undefined && !Number.isNaN(n)) return Math.max(1, Math.min(99, n));
+    return localCount;
+  }, [busVal, localCount]);
 
   const clamp = (n: number) => Math.max(1, Math.min(99, n));
   const apply = (n: number) => {
-    setCount(n);
-    setBus(channel, String(n));
+    setLocalCount(clamp(n));
+    setBus(channel, String(clamp(n)));
   };
 
   return (
@@ -1005,19 +1026,31 @@ export function SkuSelectInteractive({ props }: InteractiveCtx) {
   const channel = String(props.channel || 'sku');
   const colors = useMemo(() => splitListI(props.colors), [props.colors]);
   const versions = useMemo(() => splitListI(props.versions), [props.versions]);
-  const [ci, setCi] = useState(0);
-  const [vi, setVi] = useState(0);
+  const [ciLocal, setCiLocal] = useState(0);
+  const [viLocal, setViLocal] = useState(0);
   /* 频道默认值：初始选中 SKU 同步到总线（格式与 pick 一致） */
   useChannelDefault(
     channel,
     [colors[0] ?? '', versions[0] ?? ''].filter(Boolean).join(' · ')
   );
+  /* 回读总线：页面重挂载后选中态以总线为准（与 LoginTabs 同款修复） */
+  const busVal = useChannelValue(channel);
+  const { ci, vi } = useMemo(() => {
+    if (busVal === undefined) return { ci: ciLocal, vi: viLocal };
+    const parts = busVal.split(' · ');
+    const cIdx = colors.indexOf(parts[0] ?? '');
+    const vIdx = versions.indexOf(parts[1] ?? '');
+    return {
+      ci: cIdx >= 0 ? cIdx : ciLocal,
+      vi: vIdx >= 0 ? vIdx : viLocal,
+    };
+  }, [busVal, colors, versions, ciLocal, viLocal]);
 
   const pick = (row: 'c' | 'v', i: number) => {
     const nextCi = row === 'c' ? i : ci;
     const nextVi = row === 'v' ? i : vi;
-    setCi(nextCi);
-    setVi(nextVi);
+    setCiLocal(nextCi);
+    setViLocal(nextVi);
     const c = colors[nextCi] ?? '';
     const v = versions[nextVi] ?? '';
     setBus(channel, [c, v].filter(Boolean).join(' · '));

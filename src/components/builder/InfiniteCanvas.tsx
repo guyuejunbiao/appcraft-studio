@@ -258,6 +258,8 @@ function Artboard({
   onLinkStart: (pageId: string, e: React.PointerEvent) => void;
 }) {
   const tabs = useBuilder((s) => s.tabs);
+  const allPages = useBuilder((s) => s.pages);
+  const allPageIds = useMemo(() => new Set(allPages.map((p) => p.id)), [allPages]);
   const setFlowPosLive = useBuilder((s) => s.setFlowPosLive);
   const updatePage = useBuilder((s) => s.updatePage);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -439,10 +441,10 @@ function Artboard({
                   </div>
                 )}
               </div>
-              {/* App 级底部导航：点击 = 聚焦目标画板 */}
-              {tabs.length > 0 && (
+              {/* App 级底部导航：点击 = 聚焦目标画板（悬空 tab 过滤：页面删除后不再显示死标签） */}
+              {tabs.some((t) => allPageIds.has(t.pageId)) && (
                 <AppTabBar
-                  tabs={tabs}
+                  tabs={tabs.filter((t) => allPageIds.has(t.pageId))}
                   activePageId={page.id}
                   onSelect={(tab) => onBodyPointerDown(tab.pageId)}
                 />

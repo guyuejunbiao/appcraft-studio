@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   SlidersHorizontal, LayoutPanelLeft, Zap, X, Trash2, Copy, Palette,
   Home, Plus, Link2, ArrowRight, CheckCircle2, Crown, Move3d, Maximize2,
@@ -48,6 +48,7 @@ export function InspectorPanel() {
   const removeWidget = useBuilder((s) => s.removeWidget);
   const duplicateWidget = useBuilder((s) => s.duplicateWidget);
   const updatePage = useBuilder((s) => s.updatePage);
+  const setHomePage = useBuilder((s) => s.setHomePage);
   const removePage = useBuilder((s) => s.removePage);
   const addConnection = useBuilder((s) => s.addConnection);
   const removeConnection = useBuilder((s) => s.removeConnection);
@@ -113,7 +114,7 @@ export function InspectorPanel() {
                 <FieldControl
                   key={f.key}
                   field={f}
-                  value={widget.props[f.key]}
+                  value={widget.props[f.key] ?? def.defaultProps[f.key]}
                   onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
                 />
               ))}
@@ -138,7 +139,13 @@ export function InspectorPanel() {
                         className="h-8 text-xs"
                         value={typeof widget.h === 'number' ? widget.h : ''}
                         placeholder="自动"
-                        onChange={(e) => updateWidget(widget.id, { h: e.target.value === '' ? undefined : Number(e.target.value) })}
+                        onChange={(e) => {
+                          /* 高度无下限会直接吞掉组件（overflow hidden + 负/零高），钳到最小 24 */
+                          if (e.target.value === '') { updateWidget(widget.id, { h: undefined }); return; }
+                          const n = Number(e.target.value);
+                          if (Number.isNaN(n)) return;
+                          updateWidget(widget.id, { h: Math.max(24, Math.round(n)) });
+                        }}
                       />
                     </div>
                   </div>
@@ -211,7 +218,10 @@ export function InspectorPanel() {
             </TabsContent>
 
             <TabsContent value="action" className="mt-0 space-y-4">
+              {/* key=widgetId：切换选中组件时重挂，避免上个组件的槽位选择（slot）/目标页残留，
+                  否则可能给无槽位组件写入 slot 连接，预览中永不生效且难排查 */}
               <ConnectionEditor
+                key={widget.id}
                 pageId={page.id}
                 widgetId={widget.id}
                 widgetName={def.name}
@@ -258,11 +268,7 @@ export function InspectorPanel() {
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">页面设置</h3>
             <div>
               <Label>页面名称</Label>
-              <Input
-                className="h-8 text-xs"
-                value={page.name}
-                onChange={(e) => updatePage(page.id, { name: e.target.value })}
-              />
+              <PageNameInput initial={page.name} onCommit={(name) => updatePage(page.id, { name })} />
             </div>
           <div>
             <Label>页面背景</Label>
@@ -317,10 +323,8 @@ export function InspectorPanel() {
               checked={page.isHome}
               onCheckedChange={(v) => {
                 if (!v || page.isHome) return;
-                pages.forEach((p) => {
-                  if (p.isHome) updatePage(p.id, { isHome: false });
-                });
-                updatePage(page.id, { isHome: true });
+                /* 原子操作：一次历史记录完成「旧主页取消 + 新主页设置」，不再产生两条撤销记录 */
+                setHomePage(page.id);
               }}
             />
           </div>
@@ -446,6 +450,37 @@ export function InspectorPanel() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return <p className="mb-1.5 text-[11px] font-semibold text-zinc-500">{children}</p>;
+}
+
+/** 页面名称输入：本地草稿 + 失焦/回车才提交（一次历史记录），不再每键一条撤销 */
+function PageNameInput({
+  initial, onCommit,
+}: {
+  initial: string;
+  onCommit: (name: string) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const [prevInitial, setPrevInitial] = useState(initial);
+  /* 外部变更（撤销/切页/协作）同步进草稿：渲染期间比较重置（React 官方模式，替代 effect） */
+  if (prevInitial !== initial) {
+    setPrevInitial(initial);
+    setDraft(initial);
+  }
+  const commit = () => {
+    const name = draft.trim();
+    if (name && name !== initial) onCommit(name);
+    else setDraft(initial);
+  };
+  return (
+    <Input
+      className="h-8 text-xs"
+      value={draft}
+      aria-label="页面名称"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+    />
+  );
 }
 
 /** 外观通用字段（布局 tab 底部，流式/自由共用）：透明度 + 阴影 */

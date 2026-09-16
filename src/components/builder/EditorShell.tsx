@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { Blocks, PanelRight, PanelLeft } from 'lucide-react';
-import { useBuilder, bindAutosave } from '@/lib/store';
+import { useBuilder } from '@/lib/store';
 import { Toolbar } from './Toolbar';
 import { WidgetLibrary } from './WidgetLibrary';
 import { Canvas } from './Canvas';
@@ -12,10 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 
-/** 编辑器外壳：三栏布局 + 自动保存 + 快捷键 + 移动端抽屉 */
+/** 编辑器外壳：三栏布局 + 快捷键 + 移动端抽屉（自动保存已提升到 page.tsx 全局绑定） */
 export function EditorShell() {
   useEffect(() => {
-    const unbind = bindAutosave();
     /* 组件市场（我的组合）懒加载一次 */
     if (!useBuilder.getState().presetsLoaded) useBuilder.getState().loadPresets();
 
@@ -77,7 +76,6 @@ export function EditorShell() {
     };
     window.addEventListener('keydown', onKey);
     return () => {
-      unbind();
       window.removeEventListener('keydown', onKey);
     };
   }, []);

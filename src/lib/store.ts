@@ -82,6 +82,8 @@ interface BuilderState {
   setView: (v: BuilderView) => void;
   addWidget: (type: string, index?: number, rect?: { x: number; y: number; w: number }) => void;
   moveWidget: (id: string, toIndex: number) => void;
+  /** 按可见顺序上移/下移：dir=-1 上移、1 下移；自动跳过 hidden 组件 */
+  moveWidgetRelative: (id: string, dir: -1 | 1) => void;
   removeWidget: (id: string) => void;
   /** 批量删除（一条历史；联动清理相关连接） */
   removeWidgets: (ids: string[]) => void;
@@ -368,6 +370,29 @@ export const useBuilder = create<BuilderState>((set, get) => {
           return { ...p, components: list };
         }),
       }));
+    },
+
+    /** 按可见顺序上移/下移（流式布局操作条）：跳过 hidden 组件定位邻居，
+     *  否则用「过滤后索引」操作真实数组会导致相邻隐藏组件时看似无效或错位 */
+    moveWidgetRelative(id, dir) {
+      const page = currentPage();
+      if (!page) return;
+      const comps = page.components;
+      const from = comps.findIndex((c) => c.id === id);
+      if (from < 0) return;
+      let neighbor = -1;
+      if (dir < 0) {
+        for (let i = from - 1; i >= 0; i--) {
+          if (!comps[i].hidden) { neighbor = i; break; }
+        }
+        if (neighbor >= 0) this.moveWidget(id, neighbor);
+      } else {
+        for (let i = from + 1; i < comps.length; i++) {
+          if (!comps[i].hidden) { neighbor = i; break; }
+        }
+        /* 下移：插到可见邻居之后（toIndex = neighbor+1 语义 = 插到该元素之前） */
+        if (neighbor >= 0) this.moveWidget(id, neighbor + 1);
+      }
     },
 
     removeWidget(id) {
@@ -1008,10 +1033,16 @@ export const useBuilder = create<BuilderState>((set, get) => {
         // 主页不可删；先把主页身份转移
         return;
       }
-      commit(({ pages, connections }) => ({
-        pages: pages.filter((p) => p.id !== id),
+      commit(({ pages: list, connections }) => ({
+        pages: list.filter((p) => p.id !== id),
         connections: connections.filter((c) => c.fromPageId !== id && c.toPageId !== id),
       }));
+      /* 级联清理：底部导航中绑定该页的标签同步移除，
+       * 否则预览点死标签 → 页面不存在 → 整屏空白 */
+      const dangling = get().tabs.filter((t) => t.pageId === id).map((t) => t.id);
+      if (dangling.length > 0) {
+        set({ tabs: get().tabs.filter((t) => t.pageId !== id), dirty: true });
+      }
       if (get().currentPageId === id) {
         const rest = get().pages;
         set({ currentPageId: rest.find((p) => p.isHome)?.id || rest[0]?.id || null, selectedWidgetId: null, selectedIds: [] });

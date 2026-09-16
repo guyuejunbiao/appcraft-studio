@@ -690,7 +690,20 @@ export function Canvas() {
     };
     const ro = new ResizeObserver(measure);
     itemRefs.current.forEach((el) => ro.observe(el));
-    return () => ro.disconnect();
+    /* 总线驱动的显隐（如联动组件切 tab）只会增删 DOM 节点，不触发 ResizeObserver：
+     * MutationObserver 兑底重新挂观察 + 重测，避免底部组件恢复显示后内容高度被截断 */
+    const mo = new MutationObserver(() => {
+      itemRefs.current.forEach((el) => ro.observe(el));
+      measure();
+    });
+    if (scrollerRef.current) {
+      mo.observe(scrollerRef.current, { childList: true, subtree: true });
+    }
+    measure();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [isFree, page?.components, zoom]);
 
   /* ---------- 渲染 ---------- */
@@ -1182,7 +1195,10 @@ export function Canvas() {
               ) : (
                 /* ---------- 流式布局：垂直排列 + 拖拽排序 ---------- */
                 <>
-                  {page.components.filter((w: WidgetInstance) => !w.hidden).map((w: WidgetInstance, idx: number) => {
+                  {(() => {
+                    const visibleList = page.components.filter((w: WidgetInstance) => !w.hidden);
+                    const visibleCount = visibleList.length;
+                    return visibleList.map((w: WidgetInstance, idx: number) => {
                     const def = getWidget(w.type);
                     const selected = selectedWidgetId === w.id;
                     const linkConn = connections.find((c) => c.fromPageId === page.id && c.fromWidgetId === w.id && !c.slot);
@@ -1232,14 +1248,14 @@ export function Canvas() {
                           <ItemBtn
                             title="上移"
                             disabled={idx === 0}
-                            onClick={() => useBuilder.getState().moveWidget(w.id, idx - 1)}
+                            onClick={() => useBuilder.getState().moveWidgetRelative(w.id, -1)}
                           >
                             <ChevronUp className="size-3.5" />
                           </ItemBtn>
                           <ItemBtn
                             title="下移"
-                            disabled={idx === page.components.length - 1}
-                            onClick={() => useBuilder.getState().moveWidget(w.id, idx + 2)}
+                            disabled={idx === visibleCount - 1}
+                            onClick={() => useBuilder.getState().moveWidgetRelative(w.id, 1)}
                           >
                             <ChevronDown className="size-3.5" />
                           </ItemBtn>
@@ -1293,7 +1309,8 @@ export function Canvas() {
                       </div>
                       </WidgetContextMenu>
                     );
-                  })}
+                    });
+                  })()}
                 </>
               )}
 

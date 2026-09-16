@@ -42,9 +42,13 @@ export function useBusScope(): string {
   return useContext(BusScopeCtx);
 }
 
-/** 频道 → 总线 key（带作用域前缀；空作用域 = 全局） */
-const busKey = (scope: string, channel: string) =>
+/** 频道 → 总线 key（带作用域前缀；空作用域 = 全局）。
+ *  导出供需要手工拼接 key 读取 values 表的场景（如 PrimaryBtn 读页面级标记），
+ * 确保读写两侧永远用同一规则（否则空作用域时读 `::ch` 写 `ch` 永久 miss）。 */
+export const busKeyOf = (scope: string, channel: string) =>
   scope ? `${scope}::${channel}` : channel;
+
+const busKey = busKeyOf;
 
 /** 读取总线当前值（非响应式、全局作用域，仅调试/事件回调用） */
 export const busGet = (key: string) => useInteractionBus.getState().values[key];
@@ -99,7 +103,9 @@ export function busVisible(
 /* 用户数据频道（user:: 前缀，全局共享、跨页保留）                       */
 /* 手机号 / 密码 / 验证码 / 协议勾选属于「用户会话数据」：               */
 /* 登录页输入的手机号跳到注册页应自动带过（正常 App 行为）；             */
-/* 而 loginMode 等 UI 联动状态按页面隔离，切页时被 resetUiValues 清除。  */
+/* 而 loginMode 等页面级 UI 状态靠 scope 前缀天然跨页隔离，无需切页清理。 */
+/* （勿引入「切页清总线」：子组件写入标记的 effect 先于父 effect 执行，   */
+/*   清掉后依赖值未变化不会自愈，页面级标记会永久丢失——已踩坑）          */
 /* ------------------------------------------------------------------ */
 
 const userKey = (key: string) => `user::${key}`;
@@ -121,18 +127,3 @@ export function useUserSetter() {
 /** 读用户数据（非响应式，事件回调内使用） */
 export const userGet = (key: string) =>
   useInteractionBus.getState().values[userKey(key)];
-
-/**
- * 仅清除 UI 联动状态（保留 user:: 用户数据）：
- * 预览切页时调用——页面切换不应丢失用户已输入的手机号/密码，
- * 但 loginMode 等页面级联动必须清空，防止串页残留。
- */
-export function resetUiValues() {
-  useInteractionBus.setState((s) => {
-    const next: Record<string, string> = {};
-    Object.entries(s.values).forEach(([k, v]) => {
-      if (k.startsWith('user::')) next[k] = v;
-    });
-    return { values: next };
-  });
-}
