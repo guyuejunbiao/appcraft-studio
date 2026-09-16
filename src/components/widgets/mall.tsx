@@ -52,13 +52,14 @@ function CategoryGridView({
             key={`${c.label}-${i}`}
             type="button"
             aria-label={c.label}
+            data-cell-index={i}
             onClick={(e) => { stopAct(e); onTapCell(i); }}
             className="flex min-w-0 flex-col items-center gap-1.5 transition-opacity active:opacity-60"
           >
             {body}
           </button>
         ) : (
-          <div key={`${c.label}-${i}`} className="flex min-w-0 flex-col items-center gap-1.5">
+          <div key={`${c.label}-${i}`} data-cell-index={i} className="flex min-w-0 flex-col items-center gap-1.5">
             {body}
           </div>
         );
@@ -328,6 +329,7 @@ function ProductGridView({
             role="button"
             tabIndex={0}
             aria-label={it.name ? `查看商品 ${it.name}` : `查看商品 ${i + 1}`}
+            data-item-index={i}
             onClick={(e) => { stopAct(e); onTapItem(i); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTapItem(i); } }}
             className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
@@ -336,7 +338,7 @@ function ProductGridView({
             {body}
           </div>
         ) : (
-          <div key={i} className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+          <div key={i} data-item-index={i} className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
             {body}
           </div>
         );
@@ -440,6 +442,7 @@ function FlashSaleView({
               role="button"
               tabIndex={0}
               aria-label={it.name ? `查看秒杀商品 ${it.name}` : `查看秒杀商品 ${i + 1}`}
+              data-item-index={i}
               onClick={(e) => { stopAct(e); onTapTile(i); }}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTapTile(i); } }}
               className="min-w-0 cursor-pointer transition-opacity active:opacity-80"
@@ -447,7 +450,7 @@ function FlashSaleView({
               {body}
             </div>
           ) : (
-            <div key={i} className="min-w-0">{body}</div>
+            <div key={i} data-item-index={i} className="min-w-0">{body}</div>
           );
         })}
       </div>

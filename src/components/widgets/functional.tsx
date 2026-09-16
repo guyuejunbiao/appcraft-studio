@@ -90,6 +90,7 @@ function SettingsGroupView({
             key={`${row.label}-${i}`}
             type="button"
             aria-label={row.label}
+            data-cell-index={i}
             onClick={() => onRowTap(i)}
             className={`flex h-12 w-full items-center gap-3 px-3.5 text-left transition-opacity active:opacity-70 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
           >
@@ -98,6 +99,7 @@ function SettingsGroupView({
         ) : (
           <div
             key={`${row.label}-${i}`}
+            data-cell-index={i}
             className={`flex h-12 items-center gap-3 px-3.5 ${i < rows.length - 1 ? 'border-b w-line' : ''}`}
           >
             {content}

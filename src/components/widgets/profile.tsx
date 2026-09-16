@@ -82,13 +82,14 @@ function OrderGridView({
             key={`${c.label}-${i}`}
             type="button"
             aria-label={c.label}
+            data-cell-index={i}
             onClick={() => onTapCell(i)}
             className="relative flex flex-col items-center gap-1.5 transition-opacity active:opacity-60"
           >
             {body}
           </button>
         ) : (
-          <div key={`${c.label}-${i}`} className="relative flex flex-col items-center gap-1.5">
+          <div key={`${c.label}-${i}`} data-cell-index={i} className="relative flex flex-col items-center gap-1.5">
             {body}
           </div>
         );
@@ -144,13 +145,14 @@ function ServiceGridView({
             key={`${c.label}-${i}`}
             type="button"
             aria-label={c.label}
+            data-cell-index={i}
             onClick={() => onTapCell(i)}
             className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60"
           >
             {body}
           </button>
         ) : (
-          <div key={`${c.label}-${i}`} className="flex flex-col items-center gap-1.5">
+          <div key={`${c.label}-${i}`} data-cell-index={i} className="flex flex-col items-center gap-1.5">
             {body}
           </div>
         );

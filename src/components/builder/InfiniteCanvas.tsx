@@ -17,6 +17,8 @@ import { ConnectionDialog } from './FlowEditor';
 import { PageManagerDialog } from './PageManager';
 import { TabManagerDialog } from './TabManager';
 import { ProductsEditor } from './ProductsEditor';
+import { CellsEditor, cellsFieldValue, productsFieldValue } from './InspectorPanel';
+import type { PropField } from '@/lib/widget-types';
 import { normalizeProducts } from '@/components/widgets/grid-kit';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,7 +126,8 @@ function WidgetPickerPopover({ pageId, children }: { pageId: string; children: R
 }
 
 /* ==================== 选中组件快捷编辑（文字就地 / 间距 / 布局） ==================== */
-function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () => void }) {
+/** focusItem：画布上点击的具体条目索引（商品/格子）——点谁编谁，弹窗只呈现那一个个体 */
+function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; onDone: () => void; focusItem: number | null }) {
   const def = getWidget(widget.type);
   const updateWidgetProps = useBuilder((s) => s.updateWidgetProps);
   const updateWidget = useBuilder((s) => s.updateWidget);
@@ -132,6 +135,9 @@ function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () =>
   const merged = { ...def.defaultProps, ...widget.props };
   const textFields = def.fields.filter((f) => f.type === 'text' || f.type === 'textarea');
   const productFields = def.fields.filter((f) => f.type === 'products');
+  const cellFields = def.fields.filter((f) => f.type === 'cells');
+  /* 单件模式（点中具体条目）时隐藏普通文字区，只保留该条目——「单个」语义不掺其他内容 */
+  const showText = textFields.length > 0 && (focusItem == null || (productFields.length === 0 && cellFields.length === 0));
 
   return (
     <div className="w-64 space-y-3 p-3">
@@ -140,11 +146,15 @@ function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () =>
           <def.icon className="size-3.5" />
         </span>
         <span className="text-xs font-bold">{def.name}</span>
-        <span className="ml-auto rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-500">就地编辑</span>
+        {focusItem != null ? (
+          <span className="ml-auto rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">单件编辑 · 第 {focusItem + 1} 个</span>
+        ) : (
+          <span className="ml-auto rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-500">就地编辑</span>
+        )}
       </div>
 
-      {/* 文字内容就地编辑（实时生效，无需跳回编辑器） */}
-      {textFields.slice(0, 3).map((f) => (
+      {/* 文字内容就地编辑（实时生效，无需跳回编辑器）；单件模式且有条目编辑时让位给条目 */}
+      {showText && textFields.slice(0, 3).map((f) => (
         <div key={f.key}>
           <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
             <Type className="size-3" /> {f.label}
@@ -169,19 +179,35 @@ function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () =>
           )}
         </div>
       ))}
-      {textFields.length === 0 && productFields.length === 0 && (
+      {textFields.length === 0 && productFields.length === 0 && cellFields.length === 0 && (
         <p className="rounded-lg bg-zinc-50 px-2.5 py-2 text-[11px] text-zinc-400">
           该组件没有可编辑文字，可在编辑器属性面板配置
         </p>
       )}
 
-      {/* 商品逐个就地编辑（双列商品网格等：画布内直接改每个商品的名称/价格） */}
+      {/* 商品逐个就地编辑：点中具体商品 → 只编辑那一件（单件模式）；点组件整体 → 全列表管理。
+          key 含 focusItem：点击另一个商品时组件重挂载，单件/全列表视图自动归位 */}
       {productFields.slice(0, 1).map((f) => (
         <ProductsEditor
-          key={f.key}
-          value={normalizeProducts(merged[f.key], { count: merged.count, name: merged.name, price: merged.price })}
+          key={`${f.key}-${focusItem ?? 'all'}`}
+          value={productsFieldValue(f as PropField, widget, def)}
           onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
           max={f.max ?? 6}
+          focusIndex={focusItem}
+        />
+      ))}
+
+      {/* 宫格逐格就地编辑：点中具体格子 → 只编辑那一格（金刚区/设置行/个人页宫格）。
+          key 含 focusItem：点击另一个格子时组件重挂载，单格/全列表视图自动归位 */}
+      {cellFields.slice(0, 1).map((f) => (
+        <CellsEditor
+          key={`${f.key}-${focusItem ?? 'all'}`}
+          value={cellsFieldValue(f as PropField, widget, def)}
+          onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
+          max={f.max ?? 8}
+          withBadge={f.withBadge}
+          withOn={f.withOn}
+          focusIndex={focusItem}
         />
       ))}
 
@@ -417,6 +443,7 @@ function Artboard({
                     {visible.map((w) => (
                       <div
                         key={w.id}
+                        data-widget-host={w.id}
                         className="absolute"
                         style={{ left: w.x ?? 0, top: w.y ?? 0, width: w.w ?? 355 }}
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
@@ -438,6 +465,7 @@ function Artboard({
                     {visible.map((w) => (
                       <div
                         key={w.id}
+                        data-widget-host={w.id}
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-[-1px] outline-violet-500' : ''}>
@@ -519,9 +547,11 @@ export function InfiniteCanvas() {
   const [offset, setOffset] = useState({ x: 40, y: 20 });
   const [panning, setPanning] = useState<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
 
-  /* 选中组件（画板内就地编辑） */
+  /* 选中组件（画板内就地编辑）；focusItem = 点击命中的具体条目（商品/格子）索引：点谁编谁 */
   const [sel, setSel] = useState<{ pageId: string; widgetId: string } | null>(null);
   const [editing, setEditing] = useState(false);
+  const [focusItem, setFocusItem] = useState<number | null>(null);
+  const focusItemRef = useRef<number | null>(null);
 
   /* 连线 */
   const [linkDrag, setLinkDrag] = useState<{ fromPageId: string; x: number; y: number } | null>(null);
@@ -563,24 +593,41 @@ export function InfiniteCanvas() {
   }, [sel, pages]);
 
   const selRef = useRef<{ pageId: string; widgetId: string } | null>(null);
+  /** 从 pointerdown 目标向上找条目标记（data-item-index / data-cell-index），提取单件索引 */
+  const hitItemIndex = (e?: React.PointerEvent): number | null => {
+    const el = e?.target as HTMLElement | null | undefined;
+    const marker = el?.closest?.('[data-item-index],[data-cell-index]');
+    if (!marker) return null;
+    const v = marker.getAttribute('data-item-index') ?? marker.getAttribute('data-cell-index');
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const setFocus = (i: number | null) => {
+    focusItemRef.current = i;
+    setFocusItem(i);
+  };
   const handleWidgetPointerDown = useCallback((pageId: string, widgetId: string, e?: React.PointerEvent) => {
     if (!widgetId) {
       selRef.current = null;
       setSel(null);
       setEditing(false);
+      setFocus(null);
       return;
     }
     setCurrentPage(pageId); /* store 的 update/remove API 作用于 currentPage */
     useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
+    const itemIdx = hitItemIndex(e);
     if (selRef.current?.pageId === pageId && selRef.current.widgetId === widgetId) {
-      /* 再点已选中的组件 = 打开就地编辑。
+      /* 再点已选中的组件 = 打开就地编辑；命中具体条目则弹窗内直接切到那一个个体（点谁编谁）。
          preventDefault 阻止浏览器把焦点抢给画布内按钮（focusin 落在弹层外会触发
          Radix DismissableLayer 的 onFocusOutside 自动关闭弹层 → 弹窗一闪而过） */
       e?.preventDefault();
+      setFocus(itemIdx);
       setEditing(true);
       return;
     }
     selRef.current = { pageId, widgetId };
+    setFocus(itemIdx); /* 首次选中也记录命中的条目，下一次点击打开时即单件模式 */
     setEditing(false);
     setSel({ pageId, widgetId });
   }, [setCurrentPage]);
@@ -590,6 +637,7 @@ export function InfiniteCanvas() {
     selRef.current = null;
     setSel(null);
     setEditing(false);
+    setFocus(null);
     useBuilder.setState({ selectedWidgetId: null, selectedIds: [] });
   }, []);
 
@@ -949,8 +997,8 @@ export function InfiniteCanvas() {
               <PopoverTrigger asChild>
                 <button
                   className="flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 disabled:opacity-30"
-                  disabled={selDef.fields.every((f) => f.type !== 'text' && f.type !== 'textarea')}
-                  title="点击编辑文字内容"
+                  disabled={selDef.fields.every((f) => f.type !== 'text' && f.type !== 'textarea' && f.type !== 'cells' && f.type !== 'products')}
+                  title="点击编辑内容（商品/格子可逐个编辑）"
                 >
                   <Type className="size-3.5" /> 编辑内容
                 </button>
@@ -960,10 +1008,19 @@ export function InfiniteCanvas() {
                 align="center"
                 className="w-auto p-0"
                 /* 焦点移出弹层不关闭：画布内点按钮/弹层内下拉展开都会把焦点带出弹层，
-                   若不阻止会误触发「焦点在外面 → 自动关闭」，弹窗一闪而过 */
+                   若不阻止会误触发「焦点在外面 → 自动关闭」，弹窗一闪而过。
+                   点击落在当前选中组件内部（如同一网格的另一商品/另一格）也不关闭——
+                   由 handleWidgetPointerDown 切换单件编辑目标（Radix 的 dismiss 是
+                   flushSync 同步执行，pointerdown 上的 preventDefault 拦不住它，
+                   必须在 onPointerDownOutside 的自定义事件上阻止） */
                 onFocusOutside={(e) => e.preventDefault()}
+                onPointerDownOutside={(e) => {
+                  const wid = selWidget?.widget.id;
+                  const t = e.target as HTMLElement | null;
+                  if (wid && t?.closest?.(`[data-widget-host="${wid}"]`)) e.preventDefault();
+                }}
               >
-                <QuickEditor widget={selWidget.widget} onDone={() => setEditing(false)} />
+                <QuickEditor widget={selWidget.widget} onDone={() => setEditing(false)} focusItem={focusItem} />
               </PopoverContent>
             </Popover>
             {/* 上移 / 下移 */}

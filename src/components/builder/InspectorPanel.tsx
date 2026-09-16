@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   SlidersHorizontal, LayoutPanelLeft, Zap, X, Trash2, Copy, Palette,
   Home, Plus, Link2, ArrowRight, CheckCircle2, Crown, Move3d, Maximize2,
-  Layers, LockOpen, ChevronUp, ChevronDown,
+  Layers, LockOpen, ChevronUp, ChevronDown, LayoutList,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { getWidget } from '@/components/widgets/registry';
@@ -588,9 +588,9 @@ function Stat({ label, value }: { label: string; value: number }) {
 /**
  * cells 字段取值：显式 cells 存档优先；
  * 旧项目（labels/badges 逗号分隔）动态合成格列表——首次编辑即无损升级为逐格数据。
- * 图标建议取 defaultProps.cellsIcons 同序名称。
+ * 图标建议取 defaultProps.cellsIcons 同序名称。（export 供画布 QuickEditor 复用）
  */
-function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
+export function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
   if (f.type !== 'cells') return widget.props[f.key] ?? def.defaultProps[f.key];
   const raw = widget.props.cells;
   if (Array.isArray(raw) && raw.length) return raw;
@@ -611,8 +611,9 @@ function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultPro
  * products 字段取值：显式 items 存档优先；
  * 其次组件 defaultProps.items（如限时秒杀自带 3 个默认商品位）；
  * 最后旧项目（count/name/price 骨架模式）动态合成商品列表——首次编辑即无损升级为逐商品数据。
+ * （export 供画布 QuickEditor 复用）
  */
-function productsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
+export function productsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
   if (f.type !== 'products') return widget.props[f.key] ?? def.defaultProps[f.key];
   const raw = Array.isArray(widget.props.items) && widget.props.items.length
     ? widget.props.items
@@ -626,16 +627,24 @@ function productsFieldValue(f: PropField, widget: WidgetInstance, def: { default
   });
 }
 
-/** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标 / 默认开关），支持增删与上下移 */
-function CellsEditor({
-  value, onChange, max, withBadge, withOn,
+/** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标 / 默认开关），支持增删与上下移。
+ *  focusIndex（单格模式）：画布上点中具体格子时只编辑那一格——点谁编谁，其余格子不出现。
+ *  （QuickEditor 与 InspectorPanel 共用，export 供画布就地编辑复用） */
+export function CellsEditor({
+  value, onChange, max, withBadge, withOn, focusIndex,
 }: {
   value: GridCell[];
   onChange: (v: GridCell[]) => void;
   max: number;
   withBadge?: boolean;
   withOn?: boolean;
+  focusIndex?: number | null;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  /* 单格目标：索引有效才进入单格模式（越界自动回退全列表）；
+     点击格子切换时由 QuickEditor 的 key 重置组件（showAll 归位单格） */
+  const fi = focusIndex != null && focusIndex >= 0 && focusIndex < value.length ? focusIndex : null;
+
   const update = (i: number, patch: Partial<GridCell>) =>
     onChange(value.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const move = (i: number, dir: -1 | 1) => {
@@ -651,6 +660,81 @@ function CellsEditor({
     onChange([...value, { label: '', act: '' }]);
   };
 
+  /* ============ 单格模式：只渲染被点击的那一格 ============ */
+  if (fi != null && !showAll) {
+    const cell = value[fi];
+    return (
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <Label>单独编辑这个格子</Label>
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="flex items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-700"
+            title="查看并管理全部格子"
+          >
+            <LayoutList className="size-3" /> 全部 {value.length} 格
+          </button>
+        </div>
+        <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/50 p-2">
+          <div className="flex items-center gap-1.5">
+            <IconPicker
+              value={cell.icon || 'circle-help'}
+              onChange={(name) => update(fi, { icon: name })}
+            />
+            <Input
+              className="h-9 min-w-0 flex-1 border-emerald-200 bg-white text-xs"
+              value={cell.label}
+              placeholder={`格子 ${fi + 1} 文案`}
+              aria-label={`格子 ${fi + 1} 文案`}
+              autoFocus
+              onChange={(e) => update(fi, { label: e.target.value })}
+            />
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <Select
+              value={cell.act || 'none'}
+              onValueChange={(v) => update(fi, { act: v === 'none' ? '' : (v as GridCell['act']) })}
+            >
+              <SelectTrigger className="h-7 min-w-0 flex-1 border-emerald-200 text-[11px]" aria-label={`格子 ${fi + 1} 动作`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CELL_ACT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {withBadge && (
+              <Input
+                className="h-7 w-20 shrink-0 border-emerald-200 bg-white text-[11px] tabular-nums"
+                value={cell.badge ?? ''}
+                placeholder="角标数"
+                aria-label={`格子 ${fi + 1} 角标数量`}
+                onChange={(e) => update(fi, { badge: e.target.value.replace(/[^\d]/g, '') })}
+              />
+            )}
+            {withOn && (
+              <label className="flex shrink-0 items-center gap-1 text-[10px] text-zinc-500">
+                默认开启
+                <Switch
+                  checked={cell.on !== false}
+                  onCheckedChange={(v) => update(fi, { on: v })}
+                  aria-label={`格子 ${fi + 1} 默认开启`}
+                />
+              </label>
+            )}
+          </div>
+          <p className="mt-1.5 flex items-center gap-1 text-[10px] leading-4 text-emerald-700">
+            <span className="rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold">单个</span>
+            画布上点其他格子可切换编辑对象，跳转页面在「交互」页逐格绑定
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ============ 全列表模式：整卡管理（增删排序） ============ */
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
