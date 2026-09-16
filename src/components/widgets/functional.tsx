@@ -1,3 +1,8 @@
+'use client';
+
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion } from 'framer-motion';
 import {
   ArrowLeft, MoreHorizontal, PanelTop, MousePointerClick, AlignLeft,
   Image as ImageIcon, Settings2, CircleCheck, List, TextCursorInput,
@@ -6,8 +11,11 @@ import {
   Play, Plus, Pencil, Camera, MessageCircle, Crown, ChevronRight,
   Volume2, Palette, Shield, Info, Globe, CircleUserRound,
   CircleHelp, ChevronDown, Timer, Trophy, QrCode, Share2, CalendarDays, MoveVertical,
+  LogOut,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { useBusScope, useUserValue } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
 import { FnTabbarInteractive, InputFieldInteractive, BigButtonInteractive } from './interactive';
 
 /**
@@ -32,12 +40,253 @@ const FAB_ICONS: Record<string, typeof Plus> = {
   plus: Plus, edit: Pencil, camera: Camera, message: MessageCircle,
 };
 
+/* ------------------------------------------------------------------ */
+/* 导航栏共享视图：onBack 存在时返回箭头可点（预览真实回退页面栈）       */
+/* 修复：原 navbar 无 Interactive，预览中二级页返回箭头点击无反应 ——    */
+/* 用户进入注册/短信登录等二级页后被困死，只能靠预览工具条退出。         */
+/* ------------------------------------------------------------------ */
+function NavbarBody({ title, showBack, onBack }: { title: string; showBack: boolean; onBack?: () => void }) {
+  return (
+    <div className="relative flex h-12 items-center border-b w-line px-3">
+      <span className="flex w-8 justify-start">
+        {showBack &&
+          (onBack ? (
+            <button
+              type="button"
+              aria-label="返回上一页"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
+              className="-ml-1 rounded-md p-1 transition-transform active:scale-90"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+          ) : (
+            <ArrowLeft className="size-5" />
+          ))}
+      </span>
+      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-[15px] font-bold">
+        {title}
+      </span>
+      <span className="ml-auto flex w-8 justify-end">
+        <MoreHorizontal className="size-5 opacity-70" />
+      </span>
+    </div>
+  );
+}
+
+/** 预览交互：返回箭头点击 → 页面栈回退（navBack 由预览容器注入） */
+function NavbarInteractive({ props, navBack }: InteractiveCtx) {
+  return (
+    <NavbarBody
+      title={String(props.title ?? '')}
+      showBack={props.showBack !== false}
+      onBack={() => navBack?.()}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 单行列表项：退出登录语义（正常 App 的会话注销闭环）                  */
+/* 文案匹配「退出/注销/登出」的项在预览中弹出确认面板，确认后：          */
+/* 清空会话数据（手机号/密码/验证码/协议勾选）+ 页面栈重置回首页。       */
+/* 修复：原退出登录项点击无任何反应，登录闭环断在最后一步。             */
+/* ------------------------------------------------------------------ */
+const LOGOUT_RE = /退出|注销|登出/;
+
+function ListItemRow({ label, value, onActivate }: { label: string; value: string; onActivate?: () => void }) {
+  const sum = [...label].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const Icon = LIST_ICONS[sum % LIST_ICONS.length] || Bell;
+  return (
+    <div
+      className={`w-card flex h-12 items-center gap-3 px-3.5 ${onActivate ? 'cursor-pointer transition-transform active:scale-[0.99]' : ''}`}
+      onClick={onActivate}
+      role={onActivate ? 'button' : undefined}
+      aria-label={onActivate ? label : undefined}
+    >
+      <Icon className={`size-4 shrink-0 ${onActivate ? 'text-rose-500' : 'opacity-55'}`} />
+      <span className={`flex-1 truncate text-sm ${onActivate ? 'font-medium text-rose-500' : ''}`}>{label}</span>
+      <span className="text-xs opacity-45">{value}</span>
+      {onActivate ? <LogOut className="size-4 shrink-0 text-rose-400" /> : <ChevronRight className="size-4 shrink-0 opacity-35" />}
+    </div>
+  );
+}
+
+/** 预览交互：退出登录项 → 确认弹窗 → onLogout（由预览容器注入） */
+function ListItemInteractive({ props, onLogout }: InteractiveCtx) {
+  const label = String(props.label || '');
+  const [ask, setAsk] = useState(false);
+  const isLogout = !!onLogout && LOGOUT_RE.test(label);
+  if (!isLogout) return <ListItemRow label={label} value={String(props.value ?? '')} />;
+  const dialog =
+    ask && typeof document !== 'undefined'
+      ? createPortal(
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 z-[85] flex flex-col justify-end bg-black/50"
+            onClick={() => setAsk(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="退出登录确认"
+          >
+            <motion.div
+              initial={{ y: 220 }}
+              animate={{ y: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+              className="rounded-t-3xl bg-white px-5 pb-8 pt-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-200" />
+              <h3 className="text-center text-base font-bold text-zinc-900">退出登录？</h3>
+              <p className="mt-2 text-center text-xs leading-5 text-zinc-500">
+                退出后将清除本次登录状态，需要重新登录才能继续使用
+              </p>
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAsk(false)}
+                  className="h-11 flex-1 rounded-full border border-zinc-200 text-sm font-semibold text-zinc-500 transition-transform active:scale-[0.97]"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsk(false);
+                    onLogout?.();
+                  }}
+                  className="flex h-11 flex-[1.6] items-center justify-center gap-1.5 rounded-full bg-rose-500 text-sm font-bold text-white shadow-md transition-transform active:scale-[0.97]"
+                >
+                  <LogOut className="size-4" /> 退出登录
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>,
+          document.getElementById('phone-screen') ?? document.body
+        )
+      : null;
+  return (
+    <>
+      <ListItemRow label={label} value={String(props.value ?? '')} onActivate={() => setAsk(true)} />
+      {dialog}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 空状态：行动按钮预览真实反馈（演示 toast），不再点了没反应           */
+/* ------------------------------------------------------------------ */
+function EmptyStateBody({ title, desc, btn, onBtn }: { title: string; desc: string; btn: string; onBtn?: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-6">
+      <span className="w-chip flex size-16 items-center justify-center rounded-full">
+        <PackageOpen className="size-7 opacity-45" />
+      </span>
+      <span className="mt-1 text-sm font-bold">{title}</span>
+      <span className="text-xs opacity-50">{desc}</span>
+      <button
+        type="button"
+        onClick={
+          onBtn
+            ? (e) => {
+                e.stopPropagation();
+                onBtn();
+              }
+            : undefined
+        }
+        className="mt-2 flex h-8 items-center px-4 text-xs font-semibold active:scale-[0.97]"
+        style={{ borderRadius: 'var(--pr)', border: '1.5px solid var(--p)', color: 'var(--p)' }}
+      >
+        {btn}
+      </button>
+    </div>
+  );
+}
+
+function EmptyStateInteractive({ props }: InteractiveCtx) {
+  const scope = useBusScope();
+  return (
+    <EmptyStateBody
+      title={String(props.title ?? '')}
+      desc={String(props.desc ?? '')}
+      btn={String(props.btn ?? '')}
+      onBtn={() => fireToast(scope, `已触发「${props.btn}」（演示环境）`, 'info')}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 个人中心头部共享视图：name/uid 可被会话身份覆盖                       */
+/* 正常 App 行为：登录后首页/个人中心显示「当前登录用户」而非写死的假数据 */
+/* ------------------------------------------------------------------ */
+function AvatarProfileBody({ name, uid, vip }: { name: string; uid: string; vip: boolean }) {
+  return (
+    <div
+      className="flex items-center gap-3 p-4"
+      style={{
+        background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 62%, #fff))',
+        color: 'var(--pf)',
+      }}
+    >
+      <span
+        className="flex size-14 shrink-0 items-center justify-center rounded-full text-xl font-bold"
+        style={{ background: 'color-mix(in srgb, #fff 22%, transparent)' }}
+      >
+        {String(name || '游').slice(0, 1)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-base font-bold">{name}</span>
+          {vip && (
+            <span
+              className="flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-amber-300"
+              style={{ background: 'color-mix(in srgb, #000 18%, transparent)' }}
+            >
+              <Crown className="size-2.5" /> VIP
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 truncate text-[11px] opacity-70">{uid}</div>
+      </div>
+      <span
+        className="flex shrink-0 items-center gap-0.5 rounded-full px-2.5 py-1 text-xs"
+        style={{ background: 'color-mix(in srgb, #fff 20%, transparent)' }}
+      >
+        个人主页 <ChevronRight className="size-3.5" />
+      </span>
+    </div>
+  );
+}
+
+/** 手机号脱敏：13812345678 → 138****5678 */
+const maskPhone = (v: string) => v.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2');
+
+/** 预览交互：绑定登录会话身份（手机号 → 脱敏展示；第三方 → 品牌身份） */
+function AvatarProfileInteractive({ props }: InteractiveCtx) {
+  const phone = useUserValue('phone');
+  const social = useUserValue('social');
+  const name = phone
+    ? `用户${phone.slice(-4)}`
+    : social
+      ? `${social}用户`
+      : String(props.name ?? '云间漫步者');
+  const uid = phone
+    ? `账号：${maskPhone(phone)}`
+    : social
+      ? `${social}授权 · 本次登录有效`
+      : String(props.uid ?? '');
+  return <AvatarProfileBody name={name} uid={uid} vip={props.vip !== false} />;
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'fn.navbar',
     category: 'functional',
     name: '页面导航',
-    desc: '顶部导航栏：返回 + 居中标题 + 更多',
+    desc: '顶部导航栏：返回 + 居中标题 + 更多（预览中返回箭头真实可用）',
     icon: PanelTop,
     fullBleed: true,
     defaultProps: { title: '通知中心', showBack: true },
@@ -45,18 +294,9 @@ export const widgets: WidgetDef[] = [
       { key: 'title', label: '标题', type: 'text' },
       { key: 'showBack', label: '显示返回箭头', type: 'switch' },
     ],
+    Interactive: NavbarInteractive,
     render: (p) => (
-      <div className="relative flex h-12 items-center border-b w-line px-3">
-        <span className="flex w-8 justify-start">
-          {p.showBack !== false && <ArrowLeft className="size-5" />}
-        </span>
-        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-[15px] font-bold">
-          {p.title}
-        </span>
-        <span className="ml-auto flex w-8 justify-end">
-          <MoreHorizontal className="size-5 opacity-70" />
-        </span>
-      </div>
+      <NavbarBody title={String(p.title ?? '')} showBack={p.showBack !== false} />
     ),
   },
   {
@@ -186,25 +426,17 @@ export const widgets: WidgetDef[] = [
     type: 'fn.list-item',
     category: 'functional',
     name: '单行列表项',
-    desc: '图标 + 文字 + 右侧值与箭头的入口行',
+    desc: '图标 + 文字 + 右侧值与箭头的入口行（预览中「退出登录」项带确认弹窗）',
     icon: List,
     defaultProps: { label: '消息通知', value: '已开启' },
     fields: [
       { key: 'label', label: '标题', type: 'text' },
       { key: 'value', label: '右侧值', type: 'text' },
     ],
+    Interactive: ListItemInteractive,
     render: (p) => {
       const label = String(p.label || '');
-      const sum = [...label].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-      const Icon = LIST_ICONS[sum % LIST_ICONS.length] || Bell;
-      return (
-        <div className="w-card flex h-12 items-center gap-3 px-3.5">
-          <Icon className="size-4 shrink-0 opacity-55" />
-          <span className="flex-1 truncate text-sm">{label}</span>
-          <span className="text-xs opacity-45">{p.value}</span>
-          <ChevronRight className="size-4 shrink-0 opacity-35" />
-        </div>
-      );
+      return <ListItemRow label={label} value={String(p.value ?? '')} />;
     },
   },
   {
@@ -372,7 +604,7 @@ export const widgets: WidgetDef[] = [
     type: 'fn.empty-state',
     category: 'functional',
     name: '空状态',
-    desc: '无数据占位：图标 + 文案 + 行动按钮',
+    desc: '无数据占位：图标 + 文案 + 行动按钮（预览中按钮带演示反馈）',
     icon: PackageOpen,
     defaultProps: { title: '暂无数据', desc: '这里还没有内容，去看看别的吧', btn: '去逛逛' },
     fields: [
@@ -380,20 +612,13 @@ export const widgets: WidgetDef[] = [
       { key: 'desc', label: '副文字', type: 'text' },
       { key: 'btn', label: '按钮文案', type: 'text' },
     ],
+    Interactive: EmptyStateInteractive,
     render: (p) => (
-      <div className="flex flex-col items-center gap-2 py-6">
-        <span className="w-chip flex size-16 items-center justify-center rounded-full">
-          <PackageOpen className="size-7 opacity-45" />
-        </span>
-        <span className="mt-1 text-sm font-bold">{p.title}</span>
-        <span className="text-xs opacity-50">{p.desc}</span>
-        <button
-          className="mt-2 flex h-8 items-center px-4 text-xs font-semibold active:scale-[0.97]"
-          style={{ borderRadius: 'var(--pr)', border: '1.5px solid var(--p)', color: 'var(--p)' }}
-        >
-          {p.btn}
-        </button>
-      </div>
+      <EmptyStateBody
+        title={String(p.title ?? '')}
+        desc={String(p.desc ?? '')}
+        btn={String(p.btn ?? '')}
+      />
     ),
   },
   {
@@ -460,7 +685,7 @@ export const widgets: WidgetDef[] = [
     type: 'fn.avatar-profile',
     category: 'functional',
     name: '个人中心头部',
-    desc: '渐变头像信息栏：昵称 / ID / VIP / 主页入口',
+    desc: '渐变头像信息栏：昵称 / ID / VIP / 主页入口（预览中自动显示登录身份）',
     icon: CircleUserRound,
     fullBleed: true,
     defaultProps: { name: '云间漫步者', uid: 'ID: 88239012', vip: true },
@@ -469,41 +694,13 @@ export const widgets: WidgetDef[] = [
       { key: 'uid', label: 'UID', type: 'text' },
       { key: 'vip', label: '显示 VIP 徽标', type: 'switch' },
     ],
+    Interactive: AvatarProfileInteractive,
     render: (p) => (
-      <div
-        className="flex items-center gap-3 p-4"
-        style={{
-          background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 62%, #fff))',
-          color: 'var(--pf)',
-        }}
-      >
-        <span
-          className="flex size-14 shrink-0 items-center justify-center rounded-full text-xl font-bold"
-          style={{ background: 'color-mix(in srgb, #fff 22%, transparent)' }}
-        >
-          {String(p.name || '游').slice(0, 1)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-base font-bold">{p.name}</span>
-            {p.vip !== false && (
-              <span
-                className="flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-amber-300"
-                style={{ background: 'color-mix(in srgb, #000 18%, transparent)' }}
-              >
-                <Crown className="size-2.5" /> VIP
-              </span>
-            )}
-          </div>
-          <div className="mt-0.5 truncate text-[11px] opacity-70">{p.uid}</div>
-        </div>
-        <span
-          className="flex shrink-0 items-center gap-0.5 rounded-full px-2.5 py-1 text-xs"
-          style={{ background: 'color-mix(in srgb, #fff 20%, transparent)' }}
-        >
-          个人主页 <ChevronRight className="size-3.5" />
-        </span>
-      </div>
+      <AvatarProfileBody
+        name={String(p.name ?? '云间漫步者')}
+        uid={String(p.uid ?? '')}
+        vip={p.vip !== false}
+      />
     ),
   },
   {

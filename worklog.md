@@ -747,3 +747,39 @@ Stage Summary:
 - 用户新体验：预览跳页返回后 tabbar/SKU/数量步进器保持操作状态；流式布局上移下移在有隐藏组件时行为正确；画布修改自动保存不再依赖回编辑器
 - 遗留观察：WidgetRenderer 订阅整个 values 表（每次键入全页重渲染）——演示规模可接受，组件多时可改选择器粒度；ConnectionEditor 的 key 重挂依赖 React 卸载语义，若未来加「保持面板状态」需求需改为显式 effect 复位
 - 建议下一阶段：①继续用户要求的全面 QA：预览动画细节/发布快照链路/注册页与短信登录页的独立校验组合 ②PresetMarket 预设与模板市场内容扩充 ③git push 需用户新 token（旧 token 已泄露须删除）
+
+---
+Task ID: 30
+Agent: Z.ai Code (main)
+Task: 以产品架构师视角系统性修复登录/注册全流程逻辑（用户指令：所有界面组件逻辑都必须要正确；按正常流程设计交互）
+
+Work Log:
+- 通读登录链路全部代码：widgets/login.tsx、interactive.tsx、interaction-bus.ts、WidgetRenderer.tsx、PreviewPlayer.tsx、templates.ts、widget-types.ts
+- agent-browser 实测复现 6 大流程 bug：
+  1) 注册/短信页 navbar 返回箭头无功能（页面内导航死路，用户被困二级页）
+  2) 无退出登录闭环（首页「退出登录」点击无反应，且模板 list-item props 键名错误 text/desc≠label/value 导致该项实际渲染成「消息通知」）
+  3) 登录页密码经全局 user::password 泄漏到注册页（正常注册应独立设密）
+  4) 验证码不校验一致性与发送记录（任意 6 位可登录）
+  5) 登录成功后密钥残留（返回登录页密码还在）
+  6) 会话身份未绑定（首页显示静态假用户「云间漫步者」，与登录者无关；第三方授权后仍显示旧手机号身份）
+- 修复落地：
+  - interaction-bus：新增 clearSession()（退出登录清 user::* + 各页 password/smsCode/smsSent，保留 UI 状态）与 clearSecrets()（登录成功作废全 App 待用凭证）
+  - 密码/验证码改页面级频道存储（scope 隔离），手机号保持全局跨页带过（正常 App 行为）
+  - PrimaryBtn：新增「请先获取验证码」+「验证码不正确」校验分支；成功后 clearSecrets；isReg 错误文案区分
+  - fn.navbar 新增 Interactive：预览中返回箭头真实回退页面栈（navBack 注入）；栈底 toast「已经是第一个页面」
+  - fn.list-item 新增 Interactive：「退出/注销/登出」文案项弹微信式确认面板 → onLogout（清会话+栈重置回首页）；红色语义视觉
+  - fn.avatar-profile 新增 Interactive：绑定登录身份（手机号脱敏 138****5678 / 第三方品牌身份）
+  - fn.empty-state 新增 Interactive：按钮点击演示 toast
+  - SocialRowInteractive：授权成功写入会话身份（本机号码→手机号；其他品牌→品牌身份并取代旧会话）+ clearSecrets
+  - InteractiveCtx 扩展 navBack/onLogout；PreviewPlayer 注入实现；WidgetRenderer 透传
+  - store.setView('preview') 时重置交互总线（进入预览=全新会话；action 内同步清避免父 effect 时序坑）
+  - templates.ts 修复 fn.list-item props 键名（text/desc→label/value）
+  - 测试项目数据修复：API 脚本改正 3 个 list-item 键名
+- agent-browser 全流程回归（11 项全过）：密码登录主流程 ✓ / 协议拦截弹窗 ✓ / 首页显示会话身份 ✓ / 退出登录确认+清空 ✓ / navbar 返回 ✓ / 未发码拦截 ✓ / 错误码拦截 ✓ / 正确码登录 ✓ / 注册页密码隔离 ✓ / 登录成功后回登录页密码已清 ✓ / 微信授权身份取代 ✓ / 注册闭环新身份 ✓ / 空状态按钮 toast ✓
+- tsc --noEmit（src 无错误）+ eslint 0 问题；dev.log 无运行时错误
+
+Stage Summary:
+- 登录/注册/第三方/退出的完整会话生命周期现在符合正常 App 语义：表单校验→防重→错误分支→协议拦截→loading→成功建会话→身份展示→退出清会话回登录页
+- 关键架构决策：密码/验证码=页面级数据（scope 隔离）；手机号/协议勾选=会话级（user::）；loginMode/tab=页面级 UI 状态（退出保留）；登录成功=全 App 密钥作废；新授权=旧身份失效
+- 本轮修复同时消除了「退出预览再进预览残留上一会话」的隐性问题
+- 涉及文件：interaction-bus.ts / widget-types.ts / interactive.tsx / functional.tsx / WidgetRenderer.tsx / PreviewPlayer.tsx / store.ts / templates.ts

@@ -21,6 +21,16 @@ export interface InteractiveCtx {
   tabNav?: (slot: string) => void;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
+  /**
+   * 页面栈回退（正常 App 的导航栏返回箭头语义）：预览容器注入。
+   * 栈底时调用只给 toast 提示、不重复弹栈。
+   */
+  navBack?: () => void;
+  /**
+   * 退出登录（正常 App 的会话注销语义）：清空会话数据（手机号/密码/验证码/协议勾选）
+   * 并把页面栈重置回首页。由 fn.list-item 的「退出登录」等入口触发。
+   */
+  onLogout?: () => void;
 }
 
 export interface PropField {

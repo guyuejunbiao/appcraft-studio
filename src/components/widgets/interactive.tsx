@@ -66,6 +66,7 @@ export function LoginTabsInteractive({ props }: InteractiveCtx) {
 /* ------------------------------------------------------------------ */
 /* 手机号输入：预览中可真实输入；值存总线 user::phone（跨页保留）       */
 /* 号段校验：11 位且 1[3-9] 开头才亮绿勾，格式错亮红叉                 */
+/* （手机号是会话身份：登录页→注册页自动带过，符合正常 App 行为）       */
 /* ------------------------------------------------------------------ */
 export function PhoneInputInteractive({ props }: InteractiveCtx) {
   const setUser = useUserSetter();
@@ -94,12 +95,14 @@ export function PhoneInputInteractive({ props }: InteractiveCtx) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 密码输入：可输入 + 小眼睛真实切换明文/密文；值存 user::password      */
-/* （修复：去掉与密文圆点重复的 •••• 装饰；tab 切换重挂载不再丢输入）   */
+/* 密码输入：可输入 + 小眼睛真实切换明文/密文                          */
+/* 密码属「页面级数据」（scope 隔离）：登录页输入的密码绝不能带进       */
+/* 注册页/其他页——正常 App 中每个页面的密码都是独立输入的。            */
+/* （修复：原 user::password 全局共享，注册页预填了登录页密码）         */
 /* ------------------------------------------------------------------ */
 export function PasswordInputInteractive({ props }: InteractiveCtx) {
-  const setUser = useUserSetter();
-  const val = useUserValue('password') ?? '';
+  const setBus = useChannelSetter();
+  const val = useChannelValue('password') ?? '';
   const [show, setShow] = useState(false);
   /* 页面级标记：登录按钮据此校验密码 */
   useChannelDefault('hasPassword', '1');
@@ -109,7 +112,7 @@ export function PasswordInputInteractive({ props }: InteractiveCtx) {
       <input
         type={show ? 'text' : 'password'}
         value={val}
-        onChange={(e) => setUser('password', e.target.value)}
+        onChange={(e) => setBus('password', e.target.value)}
         placeholder={props.placeholder}
         aria-label="密码"
         className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-40"
@@ -132,15 +135,17 @@ export function PasswordInputInteractive({ props }: InteractiveCtx) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 验证码输入：真实倒计时 + 模拟短信回填；值存 user::smsCode           */
-/* 正常流程：发码前校验手机号（未填/格式错 → toast 拦截）              */
+/* 验证码输入：真实倒计时 + 模拟短信回填；值存页面级 smsCode 频道       */
+/* 正常流程：发码前校验手机号（未填/格式错 → toast 拦截）；             */
+/* 发码成功写入 smsSent 记录，登录按钮据此校验验证码一致性。            */
+/* （验证码同密码一样是页面级数据，不跨页共享）                         */
 /* ------------------------------------------------------------------ */
 const MOCK_SMS_CODE = '284616';
 
 export function SmsInputInteractive({ props }: InteractiveCtx) {
   const scope = useBusScope();
-  const setUser = useUserSetter();
-  const code = useUserValue('smsCode') ?? '';
+  const setBus = useChannelSetter();
+  const code = useChannelValue('smsCode') ?? '';
   const [left, setLeft] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   /* 页面级标记：登录按钮据此校验验证码 */
@@ -168,11 +173,13 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
       return;
     }
     setLeft(60);
+    /* 记录已发送验证码（页面级）：登录按钮校验输入一致性 */
+    setBus('smsSent', MOCK_SMS_CODE);
     fireToast(scope, '验证码已发送，请注意查收', 'success');
     timers.current.push(
       setTimeout(() => {
         // 模拟收到短信，自动填充验证码
-        setUser('smsCode', MOCK_SMS_CODE);
+        setBus('smsCode', MOCK_SMS_CODE);
         fireToast(scope, `收到验证码 ${MOCK_SMS_CODE}，已自动填入`, 'info');
       }, 1100)
     );
@@ -183,7 +190,7 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
       <ShieldCheck className="size-4 opacity-45" />
       <input
         value={code}
-        onChange={(e) => setUser('smsCode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+        onChange={(e) => setBus('smsCode', e.target.value.replace(/\D/g, '').slice(0, 6))}
         placeholder={props.placeholder}
         inputMode="numeric"
         aria-label="验证码"
@@ -218,6 +225,7 @@ export function SmsInputInteractive({ props }: InteractiveCtx) {
 export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
   const scope = useBusScope();
   const setUser = useUserSetter();
+  const setBus = useChannelSetter();
   const [st, setSt] = useState<'idle' | 'loading' | 'done'>('idle');
   const [askAgree, setAskAgree] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -242,6 +250,12 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
   const mode = modeOf(hasPwd, hasSms);
   const isReg = mode === 'reg';
 
+  /** 登录成功后作废全 App 所有待输入密钥（含其他页面的密码/验证码/发送记录）。
+   *  正常 App 行为：会话建立后，回退到任何登录表单都不应残留待用凭证。 */
+  const clearPageSecrets = () => {
+    useInteractionBus.getState().clearSecrets();
+  };
+
   const doLogin = () => {
     setSt('loading');
     timers.current.push(
@@ -250,6 +264,7 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
         timers.current.push(
           setTimeout(() => {
             setSt('idle');
+            clearPageSecrets();
             onTap?.();
           }, 700)
         );
@@ -275,9 +290,10 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
       }
     }
 
-    /* ② 验证码 / 密码（按模式；校验顺序跟随表单视觉顺序：验证码框在密码框上方） */
-    const password = userGet('password') ?? '';
-    const smsCode = userGet('smsCode') ?? '';
+    /* ② 验证码 / 密码（按模式；校验顺序跟随表单视觉顺序：验证码框在密码框上方）。
+     *    值读页面级频道（与输入组件同规则 busKeyOf），空作用域时读写两侧仍一致 */
+    const password = busGet(busKeyOf(scope, 'password')) ?? '';
+    const smsCode = busGet(busKeyOf(scope, 'smsCode')) ?? '';
     if (mode === 'sms' || mode === 'reg') {
       if (!smsCode) {
         fireToast(scope, '请输入验证码', 'error');
@@ -287,6 +303,16 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
         fireToast(scope, '请输入 6 位验证码', 'error');
         return;
       }
+      /* 正常流程：验证码必须与已发送的一致（未发码拦截 → 不匹配拦截） */
+      const sent = busGet(busKeyOf(scope, 'smsSent'));
+      if (!sent) {
+        fireToast(scope, '请先获取验证码', 'error');
+        return;
+      }
+      if (smsCode !== sent) {
+        fireToast(scope, '验证码不正确，请重新输入', 'error');
+        return;
+      }
     }
     if (mode === 'pwd' || mode === 'reg') {
       if (!password) {
@@ -294,7 +320,7 @@ export function PrimaryBtnInteractive({ props, onTap }: InteractiveCtx) {
         return;
       }
       if (password.length < 6) {
-        fireToast(scope, '密码至少 6 位，请重新输入', 'error');
+        fireToast(scope, isReg ? '密码至少 6 位，请重新设置' : '密码至少 6 位，请重新输入', 'error');
         return;
       }
     }
@@ -478,6 +504,7 @@ const BRAND_ICONS: Record<BrandKey, typeof MessageCircle> = {
 type Phase = 'idle' | 'splash' | 'auth' | 'granting' | 'success' | 'denied';
 
 export function SocialRowInteractive({ props, onTap }: InteractiveCtx) {
+  const setUser = useUserSetter();
   const [phase, setPhase] = useState<Phase>('idle');
   const [brand, setBrand] = useState<BrandKey | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -498,6 +525,18 @@ export function SocialRowInteractive({ props, onTap }: InteractiveCtx) {
   const agree = () => {
     setPhase('granting');
     later(() => {
+      /* 授权成功即建立会话身份（与账号登录一致，首页/个人中心可展示）：
+       * 本机号码一键登录 → 手机号；其他品牌 → 品牌身份，并取代上一会话身份
+       * （正常 App 语义：新的登录方式成功 = 旧会话身份失效） */
+      if (brand === 'phone') {
+        setUser('phone', '13800008000');
+        setUser('social', '');
+      } else if (brand) {
+        setUser('phone', '');
+        setUser('social', BRANDS[brand].label);
+      }
+      /* 会话建立：作废所有页面残留的待用密钥（密码/验证码/发送记录） */
+      useInteractionBus.getState().clearSecrets();
       setPhase('success');
       later(() => {
         setPhase('idle');

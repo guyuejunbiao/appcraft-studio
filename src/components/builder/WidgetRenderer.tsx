@@ -38,6 +38,10 @@ interface WidgetRendererProps {
   tabNav?: (slot: string) => void;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
+  /** 页面栈回退（navbar 返回箭头）：预览容器注入 */
+  navBack?: () => void;
+  /** 退出登录（list-item 退出项确认后调用）：预览容器注入 */
+  onLogout?: () => void;
 }
 
 /**
@@ -47,7 +51,7 @@ interface WidgetRendererProps {
  * - 画布联动：canvasLive=true，总线显隐 + 联动源头组件可交互（按页面作用域隔离）
  */
 export function WidgetRenderer({
-  w, onTap, targetHint, interactive = false, free = false, canvasLive = false, tabNav, slotHints,
+  w, onTap, targetHint, interactive = false, free = false, canvasLive = false, tabNav, slotHints, navBack, onLogout,
 }: WidgetRendererProps) {
   const def = getWidget(w.type);
   const busValues = useInteractionBus((s) => s.values);
@@ -76,7 +80,7 @@ export function WidgetRenderer({
       ? Interactive
       : null;
   const body = Live ? (
-    <Live props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotHints={slotHints} />
+    <Live props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotHints={slotHints} navBack={navBack} onLogout={onLogout} />
   ) : (
     def.render(merged)
   );

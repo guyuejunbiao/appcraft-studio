@@ -18,6 +18,11 @@ interface BusState {
   values: Record<string, string>;
   set: (key: string, value: string) => void;
   reset: () => void;
+  /** 退出登录：清会话数据（user::* + 各页 password/smsCode/smsSent），保留页面级 UI 状态 */
+  clearSession: () => void;
+  /** 登录成功：作废全 App 所有待输入密钥（各页密码/验证码/发送记录）。
+   *  正常 App 语义：会话建立后，任何登录表单都不应残留待用凭证。 */
+  clearSecrets: () => void;
 }
 
 export const useInteractionBus = create<BusState>((set) => ({
@@ -25,6 +30,29 @@ export const useInteractionBus = create<BusState>((set) => ({
   set: (key, value) =>
     set((s) => ({ values: { ...s.values, [key]: value } })),
   reset: () => set({ values: {} }),
+  /* 退出登录：只清「会话数据」，保留页面级 UI 状态（loginMode/tab 选中/协议文案等）。
+   * - user::* 全部清除（手机号/昵称/协议勾选等会话身份）
+   * - 各页面的 password / smsCode / smsSent（页面级密钥与发送记录）清除
+   * 正常 App 行为：退出登录回到登录页时，密码与验证码必须为空，手机号一般也清空。 */
+  clearSession: () =>
+    set((s) => {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(s.values)) {
+        if (k.startsWith('user::')) continue;
+        if (/::(password|smsCode|smsSent)$/.test(k)) continue;
+        next[k] = v;
+      }
+      return { values: next };
+    }),
+  clearSecrets: () =>
+    set((s) => {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(s.values)) {
+        if (/::(password|smsCode|smsSent)$/.test(k)) continue;
+        next[k] = v;
+      }
+      return { values: next };
+    }),
 }));
 
 /* 调试便捷入口（只读检查用） */

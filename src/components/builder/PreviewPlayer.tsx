@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { useInteractionBus, BusScopeProvider } from '@/lib/interaction-bus';
-import { WidgetToast } from '@/lib/widget-toast';
+import { WidgetToast, fireToast } from '@/lib/widget-toast';
 import { getWidget } from '@/components/widgets/registry';
 import { PhoneFrame } from './PhoneFrame';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -98,6 +98,22 @@ export function PreviewPlayer() {
   const back = () => {
     setStack((s) => (s && s.length > 1 ? s.slice(0, -1) : s));
     setAnim('slide');
+  };
+
+  /** navbar 返回箭头语义：栈内回退；栈底时 toast 提示（正常 App 不会再退） */
+  const navBack = () => {
+    if (stack && stack.length > 1) {
+      back();
+    } else {
+      fireToast(currentId ?? '', '已经是第一个页面', 'info');
+    }
+  };
+
+  /** 退出登录语义：清会话数据（手机号/密码/验证码/协议勾选）+ 页面栈重置回首页 */
+  const logout = () => {
+    useInteractionBus.getState().clearSession();
+    setStack(null);
+    setAnim('fade');
   };
 
   const reset = () => {
@@ -256,6 +272,8 @@ export function PreviewPlayer() {
                           targetHint={targetName}
                           tabNav={tabNav}
                           slotHints={slotHints}
+                          navBack={navBack}
+                          onLogout={logout}
                         />
                       </div>
                     );
@@ -269,6 +287,8 @@ export function PreviewPlayer() {
                       targetHint={targetName}
                       tabNav={tabNav}
                       slotHints={slotHints}
+                      navBack={navBack}
+                      onLogout={logout}
                     />
                   );
                 })}
