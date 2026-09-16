@@ -97,7 +97,7 @@ function OrderGridView({
   );
 }
 
-/** 订单宫格交互：格动作（昼夜/提示）→ 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+/** 订单宫格交互：格动作（昼夜/提示）→ 逐格压栈跳页（未绑定提示）→ 整卡跳页 → 未绑定提示 */
 function OrderGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   const cells = useMemo(() => parseOrderCells(props), [props]);
   const onAct = useCellAct(cells);
@@ -105,7 +105,7 @@ function OrderGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   const onCell = (i: number) => {
     if (onAct(i)) return;
     if (slotPush) {
-      slotPush(String(i));
+      if (!slotPush(String(i))) cellFallback(cells[i]?.label);
       return;
     }
     if (onTap) {
@@ -159,7 +159,7 @@ function ServiceGridView({
   );
 }
 
-/** 服务九宫格交互：格动作 → 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+/** 服务九宫格交互：格动作 → 逐格压栈跳页（未绑定提示）→ 整卡跳页 → 未绑定提示 */
 function ServiceGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   const cells = useMemo(() => parseCells(props.cells, props.labels, SERVICE_ICONS).slice(0, 8), [props]);
   const onAct = useCellAct(cells);
@@ -167,7 +167,7 @@ function ServiceGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   const onCell = (i: number) => {
     if (onAct(i)) return;
     if (slotPush) {
-      slotPush(String(i));
+      if (!slotPush(String(i))) cellFallback(cells[i]?.label);
       return;
     }
     if (onTap) {

@@ -36,8 +36,8 @@ interface WidgetRendererProps {
   canvasLive?: boolean;
   /** 槽位导航（tabbar）：传入槽位 key，若绑定则换根跳页 */
   tabNav?: (slot: string) => void;
-  /** 槽位压栈导航（宫格逐格跳页）：推入页面栈，返回可回来源页 */
-  slotPush?: (slot: string) => void;
+  /** 槽位压栈导航（宫格逐格跳页）：推入页面栈，返回可回来源页；返回值=是否已跳转（未绑定 false） */
+  slotPush?: (slot: string) => boolean;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
   /** 页面栈回退（navbar 返回箭头）：预览容器注入 */

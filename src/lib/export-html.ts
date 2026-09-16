@@ -99,23 +99,37 @@ function widgetShellHtml(
     inner = `<div class="ac-tap" data-goto="${whole.toPageId}" data-anim="${whole.animation}" style="cursor:pointer;width:100%;height:100%">${inner}</div>`;
   }
 
-  /* 槽位分区（tabbar 均分覆盖层） */
+  /* 槽位分区（tabbar 均分覆盖层 / 商品网格等 cols 网格均分） */
   let zones = '';
   if (slotLinks.length > 0) {
     const slots = def.slots?.(merged) ?? [];
     const n = Math.max(slots.length, slotLinks.length);
     if (n > 0) {
-      zones = `<div style="position:absolute;inset:0;z-index:5;display:flex">`;
-      for (let i = 0; i < n; i++) {
-        const key = slots[i]?.key ?? String(i);
-        const conn = slotLinks.find((c) => c.slot === key);
-        if (conn) {
-          zones += `<span data-goto="${conn.toPageId}" data-anim="${conn.animation}" style="flex:1;cursor:pointer" title="${esc(slots[i]?.label ?? key)}"></span>`;
-        } else {
-          zones += `<span style="flex:1"></span>`;
+      const cols = slots.find((s) => s?.cols)?.cols;
+      if (cols && cols > 1) {
+        /* 网格槽位（如双列商品网格）：cols 列 × N 行逐格覆盖，与卡片一一对应 */
+        zones = `<div style="position:absolute;inset:0;z-index:5;display:grid;grid-template-columns:repeat(${cols},1fr);grid-auto-rows:1fr">`;
+        for (let i = 0; i < n; i++) {
+          const key = slots[i]?.key ?? String(i);
+          const conn = slotLinks.find((c) => c.slot === key);
+          zones += conn
+            ? `<span data-goto="${conn.toPageId}" data-anim="${conn.animation}" style="cursor:pointer" title="${esc(slots[i]?.label ?? key)}"></span>`
+            : `<span></span>`;
         }
+        zones += `</div>`;
+      } else {
+        zones = `<div style="position:absolute;inset:0;z-index:5;display:flex">`;
+        for (let i = 0; i < n; i++) {
+          const key = slots[i]?.key ?? String(i);
+          const conn = slotLinks.find((c) => c.slot === key);
+          if (conn) {
+            zones += `<span data-goto="${conn.toPageId}" data-anim="${conn.animation}" style="flex:1;cursor:pointer" title="${esc(slots[i]?.label ?? key)}"></span>`;
+          } else {
+            zones += `<span style="flex:1"></span>`;
+          }
+        }
+        zones += `</div>`;
       }
-      zones += `</div>`;
     }
   }
 

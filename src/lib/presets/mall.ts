@@ -297,5 +297,12 @@ export const mallPresets: PresetDef[] = [
   p('mall.brand-row', '买手精选品牌墙', { brands: '山系户外,日式器物,轻奢配饰' }, ['买手', '精选', '品牌馆']),
 
   /* ---------------- mall.product-grid 双列商品网格（1） ---------------- */
-  p('mall.product-grid', '爆款双列商品墙', { count: 4 }, ['商品墙', '双列', '瀑布流']),
+  p('mall.product-grid', '爆款双列商品墙', {
+    items: [
+      { name: '云朵软糯牛奶卫衣', price: '128', original: '199', sales: '1.2万' },
+      { name: '极简无线蓝牙耳机', price: '59', original: '99', sales: '8632' },
+      { name: '轻氧玻尿酸保湿面膜', price: '199', original: '299', sales: '2.3万' },
+      { name: '每日坚果混合装 30 包', price: '89', original: '139', sales: '4581' },
+    ],
+  }, ['商品墙', '双列', '瀑布流', '逐商品跳转']),
 ];

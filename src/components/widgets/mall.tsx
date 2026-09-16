@@ -8,7 +8,7 @@ import {
   Grid2x2, Plus, Check, X, Flame, TicketPercent, Ticket, Crown, ChevronRight,
 } from 'lucide-react';
 import type { WidgetDef, WidgetProps, InteractiveCtx } from '@/lib/widget-types';
-import { parseCells, splitList, cellsToSlots, useCellAct, type GridCell } from './grid-kit';
+import { parseCells, splitList, cellsToSlots, useCellAct, normalizeProducts, productsToSlots, type GridCell, type ProductItem } from './grid-kit';
 import { useBusScope } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 import { stopAct, useAction, useLocalToggle } from './action-kit';
@@ -67,22 +67,24 @@ function CategoryGridView({
   );
 }
 
-/** 金刚区交互：格动作（昼夜/提示）→ 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+/** 金刚区交互：格动作（昼夜/提示）→ 逐格压栈跳页（未绑定提示）→ 整卡跳页 → 未绑定提示 */
 function CategoryGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   const cells = useMemo(() => parseCells(props.cells, props.labels, CAT_ICONS).slice(0, 8), [props]);
   const scope = useBusScope();
   const onAct = useCellAct(cells);
+  const unboundHint = (i: number) =>
+    fireToast(scope, cells[i]?.label ? `「${cells[i].label}」尚未绑定页面，选中组件后在「交互」页绑定` : '该格子尚未绑定页面', 'info');
   const onCell = (i: number) => {
     if (onAct(i)) return;
     if (slotPush) {
-      slotPush(String(i));
+      if (!slotPush(String(i))) unboundHint(i);
       return;
     }
     if (onTap) {
       onTap();
       return;
     }
-    fireToast(scope, cells[i]?.label ? `「${cells[i].label}」尚未绑定页面` : '该格子尚未绑定页面', 'info');
+    unboundHint(i);
   };
   return <CategoryGridView cells={cells} onTapCell={onCell} />;
 }
@@ -289,44 +291,77 @@ function ProductCardInteractive({ props, onTap }: InteractiveCtx) {
   );
 }
 
-/** 双列商品网格：每张迷你卡可点击查看商品 */
-function ProductGridInteractive({ props, onTap }: InteractiveCtx) {
-  const { toast } = useAction();
-  const count = Math.min(6, Math.max(2, Number(props.count) || 4));
-  const prices = ['128', '59', '199', '89', '45', '159'];
+/** 双列商品网格视图（静态/交互共用；onTapItem 存在时逐商品可点击） */
+function ProductGridView({
+  items,
+  onTapItem,
+}: {
+  items: ProductItem[];
+  onTapItem?: (i: number) => void;
+}) {
   return (
     <div className="grid grid-cols-2 gap-2">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          role="button"
-          aria-label="查看商品"
-          onClick={(e) => {
-            stopAct(e);
-            if (onTap) onTap();
-            else toast('查看商品', 'info');
-          }}
-          className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
-          style={{ borderRadius: 'var(--pr)' }}
-        >
+      {items.map((it, i) => {
+        const body = (
+          <>
+            <div
+              className="flex h-24 items-center justify-center"
+              style={{ background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${14 + (i % 3) * 7}%, transparent), color-mix(in srgb, var(--p) ${36 + (i % 3) * 7}%, transparent))` }}
+            >
+              <ImageIcon className="size-7 opacity-30" />
+            </div>
+            <div className="space-y-1.5 p-2.5">
+              <p className="line-clamp-2 min-h-8 text-[11px] leading-4 opacity-80">{it.name || `商品 ${i + 1}`}</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+                  <span className="text-[10px]">¥</span>{it.price || '0'}
+                </span>
+                {it.original && <span className="text-[10px] line-through opacity-40">¥{it.original}</span>}
+              </div>
+              {it.sales && <span className="block text-[9px] opacity-45">已售 {it.sales}</span>}
+            </div>
+          </>
+        );
+        return onTapItem ? (
           <div
-            className="flex h-24 items-center justify-center"
-            style={{ background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${14 + (i % 3) * 7}%, transparent), color-mix(in srgb, var(--p) ${36 + (i % 3) * 7}%, transparent))` }}
+            key={i}
+            role="button"
+            tabIndex={0}
+            aria-label={it.name ? `查看商品 ${it.name}` : `查看商品 ${i + 1}`}
+            onClick={() => onTapItem(i)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTapItem(i); } }}
+            className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
+            style={{ borderRadius: 'var(--pr)' }}
           >
-            <ImageIcon className="size-7 opacity-30" />
+            {body}
           </div>
-          <div className="space-y-1.5 p-2.5">
-            {/* 两行文字骨架线 */}
-            <span className="block h-2 w-4/5 rounded-full bg-current opacity-15" />
-            <span className="block h-2 w-3/5 rounded-full bg-current opacity-15" />
-            <span className="block pt-0.5 text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
-              <span className="text-[10px]">¥</span>{prices[i % prices.length]}
-            </span>
+        ) : (
+          <div key={i} className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+            {body}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+/** 双列商品网格：每张迷你卡可点击查看商品 */
+function ProductGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const items = useMemo(() => normalizeProducts(props.items, { count: props.count, name: props.name, price: props.price }), [props.items, props.count, props.name, props.price]);
+  const scope = useBusScope();
+  const onItem = (i: number) => {
+    /* 逐商品独立跳页：每个商品可绑定不同页面（未绑定给语义化提示） */
+    if (slotPush) {
+      if (!slotPush(String(i))) fireToast(scope, items[i]?.name ? `「${items[i].name}」尚未绑定页面，选中组件后在「交互」页绑定` : '该商品尚未绑定页面', 'info');
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    fireToast(scope, items[i]?.name ? `「${items[i].name}」尚未绑定页面，选中组件后在「交互」页绑定` : '该商品尚未绑定页面', 'info');
+  };
+  return <ProductGridView items={items} onTapItem={onItem} />;
 }
 
 /** 限时秒杀横条：整卡点击 → 已绑定页面则跳页，否则 toast 查看秒杀 */
@@ -702,39 +737,23 @@ export const widgets: WidgetDef[] = [
     type: 'mall.product-grid',
     category: 'mall',
     name: '双列商品网格',
-    desc: '双列迷你商品卡（骨架占位）',
+    desc: '双列迷你商品卡，逐个商品可编辑名称价格，可分别绑定不同跳转页面',
     icon: Grid2x2,
-    defaultProps: { count: 4 },
-    fields: [
-      { key: 'count', label: '商品数量', type: 'number', min: 2, max: 6, step: 2 },
-    ],
-    Interactive: ProductGridInteractive,
-    render: (p) => {
-      const count = Math.min(6, Math.max(2, Number(p.count) || 4));
-      const prices = ['128', '59', '199', '89', '45', '159'];
-      return (
-        <div className="grid grid-cols-2 gap-2">
-          {Array.from({ length: count }).map((_, i) => (
-            <div key={i} className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
-              <div
-                className="flex h-24 items-center justify-center"
-                style={{ background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${14 + (i % 3) * 7}%, transparent), color-mix(in srgb, var(--p) ${36 + (i % 3) * 7}%, transparent))` }}
-              >
-                <ImageIcon className="size-7 opacity-30" />
-              </div>
-              <div className="space-y-1.5 p-2.5">
-                {/* 两行文字骨架线 */}
-                <span className="block h-2 w-4/5 rounded-full bg-current opacity-15" />
-                <span className="block h-2 w-3/5 rounded-full bg-current opacity-15" />
-                <span className="block pt-0.5 text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
-                  <span className="text-[10px]">¥</span>{prices[i % prices.length]}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      );
+    defaultProps: {
+      count: 4,
+      items: [
+        { name: '云朵软糯牛奶卫衣', price: '128', original: '199', sales: '1.2万' },
+        { name: '极简无线蓝牙耳机', price: '59', original: '99', sales: '8632' },
+        { name: '轻氧玻尿酸保湿面膜', price: '199', original: '299', sales: '2.3万' },
+        { name: '每日坚果混合装 30 包', price: '89', original: '139', sales: '4581' },
+      ],
     },
+    fields: [
+      { key: 'items', label: '商品（逐个编辑）', type: 'products', max: 6 },
+    ],
+    slots: (p) => productsToSlots(normalizeProducts(p.items, { count: p.count })),
+    Interactive: ProductGridInteractive,
+    render: (p) => <ProductGridView items={normalizeProducts(p.items, { count: p.count })} />,
   },
   {
     type: 'mall.flash-sale',

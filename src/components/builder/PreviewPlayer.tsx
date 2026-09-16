@@ -258,9 +258,11 @@ export function PreviewPlayer() {
                    * 返回/导航栏箭头可回到来源页（tabbar 才是换根式） */
                   const slotPush =
                     hasSlots && Object.keys(slotLinks).length > 0
-                      ? (slot: string) => {
+                      ? (slot: string): boolean => {
                           const c = slotLinks[slot];
-                          if (c) navigate(c.toPageId, c.animation);
+                          if (!c) return false;
+                          navigate(c.toPageId, c.animation);
+                          return true;
                         }
                       : undefined;
 

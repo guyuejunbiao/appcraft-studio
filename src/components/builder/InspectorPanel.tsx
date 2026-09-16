@@ -28,7 +28,8 @@ import type { PropField } from '@/lib/widget-types';
 import type { WidgetInstance } from '@/lib/types';
 import { AppIconPicker } from './AppIconBadge';
 import { IconPicker } from './IconPicker';
-import { sanitizeCells, splitList, CELL_ACT_OPTIONS, type GridCell } from '@/components/widgets/grid-kit';
+import { sanitizeCells, splitList, CELL_ACT_OPTIONS, normalizeProducts, type GridCell } from '@/components/widgets/grid-kit';
+import { ProductsEditor } from './ProductsEditor';
 
 const THEME_COLORS = [
   '#f97316', '#f43f5e', '#10b981', '#22c55e', '#8b5cf6',
@@ -116,7 +117,7 @@ export function InspectorPanel() {
                 <FieldControl
                   key={f.key}
                   field={f}
-                  value={cellsFieldValue(f, widget, def)}
+                  value={f.type === 'products' ? productsFieldValue(f, widget, def) : cellsFieldValue(f, widget, def)}
                   onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
                 />
               ))}
@@ -606,6 +607,19 @@ function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultPro
   }));
 }
 
+/**
+ * products 字段取值：显式 items 存档优先；
+ * 旧项目（count/name/price 骨架模式）动态合成商品列表——首次编辑即无损升级为逐商品数据。
+ */
+function productsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
+  if (f.type !== 'products') return widget.props[f.key] ?? def.defaultProps[f.key];
+  return normalizeProducts(widget.props.items, {
+    count: widget.props.count ?? def.defaultProps.count,
+    name: widget.props.name ?? def.defaultProps.name,
+    price: widget.props.price ?? def.defaultProps.price,
+  });
+}
+
 /** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标 / 默认开关），支持增删与上下移 */
 function CellsEditor({
   value, onChange, max, withBadge, withOn,
@@ -753,6 +767,9 @@ function FieldControl({
         withOn={field.withOn}
       />
     );
+  }
+  if (field.type === 'products') {
+    return <ProductsEditor value={value ?? []} onChange={onChange} max={field.max ?? 6} />;
   }
   if (field.type === 'switch') {
     return (

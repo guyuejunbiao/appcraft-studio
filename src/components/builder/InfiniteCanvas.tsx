@@ -16,6 +16,8 @@ import { AppTabBar } from './AppTabBar';
 import { ConnectionDialog } from './FlowEditor';
 import { PageManagerDialog } from './PageManager';
 import { TabManagerDialog } from './TabManager';
+import { ProductsEditor } from './ProductsEditor';
+import { normalizeProducts } from '@/components/widgets/grid-kit';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -129,6 +131,7 @@ function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () =>
   if (!def) return null;
   const merged = { ...def.defaultProps, ...widget.props };
   const textFields = def.fields.filter((f) => f.type === 'text' || f.type === 'textarea');
+  const productFields = def.fields.filter((f) => f.type === 'products');
 
   return (
     <div className="w-64 space-y-3 p-3">
@@ -166,11 +169,21 @@ function QuickEditor({ widget, onDone }: { widget: WidgetInstance; onDone: () =>
           )}
         </div>
       ))}
-      {textFields.length === 0 && (
+      {textFields.length === 0 && productFields.length === 0 && (
         <p className="rounded-lg bg-zinc-50 px-2.5 py-2 text-[11px] text-zinc-400">
           该组件没有可编辑文字，可在编辑器属性面板配置
         </p>
       )}
+
+      {/* 商品逐个就地编辑（双列商品网格等：画布内直接改每个商品的名称/价格） */}
+      {productFields.slice(0, 1).map((f) => (
+        <ProductsEditor
+          key={f.key}
+          value={normalizeProducts(merged[f.key], { count: merged.count, name: merged.name, price: merged.price })}
+          onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
+          max={f.max ?? 6}
+        />
+      ))}
 
       {/* 间距（上/下边距）+ 宽度 + 对齐 */}
       <div className="space-y-2 rounded-lg border bg-zinc-50/70 p-2">

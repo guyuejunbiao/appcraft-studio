@@ -101,6 +101,60 @@ export function parseCells(
 export const cellsToSlots = (cells: { label: string }[]) =>
   cells.map((c, i) => ({ key: String(i), label: `「${c.label || `格 ${i + 1}`}」格` }));
 
+/* ------------------------------------------------------------------ */
+/* 商品单元（双列商品网格等）：逐商品编辑内容 + 逐商品绑定跳转页面      */
+/* ------------------------------------------------------------------ */
+
+export interface ProductItem {
+  name: string;
+  price: string;
+  original?: string;
+  sales?: string;
+}
+
+/** 旧版骨架模式的默认占位（与渲染器历史 prices 顺序一致，视觉零跳变） */
+const PRODUCT_FALLBACK_NAMES = [
+  '云朵软糯牛奶卫衣', '极简无线蓝牙耳机', '轻氧玻尿酸保湿面膜',
+  '每日坚果混合装 30 包', '便携折叠小风扇', '香薰机助眠款',
+];
+const PRODUCT_FALLBACK_PRICES = ['128', '59', '199', '89', '45', '159'];
+
+/**
+ * 归档数据 → 规范 ProductItem[]：
+ * items 数组优先（逐商品独立数据）；旧版 count/name/price 骨架模式无损合成——
+ * 第一格继承旧 name/price（若有），其余按默认占位补齐，老项目零破坏。
+ */
+export function normalizeProducts(
+  raw: unknown,
+  legacy?: { count?: unknown; name?: unknown; price?: unknown }
+): ProductItem[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((it): it is Record<string, unknown> => !!it && typeof it === 'object')
+      .map((it) => ({
+        name: String(it.name ?? '').trim(),
+        price: String(it.price ?? '').trim(),
+        original: it.original != null && String(it.original).trim() !== '' ? String(it.original).trim() : undefined,
+        sales: it.sales != null && String(it.sales).trim() !== '' ? String(it.sales).trim() : undefined,
+      }));
+  }
+  const count = Math.min(6, Math.max(2, Math.round(Number(legacy?.count) || 4)));
+  const firstName = String(legacy?.name ?? '').trim();
+  const firstPrice = String(legacy?.price ?? '').trim();
+  return Array.from({ length: count }).map((_, i) => ({
+    name: i === 0 && firstName ? firstName : PRODUCT_FALLBACK_NAMES[i % PRODUCT_FALLBACK_NAMES.length],
+    price: i === 0 && firstPrice ? firstPrice : PRODUCT_FALLBACK_PRICES[i % PRODUCT_FALLBACK_PRICES.length],
+  }));
+}
+
+/** 商品槽位（交互面板逐商品绑定页面用）；cols:2 让静态导出的点击分区按双列网格均分 */
+export const productsToSlots = (items: ProductItem[]) =>
+  items.map((it, i) => ({
+    key: String(i),
+    label: it.name ? `「${it.name.slice(0, 10)}」` : `商品 ${i + 1}`,
+    cols: 2,
+  }));
+
 /**
  * 宫格单元点击 hook：处理「格动作」分支（theme/toast），
  * 返回 true 表示动作已消费（调用方不再走跳页逻辑）。

@@ -4,7 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 export type WidgetProps = Record<string, any>;
 
 /** 属性面板控件类型 */
-export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch' | 'cells';
+export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch' | 'cells' | 'products';
 
 /** 交互组件共享的运行时上下文（仅在预览模式传入） */
 export interface InteractiveCtx {
@@ -23,8 +23,9 @@ export interface InteractiveCtx {
    * 槽位压栈导航（宫格逐格跳页等）：与 tabNav 的区别在于这是「推入页面栈」
    * 的层级导航——详情页按返回箭头/预览返回可回到来源页（真实 App 的
    * 金刚区→分类页语义）；tabbar 用换根式，宫格用压栈式。
+   * 返回 true = 已跳转；false = 该槽位未绑定页面（调用方可给未绑定提示）。
    */
-  slotPush?: (slot: string) => void;
+  slotPush?: (slot: string) => boolean;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
   /**
@@ -77,6 +78,12 @@ export interface WidgetSlot {
   key: string;
   /** 属性面板展示的槽位名（如标签文字） */
   label: string;
+  /**
+   * 网格布局槽位数（如双列商品网格 cols:2）：静态导出 HTML 的点击分区
+   * 改用 grid 均分（cols 列 × N 行），而非默认的竖向均分条；
+   * 缺省 = 竖向均分（tabbar 等横向条状槽位）。
+   */
+  cols?: number;
 }
 
 /**
