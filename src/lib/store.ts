@@ -302,12 +302,11 @@ export const useBuilder = create<BuilderState>((set, get) => {
 
     setView(v) {
       set({ view: v });
-      /* 进入预览 = 全新会话：清空交互总线（上一次预览残留的手机号/密码/登录身份等）。
+      /* 切视图 = 新会话：清空交互总线（预览残留的输入/身份/昼夜覆盖等）。
        * 在 action 里同步清（渲染前），避开「父 effect 清总线晚于子 effect 写默认值」
-       * 的时序坑（子组件 useChannelDefault 的 hasXxx 标记能正常重写）。 */
-      if (v === 'preview') {
-        useInteractionBus.getState().reset();
-      }
+       * 的时序坑（子组件 useChannelDefault 的 hasXxx 标记能正常重写）。
+       * 预览中的 themeOverride（昼夜切换）也不能泄漏回编辑画板。 */
+      useInteractionBus.getState().reset();
       if (v === 'home') {
         get().loadHome();
       }

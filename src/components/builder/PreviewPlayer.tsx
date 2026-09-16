@@ -210,8 +210,8 @@ export function PreviewPlayer() {
         </div>
       </div>
 
-      {/* 手机 */}
-      <PhoneFrame theme={theme} pageBg={current?.background ?? '#f6f7fb'}>
+      {/* 手机（liveTheme：昼夜切换组件可真实切换白天/黑夜场景） */}
+      <PhoneFrame theme={theme} pageBg={current?.background ?? '#f6f7fb'} liveTheme>
         <div id="phone-screen" className="relative h-full overflow-hidden">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
@@ -254,6 +254,15 @@ export function PreviewPlayer() {
                           if (c) navigateTab(c.toPageId, c.animation);
                         }
                       : undefined;
+                  /* 宫格逐格跳页 = 压栈导航：真实 App 的金刚区→分类页语义，
+                   * 返回/导航栏箭头可回到来源页（tabbar 才是换根式） */
+                  const slotPush =
+                    hasSlots && Object.keys(slotLinks).length > 0
+                      ? (slot: string) => {
+                          const c = slotLinks[slot];
+                          if (c) navigate(c.toPageId, c.animation);
+                        }
+                      : undefined;
 
                   if (isFree) {
                     return (
@@ -271,6 +280,7 @@ export function PreviewPlayer() {
                           onTap={conn ? () => navigate(conn.toPageId, conn.animation) : undefined}
                           targetHint={targetName}
                           tabNav={tabNav}
+                          slotPush={slotPush}
                           slotHints={slotHints}
                           navBack={navBack}
                           onLogout={logout}
@@ -286,6 +296,7 @@ export function PreviewPlayer() {
                       onTap={conn ? () => navigate(conn.toPageId, conn.animation) : undefined}
                       targetHint={targetName}
                       tabNav={tabNav}
+                      slotPush={slotPush}
                       slotHints={slotHints}
                       navBack={navBack}
                       onLogout={logout}

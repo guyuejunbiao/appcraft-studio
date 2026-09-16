@@ -1,10 +1,17 @@
+'use client';
+
+import { useMemo } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   Search, GalleryHorizontal, Image as ImageIcon, Megaphone, LayoutGrid, Heading1,
   ShoppingBag, Shirt, Coffee, Gamepad2, Headphones, Gift, Watch, Smartphone,
   Grid2x2, Plus, Flame, TicketPercent, Ticket, Crown, ChevronRight,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, WidgetProps, InteractiveCtx } from '@/lib/widget-types';
 import { SearchInputInteractive } from './interactive';
+import { parseCells, splitList, cellsToSlots, useCellAct, type GridCell } from './grid-kit';
+import { useBusScope } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
 
 /**
  * 商城首页 组件库（目录：mall）
@@ -14,12 +21,71 @@ import { SearchInputInteractive } from './interactive';
  * 图片位一律使用渐变 + lucide 图标占位，禁止外部图片 URL。
  */
 
-/** 金刚区预设图标池（按顺序循环取用） */
+/** 金刚区预设图标池（按顺序循环取用；cellsIcons 同序作为逐格默认图标建议） */
 const CAT_ICONS = [ShoppingBag, Shirt, Coffee, Gamepad2, Headphones, Gift, Watch, Smartphone];
+const CAT_ICON_NAMES = ['shopping-bag', 'tag', 'coffee', 'gamepad-2', 'headphones', 'gift', 'clock', 'zap'];
 
-/** 逗号 / 中文逗号分隔 → 字符串数组（去空白项） */
-const splitList = (raw: unknown): string[] =>
-  String(raw ?? '').split(/[,,]/).map((s) => s.trim()).filter(Boolean);
+/** 金刚区视图（静态/交互共用；onTapCell 存在时逐格可点击） */
+function CategoryGridView({
+  cells,
+  onTapCell,
+}: {
+  cells: (GridCell & { Icon: LucideIcon })[];
+  onTapCell?: (i: number) => void;
+}) {
+  return (
+    <div className="w-card grid grid-cols-4 gap-y-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
+      {cells.map((c, i) => {
+        const body = (
+          <>
+            <span
+              className="flex size-11 items-center justify-center rounded-full"
+              style={{ background: 'color-mix(in srgb, var(--p) 10%, transparent)', color: 'var(--p)' }}
+            >
+              <c.Icon className="size-5" />
+            </span>
+            <span className="max-w-full truncate text-[11px] opacity-70">{c.label}</span>
+          </>
+        );
+        return onTapCell ? (
+          <button
+            key={`${c.label}-${i}`}
+            type="button"
+            aria-label={c.label}
+            onClick={() => onTapCell(i)}
+            className="flex min-w-0 flex-col items-center gap-1.5 transition-opacity active:opacity-60"
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={`${c.label}-${i}`} className="flex min-w-0 flex-col items-center gap-1.5">
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 金刚区交互：格动作（昼夜/提示）→ 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+function CategoryGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const cells = useMemo(() => parseCells(props.cells, props.labels, CAT_ICONS).slice(0, 8), [props]);
+  const scope = useBusScope();
+  const onAct = useCellAct(cells);
+  const onCell = (i: number) => {
+    if (onAct(i)) return;
+    if (slotPush) {
+      slotPush(String(i));
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    fireToast(scope, cells[i]?.label ? `「${cells[i].label}」尚未绑定页面` : '该格子尚未绑定页面', 'info');
+  };
+  return <CategoryGridView cells={cells} onTapCell={onCell} />;
+}
 
 export const widgets: WidgetDef[] = [
   {
@@ -119,30 +185,19 @@ export const widgets: WidgetDef[] = [
     type: 'mall.category-grid',
     category: 'mall',
     name: '金刚区',
-    desc: '4 x 2 圆形图标快捷入口',
+    desc: '4 x 2 圆形图标快捷入口，逐格可编辑图标文案动作，可绑页面',
     icon: LayoutGrid,
-    defaultProps: { labels: '女装,数码,美食,游戏,母婴,生鲜,美妆,家电' },
+    canvasInteractive: true,
+    defaultProps: {
+      labels: '女装,数码,美食,游戏,母婴,生鲜,美妆,家电',
+      cellsIcons: CAT_ICON_NAMES,
+    },
     fields: [
-      { key: 'labels', label: '分类文案', type: 'textarea', placeholder: '逗号分隔，最多 8 个' },
+      { key: 'cells', label: '宫格单元（逐格编辑）', type: 'cells', max: 8 },
     ],
-    render: (p) => (
-      <div className="w-card grid grid-cols-4 gap-y-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
-        {splitList(p.labels).slice(0, 8).map((label, i) => {
-          const Icon = CAT_ICONS[i % CAT_ICONS.length];
-          return (
-            <div key={`${label}-${i}`} className="flex flex-col items-center gap-1.5">
-              <span
-                className="flex size-11 items-center justify-center rounded-full"
-                style={{ background: 'color-mix(in srgb, var(--p) 10%, transparent)', color: 'var(--p)' }}
-              >
-                <Icon className="size-5" />
-              </span>
-              <span className="max-w-full truncate text-[11px] opacity-70">{label}</span>
-            </div>
-          );
-        })}
-      </div>
-    ),
+    slots: (p) => cellsToSlots(parseCells(p.cells, p.labels, CAT_ICONS).slice(0, 8)),
+    render: (p) => <CategoryGridView cells={parseCells(p.cells, p.labels, CAT_ICONS).slice(0, 8)} />,
+    Interactive: CategoryGridInteractive,
   },
   {
     type: 'mall.section-header',

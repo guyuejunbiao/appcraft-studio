@@ -36,6 +36,8 @@ interface WidgetRendererProps {
   canvasLive?: boolean;
   /** 槽位导航（tabbar）：传入槽位 key，若绑定则换根跳页 */
   tabNav?: (slot: string) => void;
+  /** 槽位压栈导航（宫格逐格跳页）：推入页面栈，返回可回来源页 */
+  slotPush?: (slot: string) => void;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
   /** 页面栈回退（navbar 返回箭头）：预览容器注入 */
@@ -51,7 +53,7 @@ interface WidgetRendererProps {
  * - 画布联动：canvasLive=true，总线显隐 + 联动源头组件可交互（按页面作用域隔离）
  */
 export function WidgetRenderer({
-  w, onTap, targetHint, interactive = false, free = false, canvasLive = false, tabNav, slotHints, navBack, onLogout,
+  w, onTap, targetHint, interactive = false, free = false, canvasLive = false, tabNav, slotPush, slotHints, navBack, onLogout,
 }: WidgetRendererProps) {
   const def = getWidget(w.type);
   const busValues = useInteractionBus((s) => s.values);
@@ -80,7 +82,7 @@ export function WidgetRenderer({
       ? Interactive
       : null;
   const body = Live ? (
-    <Live props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotHints={slotHints} navBack={navBack} onLogout={onLogout} />
+    <Live props={merged} onTap={onTap} targetHint={targetHint} tabNav={tabNav} slotPush={slotPush} slotHints={slotHints} navBack={navBack} onLogout={onLogout} />
   ) : (
     def.render(merged)
   );

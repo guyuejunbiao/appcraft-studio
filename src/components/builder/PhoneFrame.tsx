@@ -1,21 +1,31 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Signal, Wifi, BatteryFull } from 'lucide-react';
 import { RADIUS_MAP, contrastOn, type ThemeConfig } from '@/lib/types';
+import { SceneProvider, useInteractionBus } from '@/lib/interaction-bus';
 
 interface PhoneFrameProps {
   theme: ThemeConfig;
   pageBg: string;
   children: ReactNode;
+  /**
+   * 实时主题（预览 / 画布联动模式）：
+   * 允许总线 themeOverride 覆盖项目主题——宫格「昼夜」格 / 深色模式开关
+   * 点击后整个屏幕真实切换白天/黑夜场景；编辑态静态渲染不传，保持设计原样。
+   */
+  liveTheme?: boolean;
 }
 
 export const PHONE_W = 375;
 export const PHONE_H = 812;
 
-/** 手机外壳：刘海 + 状态栏 + 屏幕主题变量 + Home 指示条 */
-export function PhoneFrame({ theme, pageBg, children }: PhoneFrameProps) {
+/** 手机外壳：刘海 + 状态栏 + 屏幕主题变量 + Home 指示条 + 昼夜场景上下文 */
+export function PhoneFrame({ theme, pageBg, children, liveTheme = false }: PhoneFrameProps) {
   const [time, setTime] = useState('');
+  /* 运行时昼夜覆盖：仅 liveTheme 环境消费（undefined = 跟随项目主题.dark） */
+  const override = useInteractionBus((s) => s.themeOverride);
+  const setOverride = useInteractionBus((s) => s.setThemeOverride);
 
   useEffect(() => {
     const tick = () => setTime(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }));
@@ -24,8 +34,13 @@ export function PhoneFrame({ theme, pageBg, children }: PhoneFrameProps) {
     return () => clearInterval(t);
   }, []);
 
-  const isDark = theme.dark;
+  const isDark = liveTheme && override ? override === 'night' : theme.dark;
   const bg = isDark && pageBg === '#f6f7fb' ? '#101014' : pageBg;
+
+  const toggle = useCallback(() => {
+    if (!liveTheme) return;
+    setOverride(isDark ? 'day' : 'night');
+  }, [liveTheme, isDark, setOverride]);
 
   return (
     <div
@@ -60,8 +75,10 @@ export function PhoneFrame({ theme, pageBg, children }: PhoneFrameProps) {
           </div>
         </div>
 
-        {/* 屏幕内容 */}
-        <div className="relative min-h-0 flex-1">{children}</div>
+        {/* 屏幕内容（昼夜场景上下文：宫格/开关组件可真实切换场景） */}
+        <div className="relative min-h-0 flex-1">
+          <SceneProvider value={{ dark: isDark, canToggle: liveTheme, toggle }}>{children}</SceneProvider>
+        </div>
 
         {/* Home 指示条 */}
         <div className="relative z-20 flex h-6 shrink-0 items-center justify-center">

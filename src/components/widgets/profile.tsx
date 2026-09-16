@@ -1,10 +1,21 @@
+'use client';
+
+import { useMemo } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   Crown, Wallet, CreditCard, Package, Truck, Star, ClipboardList, Coins,
   CalendarCheck, Gift, LayoutGrid, Info, RefreshCw, Gem, LogOut,
   MapPin, Headphones, Heart, Footprints, TicketPercent, CircleHelp,
   Settings, MoreHorizontal, Trophy, Medal, Flame, Check, Image as ImageIcon,
+  Moon, Sun,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, WidgetProps, InteractiveCtx } from '@/lib/widget-types';
+import {
+  parseCells, normalizeCells, splitList, cellsToSlots, useCellAct,
+  type GridCell,
+} from './grid-kit';
+import { useBusScope, useScene } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
 
 /**
  * 个人中心 组件库（目录：profile）
@@ -14,15 +25,221 @@ import type { WidgetDef } from '@/lib/widget-types';
  * 会员 / 金卡类使用 amber 系渐变，钱包类使用主色渐变，禁止蓝色 / 靛蓝色系。
  */
 
-/** 逗号 / 中文逗号分隔 → 字符串数组（去空白项） */
-const splitList = (raw: unknown): string[] =>
-  String(raw ?? '').split(/[,,]/).map((s) => s.trim()).filter(Boolean);
-
-/** me.order-grid 订单入口图标（按序取用） */
+/** me.order-grid 订单入口图标（按序取用；cellsIcons 同序作为逐格默认图标建议） */
 const ORDER_ICONS = [CreditCard, Package, Truck, Star];
+const ORDER_ICON_NAMES = ['credit-card', 'package', 'truck', 'star'];
 
 /** me.service-grid 服务入口图标（按序固定 8 个） */
 const SERVICE_ICONS = [MapPin, Headphones, Heart, Footprints, TicketPercent, CircleHelp, Settings, MoreHorizontal];
+const SERVICE_ICON_NAMES = ['map-pin', 'headphones', 'heart', 'compass', 'ticket', 'circle-help', 'settings', 'list'];
+
+/** 未绑定跳转且无内置动作时的统一提示（引导用户去交互面板绑定） */
+function useCellFallback() {
+  const scope = useBusScope();
+  return (label?: string) =>
+    fireToast(scope, label ? `「${label}」尚未绑定页面` : '该格子尚未绑定页面', 'info');
+}
+
+/** 订单宫格单元解析：cells 优先；旧数据回退 labels + badges（逗号分隔） */
+function parseOrderCells(p: WidgetProps) {
+  const cells = parseCells(p.cells, p.labels, ORDER_ICONS).slice(0, 4);
+  if (normalizeCells(p.cells).length) return cells;
+  const badges = splitList(p.badges);
+  return cells.map((c, i) => ({ ...c, badge: Number(badges[i]) > 0 ? badges[i] : undefined }));
+}
+
+/** 订单宫格视图（静态/交互共用；onTapCell 存在时逐格可点击） */
+function OrderGridView({
+  cells,
+  onTapCell,
+}: {
+  cells: (GridCell & { Icon: LucideIcon })[];
+  onTapCell?: (i: number) => void;
+}) {
+  return (
+    <div className="w-card grid grid-cols-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
+      {cells.map((c, i) => {
+        const raw = Number(c.badge) || 0;
+        const body = (
+          <>
+            {raw > 0 && (
+              <span
+                className="absolute -top-2 right-1/2 z-10 flex h-4 min-w-4 translate-x-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none text-white"
+                style={{ background: '#f43f5e' }}
+              >
+                {raw > 99 ? '99+' : raw}
+              </span>
+            )}
+            <c.Icon className="size-[22px]" style={{ color: 'var(--p)' }} />
+            <span className="text-[11px] opacity-70">{c.label}</span>
+          </>
+        );
+        return onTapCell ? (
+          <button
+            key={`${c.label}-${i}`}
+            type="button"
+            aria-label={c.label}
+            onClick={() => onTapCell(i)}
+            className="relative flex flex-col items-center gap-1.5 transition-opacity active:opacity-60"
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={`${c.label}-${i}`} className="relative flex flex-col items-center gap-1.5">
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 订单宫格交互：格动作（昼夜/提示）→ 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+function OrderGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const cells = useMemo(() => parseOrderCells(props), [props]);
+  const onAct = useCellAct(cells);
+  const cellFallback = useCellFallback();
+  const onCell = (i: number) => {
+    if (onAct(i)) return;
+    if (slotPush) {
+      slotPush(String(i));
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    cellFallback(cells[i]?.label);
+  };
+  return <OrderGridView cells={cells} onTapCell={onCell} />;
+}
+
+/** 服务九宫格视图（静态/交互共用） */
+function ServiceGridView({
+  cells,
+  onTapCell,
+}: {
+  cells: (GridCell & { Icon: LucideIcon })[];
+  onTapCell?: (i: number) => void;
+}) {
+  return (
+    <div className="w-card grid grid-cols-4 gap-y-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
+      {cells.map((c, i) => {
+        const body = (
+          <>
+            <span
+              className="flex size-11 items-center justify-center rounded-full"
+              style={{ background: 'color-mix(in srgb, var(--p) 10%, transparent)', color: 'var(--p)' }}
+            >
+              <c.Icon className="size-5" />
+            </span>
+            <span className="text-[11px] opacity-70">{c.label}</span>
+          </>
+        );
+        return onTapCell ? (
+          <button
+            key={`${c.label}-${i}`}
+            type="button"
+            aria-label={c.label}
+            onClick={() => onTapCell(i)}
+            className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60"
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={`${c.label}-${i}`} className="flex flex-col items-center gap-1.5">
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 服务九宫格交互：格动作 → 逐格压栈跳页 → 整卡跳页 → 未绑定提示 */
+function ServiceGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
+  const cells = useMemo(() => parseCells(props.cells, props.labels, SERVICE_ICONS).slice(0, 8), [props]);
+  const onAct = useCellAct(cells);
+  const cellFallback = useCellFallback();
+  const onCell = (i: number) => {
+    if (onAct(i)) return;
+    if (slotPush) {
+      slotPush(String(i));
+      return;
+    }
+    if (onTap) {
+      onTap();
+      return;
+    }
+    cellFallback(cells[i]?.label);
+  };
+  return <ServiceGridView cells={cells} onTapCell={onCell} />;
+}
+
+/** 昼夜切换行视图（静态/交互共用）：太阳/月亮随场景切换 */
+function ThemeRowBody({
+  label,
+  desc,
+  dark,
+}: {
+  label: string;
+  desc?: string;
+  dark: boolean;
+}) {
+  return (
+    <div className="w-card flex h-14 items-center justify-between px-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center gap-3">
+        <span
+          className="flex size-8 items-center justify-center rounded-full"
+          style={{ background: 'color-mix(in srgb, var(--p) 10%, transparent)', color: 'var(--p)' }}
+        >
+          {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+        </span>
+        <div>
+          <div className="text-sm font-semibold">{label}</div>
+          {desc ? <div className="text-[10px] opacity-45">{desc}</div> : null}
+        </div>
+      </div>
+      {/* 开关视觉：夜间=主色底滑块居右 */}
+      <span
+        className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
+        style={{ background: dark ? 'var(--p)' : 'rgba(0,0,0,0.18)' }}
+      >
+        <span
+          className="absolute size-5 rounded-full bg-white shadow transition-all"
+          style={{ left: dark ? '22px' : '2px' }}
+        />
+      </span>
+    </div>
+  );
+}
+
+/** 昼夜切换行交互：点击整行真实切换整个屏幕的白天/黑夜场景 */
+function ThemeRowInteractive({ props }: InteractiveCtx) {
+  const { dark, canToggle, toggle } = useScene();
+  const scope = useBusScope();
+  return (
+    <div
+      role={canToggle ? 'switch' : undefined}
+      aria-checked={canToggle ? dark : undefined}
+      aria-label={String(props.label || '深色模式')}
+      className={canToggle ? 'cursor-pointer select-none transition-opacity active:opacity-80' : 'cursor-default'}
+      onClick={() => {
+        if (!canToggle) {
+          fireToast(scope, '预览中点击可切换昼夜场景', 'info');
+          return;
+        }
+        toggle();
+      }}
+    >
+      <ThemeRowBody
+        label={String(props.label ?? '深色模式')}
+        desc={props.desc ? String(props.desc) : undefined}
+        dark={dark}
+      />
+    </div>
+  );
+}
 
 /** me.achievement-badge 成就徽章图标（按序取用） */
 const BADGE_ICONS = [Trophy, Medal, Star, Flame];
@@ -141,39 +358,20 @@ export const widgets: WidgetDef[] = [
     type: 'me.order-grid',
     category: 'profile',
     name: '订单宫格',
-    desc: '待付款 / 待发货 / 待收货 / 评价 一行四项',
+    desc: '待付款 / 待发货 / 待收货 / 评价，逐格可编辑图标文案动作，可绑页面',
     icon: ClipboardList,
-    defaultProps: { labels: '待付款,待发货,待收货,评价', badges: '2,0,1,0' },
-    fields: [
-      { key: 'labels', label: '入口文案（逗号分隔）', type: 'textarea', placeholder: '最多 4 个' },
-      { key: 'badges', label: '角标数量（逗号分隔，0 不显示）', type: 'text', placeholder: '如：2,0,1,0' },
-    ],
-    render: (p) => {
-      const labels = splitList(p.labels).slice(0, 4);
-      const badges = splitList(p.badges);
-      return (
-        <div className="w-card grid grid-cols-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
-          {labels.map((label, i) => {
-            const Icon = ORDER_ICONS[i % ORDER_ICONS.length];
-            const raw = Number(badges[i]) || 0;
-            return (
-              <div key={`${label}-${i}`} className="relative flex flex-col items-center gap-1.5">
-                {raw > 0 && (
-                  <span
-                    className="absolute -top-2 right-1/2 z-10 flex h-4 min-w-4 translate-x-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none text-white"
-                    style={{ background: '#f43f5e' }}
-                  >
-                    {raw > 99 ? '99+' : raw}
-                  </span>
-                )}
-                <Icon className="size-[22px]" style={{ color: 'var(--p)' }} />
-                <span className="text-[11px] opacity-70">{label}</span>
-              </div>
-            );
-          })}
-        </div>
-      );
+    canvasInteractive: true,
+    defaultProps: {
+      labels: '待付款,待发货,待收货,评价',
+      badges: '2,0,1,0',
+      cellsIcons: ORDER_ICON_NAMES,
     },
+    fields: [
+      { key: 'cells', label: '宫格单元（逐格编辑）', type: 'cells', max: 4, withBadge: true },
+    ],
+    slots: (p) => cellsToSlots(parseCells(p.cells, p.labels, ORDER_ICONS).slice(0, 4)),
+    render: (p) => <OrderGridView cells={parseOrderCells(p)} />,
+    Interactive: OrderGridInteractive,
   },
   {
     type: 'me.assets-row',
@@ -326,30 +524,40 @@ export const widgets: WidgetDef[] = [
     type: 'me.service-grid',
     category: 'profile',
     name: '服务九宫格',
-    desc: '2 行 x 4 列常用服务入口',
+    desc: '2 行 x 4 列服务入口，逐格可编辑图标文案动作，可绑页面',
     icon: LayoutGrid,
-    defaultProps: { labels: '地址,客服,收藏,足迹,优惠券,帮助,设置,更多' },
+    canvasInteractive: true,
+    defaultProps: {
+      labels: '地址,客服,收藏,足迹,优惠券,帮助,设置,更多',
+      cellsIcons: SERVICE_ICON_NAMES,
+    },
     fields: [
-      { key: 'labels', label: '服务文案（逗号分隔）', type: 'textarea', placeholder: '最多 8 个' },
+      { key: 'cells', label: '宫格单元（逐格编辑）', type: 'cells', max: 8 },
+    ],
+    slots: (p) => cellsToSlots(parseCells(p.cells, p.labels, SERVICE_ICONS).slice(0, 8)),
+    render: (p) => <ServiceGridView cells={parseCells(p.cells, p.labels, SERVICE_ICONS).slice(0, 8)} />,
+    Interactive: ServiceGridInteractive,
+  },
+  {
+    type: 'me.theme-row',
+    category: 'profile',
+    name: '昼夜切换行',
+    desc: '深色模式设置行：预览/画布联动中点击真实切换白天/黑夜场景',
+    icon: Moon,
+    canvasInteractive: true,
+    defaultProps: { label: '深色模式', desc: '点击切换夜间场景' },
+    fields: [
+      { key: 'label', label: '标题', type: 'text' },
+      { key: 'desc', label: '副文案', type: 'text' },
     ],
     render: (p) => (
-      <div className="w-card grid grid-cols-4 gap-y-4 px-2 py-4" style={{ borderRadius: 'var(--pr)' }}>
-        {splitList(p.labels).slice(0, 8).map((label, i) => {
-          const Icon = SERVICE_ICONS[i % SERVICE_ICONS.length];
-          return (
-            <div key={`${label}-${i}`} className="flex flex-col items-center gap-1.5">
-              <span
-                className="flex size-11 items-center justify-center rounded-full"
-                style={{ background: 'color-mix(in srgb, var(--p) 10%, transparent)', color: 'var(--p)' }}
-              >
-                <Icon className="size-5" />
-              </span>
-              <span className="text-[11px] opacity-70">{label}</span>
-            </div>
-          );
-        })}
-      </div>
+      <ThemeRowBody
+        label={String(p.label ?? '深色模式')}
+        desc={p.desc ? String(p.desc) : undefined}
+        dark={false}
+      />
     ),
+    Interactive: ThemeRowInteractive,
   },
   {
     type: 'me.about-head',

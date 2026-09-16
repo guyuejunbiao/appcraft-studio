@@ -4,7 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 export type WidgetProps = Record<string, any>;
 
 /** 属性面板控件类型 */
-export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch';
+export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch' | 'cells';
 
 /** 交互组件共享的运行时上下文（仅在预览模式传入） */
 export interface InteractiveCtx {
@@ -19,6 +19,12 @@ export interface InteractiveCtx {
    * 未绑定时为空函数。
    */
   tabNav?: (slot: string) => void;
+  /**
+   * 槽位压栈导航（宫格逐格跳页等）：与 tabNav 的区别在于这是「推入页面栈」
+   * 的层级导航——详情页按返回箭头/预览返回可回到来源页（真实 App 的
+   * 金刚区→分类页语义）；tabbar 用换根式，宫格用压栈式。
+   */
+  slotPush?: (slot: string) => void;
   /** 槽位绑定提示：slot key → 目标页名 */
   slotHints?: Record<string, string>;
   /**
@@ -39,11 +45,13 @@ export interface PropField {
   type: PropFieldType;
   /** select 的选项 */
   options?: { label: string; value: string }[];
-  /** number 类型（滑杆）范围 */
+  /** number 类型（滑杆）范围；cells 类型兼作最大格数 */
   min?: number;
   max?: number;
   step?: number;
   placeholder?: string;
+  /** cells 类型：每格是否含角标数量输入（如订单宫格的待付款数） */
+  withBadge?: boolean;
 }
 
 /** 组件大类 */

@@ -384,7 +384,7 @@ function Artboard({
           className="absolute left-0 top-0 origin-top-left"
           style={{ transform: `scale(${AB_SCALE})`, width: FRAME_W, height: FRAME_H }}
         >
-          <PhoneFrame theme={theme} pageBg={page.background}>
+          <PhoneFrame theme={theme} pageBg={page.background} liveTheme>
             {/* 总线按页面作用域隔离：多画板同屏互不串扰；画板内联动源头可点击切换 */}
             <BusScopeProvider value={page.id}>
             <div className="flex h-full flex-col">

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   SlidersHorizontal, LayoutPanelLeft, Zap, X, Trash2, Copy, Palette,
   Home, Plus, Link2, ArrowRight, CheckCircle2, Crown, Move3d, Maximize2,
-  Layers, LockOpen,
+  Layers, LockOpen, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { getWidget } from '@/components/widgets/registry';
@@ -27,6 +27,8 @@ import {
 import type { PropField } from '@/lib/widget-types';
 import type { WidgetInstance } from '@/lib/types';
 import { AppIconPicker } from './AppIconBadge';
+import { IconPicker } from './IconPicker';
+import { sanitizeCells, splitList, CELL_ACT_OPTIONS, type GridCell } from '@/components/widgets/grid-kit';
 
 const THEME_COLORS = [
   '#f97316', '#f43f5e', '#10b981', '#22c55e', '#8b5cf6',
@@ -114,7 +116,7 @@ export function InspectorPanel() {
                 <FieldControl
                   key={f.key}
                   field={f}
-                  value={widget.props[f.key] ?? def.defaultProps[f.key]}
+                  value={cellsFieldValue(f, widget, def)}
                   onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
                 />
               ))}
@@ -582,6 +584,144 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+/**
+ * cells 字段取值：显式 cells 存档优先；
+ * 旧项目（labels/badges 逗号分隔）动态合成格列表——首次编辑即无损升级为逐格数据。
+ * 图标建议取 defaultProps.cellsIcons 同序名称。
+ */
+function cellsFieldValue(f: PropField, widget: WidgetInstance, def: { defaultProps: Record<string, any> }) {
+  if (f.type !== 'cells') return widget.props[f.key] ?? def.defaultProps[f.key];
+  const raw = widget.props.cells;
+  if (Array.isArray(raw) && raw.length) return raw;
+  const labels = splitList(widget.props.labels ?? def.defaultProps.labels);
+  const iconNames = Array.isArray(def.defaultProps.cellsIcons) ? def.defaultProps.cellsIcons : [];
+  const badges = f.withBadge ? splitList(widget.props.badges ?? def.defaultProps.badges) : [];
+  return labels.map((label, i) => ({
+    label,
+    icon: iconNames[i],
+    act: '',
+    badge: badges[i] && Number(badges[i]) > 0 ? badges[i] : undefined,
+  }));
+}
+
+/** 宫格逐格编辑器：图标 + 文案 + 动作（+ 角标），支持增删与上下移 */
+function CellsEditor({
+  value, onChange, max, withBadge,
+}: {
+  value: GridCell[];
+  onChange: (v: GridCell[]) => void;
+  max: number;
+  withBadge?: boolean;
+}) {
+  const update = (i: number, patch: Partial<GridCell>) =>
+    onChange(value.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= value.length) return;
+    const next = [...value];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(value.filter((_, j) => j !== i));
+  const add = () => {
+    if (value.length >= max) return;
+    onChange([...value, { label: '', act: '' }]);
+  };
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <Label>宫格单元</Label>
+        <span className="text-[10px] font-semibold tabular-nums text-zinc-400">{value.length}/{max}</span>
+      </div>
+      <div className="space-y-2">
+        {value.map((cell, i) => (
+          <div key={i} className="rounded-xl border bg-zinc-50 p-2">
+            <div className="flex items-center gap-1.5">
+              <IconPicker
+                value={cell.icon || 'circle-help'}
+                onChange={(name) => update(i, { icon: name })}
+              />
+              <Input
+                className="h-9 min-w-0 flex-1 text-xs"
+                value={cell.label}
+                placeholder={`格子 ${i + 1} 文案`}
+                aria-label={`格子 ${i + 1} 文案`}
+                onChange={(e) => update(i, { label: e.target.value })}
+              />
+              <div className="flex shrink-0 flex-col">
+                <button
+                  type="button"
+                  title="上移"
+                  aria-label={`格 ${i + 1} 上移`}
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                  className="flex h-4.5 w-6 items-center justify-center rounded-t text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30"
+                >
+                  <ChevronUp className="size-3" />
+                </button>
+                <button
+                  type="button"
+                  title="下移"
+                  aria-label={`格 ${i + 1} 下移`}
+                  disabled={i === value.length - 1}
+                  onClick={() => move(i, 1)}
+                  className="flex h-4.5 w-6 items-center justify-center rounded-b text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30"
+                >
+                  <ChevronDown className="size-3" />
+                </button>
+              </div>
+              <button
+                type="button"
+                title="删除该格"
+                aria-label={`删除格子 ${i + 1}`}
+                onClick={() => remove(i)}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-rose-50 hover:text-rose-500"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <Select
+                value={cell.act || 'none'}
+                onValueChange={(v) => update(i, { act: v === 'none' ? '' : (v as GridCell['act']) })}
+              >
+                <SelectTrigger className="h-7 min-w-0 flex-1 text-[11px]" aria-label={`格子 ${i + 1} 动作`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CELL_ACT_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {withBadge && (
+                <Input
+                  className="h-7 w-20 shrink-0 text-[11px] tabular-nums"
+                  value={cell.badge ?? ''}
+                  placeholder="角标数"
+                  aria-label={`格子 ${i + 1} 角标数量`}
+                  onChange={(e) => update(i, { badge: e.target.value.replace(/[^\d]/g, '') })}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {value.length < max ? (
+        <Button variant="outline" size="sm" className="mt-2 w-full" onClick={add}>
+          <Plus className="mr-1 size-3.5" /> 添加格子
+        </Button>
+      ) : (
+        <p className="mt-1.5 text-center text-[10px] text-zinc-400">已达最大格数 {max}</p>
+      )}
+      <p className="mt-1.5 text-[10px] leading-4 text-zinc-400">
+        「切换白天/黑夜场景」格在预览/画板中点击后整个 App 真实变亮/变暗；其余格可在「交互」页逐格绑定跳转页面。
+      </p>
+    </div>
+  );
+}
+
 /** 属性字段控件 */
 function FieldControl({
   field, value, onChange,
@@ -590,6 +730,16 @@ function FieldControl({
   value: any;
   onChange: (v: any) => void;
 }) {
+  if (field.type === 'cells') {
+    return (
+      <CellsEditor
+        value={sanitizeCells(value)}
+        onChange={onChange}
+        max={field.max ?? 8}
+        withBadge={field.withBadge}
+      />
+    );
+  }
   if (field.type === 'switch') {
     return (
       <div className="flex items-center justify-between">

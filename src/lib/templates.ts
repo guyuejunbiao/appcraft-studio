@@ -262,10 +262,13 @@ export const templates: AppTemplate[] = [
         background: BG,
         components: [
           { type: 'fn.avatar-profile', props: { name: '星云旅人', uid: 'ID 88823666', vip: true } },
-          { type: 'fn.stat-card' },
+          { type: 'me.assets-row' },
+          { type: 'me.order-grid' },
+          { type: 'me.service-grid' },
+          /* 昼夜切换行：预览中点击开关，整个 App 真实切换白天/黑夜场景 */
+          { type: 'me.theme-row' },
           { type: 'fn.weather-card', props: { city: '上海 · 浦东', temp: 26, desc: '多云转晴', date: '10月24日 周五' } },
           { type: 'fn.progress-card', props: { title: '本月阅读目标', percent: 72, sub: '已读 18 / 25 本' } },
-          { type: 'fn.settings-group' },
           { type: 'fn.tabbar', props: { items: '首页,目标,社区,我的', active: 3 } },
         ],
       },

@@ -808,7 +808,7 @@ export function Canvas() {
 
       <div ref={phoneRef} style={{ width: 395 * zoom, height: 832 * zoom }}>
         <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: 395, height: 832 }}>
-          <PhoneFrame theme={t} pageBg={page.background}>
+          <PhoneFrame theme={t} pageBg={page.background} liveTheme>
             {/* 总线按页面作用域；编辑器也实时联动（login-tabs 可点击切换互斥组件显隐） */}
             <BusScopeProvider value={page?.id ?? ''}>
             <div

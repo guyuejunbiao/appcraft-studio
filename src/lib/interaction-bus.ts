@@ -18,6 +18,9 @@ interface BusState {
   values: Record<string, string>;
   set: (key: string, value: string) => void;
   reset: () => void;
+  /** 运行时昼夜场景覆盖（undefined = 跟随项目主题）：App 级状态，跨页面共享 */
+  themeOverride: 'day' | 'night' | undefined;
+  setThemeOverride: (v: 'day' | 'night' | undefined) => void;
   /** 退出登录：清会话数据（user::* + 各页 password/smsCode/smsSent），保留页面级 UI 状态 */
   clearSession: () => void;
   /** 登录成功：作废全 App 所有待输入密钥（各页密码/验证码/发送记录）。
@@ -27,9 +30,11 @@ interface BusState {
 
 export const useInteractionBus = create<BusState>((set) => ({
   values: {},
+  themeOverride: undefined,
+  setThemeOverride: (v) => set({ themeOverride: v }),
   set: (key, value) =>
     set((s) => ({ values: { ...s.values, [key]: value } })),
-  reset: () => set({ values: {} }),
+  reset: () => set({ values: {}, themeOverride: undefined }),
   /* 退出登录：只清「会话数据」，保留页面级 UI 状态（loginMode/tab 选中/协议文案等）。
    * - user::* 全部清除（手机号/昵称/协议勾选等会话身份）
    * - 各页面的 password / smsCode / smsSent（页面级密钥与发送记录）清除
@@ -58,6 +63,30 @@ export const useInteractionBus = create<BusState>((set) => ({
 /* 调试便捷入口（只读检查用） */
 if (typeof window !== 'undefined') {
   (window as unknown as { __acBus: typeof useInteractionBus }).__acBus = useInteractionBus;
+}
+
+/* ------------------------------------------------------------------ */
+/* 昼夜场景上下文：PhoneFrame 计算当前明暗后向下提供。                   */
+/* 宫格单元 / 深色模式开关等组件在预览与画布联动模式中调用 toggle 即可   */
+/* 切换整个手机屏幕的白天/黑夜场景（真实生效，非演示动画）。             */
+/* ------------------------------------------------------------------ */
+
+export interface SceneCtxValue {
+  /** 当前屏幕是否处于夜间场景（已合并项目主题与运行时覆盖） */
+  dark: boolean;
+  /** 当前环境是否允许切换（预览 / 画布联动模式 = true；纯静态展示 = false） */
+  canToggle: boolean;
+  /** 切换昼夜场景（写入总线 themeOverride，App 级全局生效） */
+  toggle: () => void;
+}
+
+const SceneCtx = createContext<SceneCtxValue>({ dark: false, canToggle: false, toggle: () => {} });
+
+export const SceneProvider = SceneCtx.Provider;
+
+/** 读取当前昼夜场景（含切换能力） */
+export function useScene(): SceneCtxValue {
+  return useContext(SceneCtx);
 }
 
 const BusScopeCtx = createContext<string>('');
