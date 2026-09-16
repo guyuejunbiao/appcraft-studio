@@ -517,9 +517,9 @@ export function Canvas() {
           const fp = freePreviewRef.current;
           const rx = fp?.x ?? Math.max(0, Math.round((x - w0 / 2) / SNAP) * SNAP);
           const ry = fp?.y ?? Math.max(0, Math.round((y - 24) / SNAP) * SNAP);
-          b.addWidget(st.widgetType, undefined, { x: rx, y: ry, w: w0 });
+          b.addWidget(st.widgetType, undefined, { x: rx, y: ry, w: w0 }, st.preset?.props);
         } else {
-          b.addWidget(st.widgetType, computeDrop(clientY).index);
+          b.addWidget(st.widgetType, computeDrop(clientY).index, undefined, st.preset?.props);
         }
       }
     } else if (st.started && st.kind === 'move' && st.moveId) {

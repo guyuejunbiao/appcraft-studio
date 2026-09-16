@@ -931,3 +931,84 @@ Stage Summary:
 - 关键基建：action-kit.tsx 统一交互模式（useAction/useLocalToggle/useLikeCount/stopAct），后续新组件照此接入即可；Interactive=render 的带 hooks 重写版（视觉一致）范式固化
 - 已知边界：canvasInteractive 本轮未扩展（画板内点击保持选中/拖拽语义，预览内全部生效）；P3 弱交互行已给 onTap/toast 兜底
 - 建议下一阶段：①把「全站交互验收」项目保留为演示模板（含 30 组件全交互样例）②交互组件的属性面板「交互提示」徽标（说明点击行为）③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+---
+Task ID: 2-a
+Agent: presets-functional-login
+Task: functional(160)+login(40) 精选预设数据生产
+
+Work Log:
+- 按序通读 worklog 尾部 60 行、presets/types.ts（PresetDef 接口 + p() 工厂 + T 标签）、presets/index.ts（聚合与 mergedPresetProps 浅合并约定），确认 p() 自动按 baseType 前缀推导 category、id 为 `<baseType>::<name slug>` 需全局防重
+- 逐组件精读 functional.tsx（21 个）与 login.tsx（12 个）的 defaultProps/fields/render，以此为 props 字段唯一权威来源整理字段清单（如 fn.big-button 仅 style(primary|outline|ghost)+radius(full|normal)、fn.settings-group 走 cells 数组、fn.calendar month 需「YYYY年M月」可解析格式、fn.stat-card 值内禁逗号、fn.ranking 每行「名字 值」、fn.weather-card desc 含夜/晚/月出月亮图标等）
+- 发现任务示例中 `radius: 'pill'` 为非法值（fields 只有 full/normal），按组件 fields 实际选项修正，未照抄示例
+- 产出 src/lib/presets/functional.ts：160 个预设，覆盖全部 21 个基础组件；分配 big-button 17 / list-item 19 / navbar 10 / settings-group 11 / stat-card 11 / weather-card 6 / progress-card 9 / empty-state 9 / faq 6 / video-card 7 / countdown 6 / ranking 7 / calendar 5 / qrcode 5 / fab 5 / avatar-profile 5 / tabbar 6 / text-block 5 / image-block 5 / input-field 4 / spacer 2（按建议等比缩放至 160 并补上建议遗漏但实际存在的 fn.input-field）
+- settings-group 预设改用 cells 逐格数据（label + APP_ICONS 图标名 + on 开关态），其中 2 组含 act:'theme' 行（夜间/深色模式）可在预览中真实切换昼夜场景；图标名全部对照 src/lib/app-icons.ts 的 APP_ICONS 名称池校验
+- 产出 src/lib/presets/login.ts：40 个预设，覆盖全部 12 个基础组件（primary-btn 10 / phone-input 5 / password-input 5 / sms-input 5 / register-btn 4 / forgot-link 3 / logo 3 / app-title 1 / agreement-check 1 / social-row 1 / divider 1 / login-tabs 1）；建议表只列了 7 类共 40，为不破坏总数改为从 app-title 匀出 1 席给 agreement-check，实现 12/12 全覆盖
+- 文案全部真实中文场景（外卖月流水/研究生考试倒计时/婚宴备货/业主群二维码/遛狗榜等），name 无「组件/widget」字眼；tags 为场景+行业+动作同义词 3-5 个
+- 自检脚本三重校验：①200 个 id 无重复 ②baseType 100% 能在 widget 注册表中解析 ③props key 100% 存在于对应组件 defaultProps/fields；另校验 cells 图标名/act、calendar month/today/start、big-button style/radius、fab icon、tabbar active、image-block/spacer height、countdown 时分秒、stat-card「值 标签」格式、ranking 行格式全部通过
+- 自检：bunx tsc --noEmit 过滤 presets/(functional|login) 0 错（全仓仅剩 examples/skills 目录 4 个与本任务无关的既有报错）
+
+Stage Summary:
+- 产出 2 个文件：src/lib/presets/functional.ts（160 个）、src/lib/presets/login.ts（40 个），合计 200 个精选预设，id 零重复
+- 覆盖基础组件 33/33 全覆盖：functional 21 个（big-button/list-item/navbar/settings-group/stat-card/weather-card/progress-card/tabbar/empty-state/video-card/fab/avatar-profile/faq/countdown/ranking/qrcode/calendar/text-block/image-block/input-field/spacer）+ login 12 个（logo/app-title/phone-input/password-input/sms-input/primary-btn/register-btn/forgot-link/agreement-check/social-row/divider/login-tabs）
+- 同组件预设按行业（餐饮/健身/教育/旅行/电商/宠物/医疗/金融/直播…）×场景动作（购买/预约/签到/充值/求购/续费…）×风格（primary/outline/ghost、开关组合、长短文案）三轴差异化，无同义复读；settings-group/empty-state/faq 等交互组件预设可直接体验原地交互（含 theme 行真实昼夜切换）
+- tsc 0 错；index.ts 无需改动（functionalPresets/loginPresets 已在聚合器中导入）
+---
+Task ID: 2-c
+Agent: presets-social-chat-news
+Task: social(90)+chat(70)+news(60) 精选预设数据生产
+
+Work Log:
+- 按序通读 worklog 末尾 60 行、presets/types.ts（PresetDef + p() 工厂：id=`baseType::name-slug` 自动生成、category 按 baseType 前缀推导、tags 自动前置 name+baseType）、presets/index.ts 聚合方式
+- 逐个精读 social.tsx / chat.tsx / news.tsx 全文，提取 33 个基础组件的 defaultProps/fields 作为 props 字段唯一权威来源，形成字段清单（如 feed-card:user/time/text/followed、contact-item:name/lastMsg/time/unread/color、hot-board:items 为「标题 空格 热度」逗号分隔、grid-images.count 为 '1'|'4'|'9' 字符串、msg-voice.side 为 left/right 等）
+- 覆写 src/lib/presets/social.ts（90 个，覆盖全部 14 个基础组件）：feed-card 20（旅行/美食探店/穿搭/健身/母婴/萌宠/数码/读书/摄影/职场/家居/游戏/追剧/学习/美妆/露营/音乐/官方公告/素人碎片/骑行，含 followed 双态）、action-bar 7（常规/爆款/视频/种草/求助/晒单/新人，likes+comments+shares 数值语义差异化：求助帖评论>点赞、种草笔记分享>点赞）、comment-item 9（好评/求链接/神回复/专业点评/暖心鼓励/吐槽/同好共鸣/官方回复/路人）、profile-head 10（穿搭/美食/健身教练/摄影/萌宠/读书/美妆/游戏主播/职场/家居博主，数据量级按粉丝体量分层）、fan-row 6（待回关/已互关/摄影同好/宝妈/学生党/同城主理人，followBack 双态）、user-suggest 6（可能认识/旅行/美食/健身/读书/宠物 3 人组）、topic-wall 6（穿搭/美食/旅行/健身/情感/年终盘点）、rank-list 6（社区热搜/新人飙升/种草好物/打卡挑战/穿搭热榜/探店热榜）、topic-card 4（rank 1/2/3/7 徽标配色梯度）、story-row 3（好友/关注博主/家人群）、live-card 5（带货/游戏/知识/户外/深夜食堂，观众数量级差异）、video-grid 4（推荐/美食/萌宠/知识，count 2|4）、grid-images 2（九宫格/四宫格）、danmaku 2（直播/追剧）
+- 覆写 src/lib/presets/chat.ts（70 个，覆盖全部 9 个基础组件）：contact-item 20（电商客服/快递/银行账单/课程顾问/医生问诊/房东/HR/物业/闺蜜/老妈/同事/同学/家庭群/系统通知/品牌会员/外卖商家/网约车司机/健身房/宠物店/旅行拼车群，lastMsg 全真实话术、unread 0-23 与 color cycle/primary 混配）、header 8（客服/好友/兴趣群/店铺/家人/官方通知/陌生人/医生，online 双态）、msg-left 10（客服欢迎语/发货通知/问诊回复/房源推荐/面试邀约/课程提醒/同事反馈/老妈叮嘱/设计稿交接/驿站取件）、msg-right 8（咨询商品/确认下单/预约确认/咨询课程/约看房/回复面试/群接龙/请假）、msg-image 4（商品图/表情包/订单截图/视频截图，caption 留空则不显示、duration 覆盖与清空）、msg-voice 6（3/8 秒我方 + 12/25 秒对方 + 60 秒对方长语音 + 47 秒我方，left/right 兼备）、system-tip 6（时间分隔/撤回/红包/入群/订单状态/会话结束）、input-bar 7（客服咨询/好友/群聊/评论留言/闺蜜/家人群/求助帖，placeholder 场景化）、tabbar 1（消息选中）
+- 覆写 src/lib/presets/news.ts（60 个，覆盖全部 10 个基础组件）：channel-tabs 6（综合/科技/财经/体育/娱乐/本地，channels 数组+activeIndex 各不同）、headline 10（AI大事件/新能源/航天/体育夺冠/经济政策/教育改革/医疗突破/影视/汽车/本地，标题真实新闻体+height 180-220）、list-item 14（科技置顶/财经/体育战报/娱乐/社会热点/汽车/健康科普/教育/房产置顶/旅游/美食/游戏/数码评测/母婴，pinned 两条置顶）、hot-board 6（热搜/热议话题/视频热播/音乐飙升/影视热度/搜索热词，items 严格「标题 空格 热度」格式且条目内无逗号/空格）、flash-bar 5（财经/科技/体育/突发/直播中，count 1-12）、subscribe-card 7（科技/财经/健身/美食/母婴/汽车/读书媒体号，subscribed 双态）、special-topic 5（两会/世界杯/双十一/高考/AI浪潮）、pic-news 5（风光/赛事/新品/车展/艺术图集，count 6-15）、date-header 1（早报日期头）、video-news 1（航拍现场）
+- 数据质量自检：①bunx tsc --noEmit 过滤 presets/(social|chat|news) 0 错（全仓仅剩 examples/skills 4 个与本任务无关既有报错）②自写校验脚本（bun run）核对 220 条：baseType 全部存在于 registry、props key 全部命中目标组件 defaultProps∪fields、id 无重复、tags 附加项均 3-5 个 → 问题=0
+- 决策记录：任务分配建议 social 列 12 类合计 106、news 列 8 类合计 66，均超目标数 → 按语义重要性微调分布补齐 grid-images/danmaku/date-header/video-news/tabbar 缺口，实现 social 14/14、chat 9/9、news 10/10 全基础组件覆盖且总数恰为 90/70/60；hot-board 条目内禁用逗号与 ASCII 空格（防 splitList/分词误切）；未动组件 render/defaultProps/fields/registry，未改 index.ts（聚合已就位）
+
+Stage Summary:
+- 产出 220 个精选预设：social.ts 90（14 基础组件全覆盖）、chat.ts 70（9 基础组件全覆盖）、news.ts 60（10 基础组件全覆盖），33/33 基础组件均有预设
+- 文案全真实中文场景：社区垂类人设动态/评论区生态（种草·吐槽·官方回复）、行业客服与社交关系话术（电商·医疗·租房·招聘·家庭群）、新闻频道生态（头条·热榜·快讯·专题·图集·订阅源），name 面向小白说人话、无 lorem、同组件预设语义差异化为「双态翻转+数值量级+行业话术」三维差异
+- tsc 0 错（本 3 文件）；props 字段合法性/ id 唯一性/ tags 3-5 项校验全过；index.ts 聚合无需改动，组件库预设 tab 可直接消费
+- 建议：后续流水线 agent 复用本次「字段清单→props 覆盖」方法与 /tmp/check-presets.ts 校验脚本（注意其引用了绝对路径，跨仓库需改）；探索页若做预设搜索，tags 已含行业/场景/同义词可全文命中
+---
+Task ID: 2-b2
+Agent: presets-mall-shopping-food-v2
+Task: mall(90)+shopping(70)+food(70) 精选预设数据生产
+
+Work Log:
+- 按序通读 worklog 末尾 40 行、presets/types.ts（PresetDef + p() 工厂：id=`baseType::name-slug` 自动生成、category 按 baseType 前缀推导、tags 自动前置 name+baseType）、presets/social.ts 参考写法；确认 index.ts 已导入 mallPresets/shoppingPresets/foodPresets，无需改聚合器
+- 逐个精读 mall.tsx（11 组件 919 行）/ shopping.tsx（9 组件 535 行）/ food.tsx（9 组件 780 行）全文，以 defaultProps/fields 为 props 字段唯一权威来源形成字段清单：search(placeholder/btnText)、banner(title/subtitle/height 120-220)、notice-bar(text)、category-grid(cells 逐格数组 label+icon，最多 8 格，cellsIcons 为旧版回退)、section-header(title/more)、product-card(name/price/original/sales)、product-grid(count 2-6)、flash-sale(title/hours/minutes)、coupon-card(amount/condition/desc/date/btnText)、coupon-row(amount/threshold 取前 3)、brand-row(brands 最多 3)；shop.detail-hero(fav)、price-row(price/original/sales/tags)、sku-select(colors/versions)、qty-stepper(label/value/channel)、service-row(s1/s2/s3)、review-item(user/date/content/reply)、address-bar(name/phone/address)、add-cart-bar(cartText/buyText)、order-summary(goods/freight/coupon/total)；food.banner(name/sales/fee/time/notice)、coupon-row(coupons)、category-sidebar(cats/active)、dish-card(name/desc/price/sales)、dish-row(items/prices)、cart-bar(total/fee/count)、order-status(status/rider)、table-head(no/queue)、rate-tags(total)
+- 发现任务分配表与总数矛盾：mall 建议分配合计 100（超 90）、且漏列实际存在的 mall.product-grid；shopping 建议表漏列 shop.qty-stepper（合计恰 70）；food 建议合计 78（超 70）、且漏列 food.table-head。决策：总数铁定 90/70/70，按语义重要性微调至 mall=cg16/pc16/banner12/search8/flash10/coupon-card8/coupon-row6/notice6/header4/brand3/product-grid1、shopping=hero11/qty2/sku10/review10/price8/cart8/addr6/svc6/summary9、food=sidebar14/dish-card15/row9/cart8/coupon7/rate5/status6/banner4/table-head2，实现 mall 11/11、shopping 9/9、food 9/9 全基础组件覆盖
+- 铁律修正：food.order-status 的 status 是 select 且 options 仅有「商家接单中/配送中/已送达」三值，任务建议的 待支付/备餐中/已取消 等非法值全部弃用，6 个预设仅在三枚举内以骑手/场景名区分；mall.category-grid 按新版 cells 逐格数组写（非 labels 逗号旧格式），128 个 cell 图标名全部对照 src/lib/app-icons.ts 的 APP_ICONS 名称池校验，个别格挂 act:'toast' 预览可真实点击提示；数字型字段（dish-card.price、cart-bar.total/fee/count、banner.fee、table-head.no/queue、rate-tags.total、qty.value）一律写 number，mall.banner.height 全落 120-220、flash-sale 时分两位纯数字
+- 覆写 src/lib/presets/mall.ts（90）：金刚区 16 行业（美妆/数码/零食/家居/母婴/运动/宠物/图书/旅行/鲜花/茶饮/医药/教育/家政/汽配/珠宝）×8 格；商品卡 16 行业（连衣裙/耳机/精华/坚果/香薰机/三体书/纸尿裤/车厘子/跑鞋/银手链/猫粮/龙井/维C/永生花/手账/空气炸锅）价格原价销量差异化；Banner 12 促销形态（618/双11/年货节/新品首发/直播专场/会员日/清仓/美食节/旅游季/开学季/美妆节/数码焕新）；搜索 8（通用/商品/店铺/笔记/本地生活/药品/课程/二手）；秒杀 10 场次；券卡 8（满减/折扣/新人/包邮/会员/生日/品类/签到无门槛）；券条 6 组；公告 6（物流/预售/上新/客服时间/维护/消毒）；标题行 4；品牌墙 3；双列商品墙 1
+- 覆写 src/lib/presets/shopping.ts（70）：主图 11 行业（含 1 个 fav:false 极简变体）；步进器 2（常规/团购 3 份起）；SKU 10（颜色尺码/手机版本/火锅底料口味/纸巾规格/乳液容量/洗衣液香型/汉堡套餐/笔电配置/行李箱尺寸/四件套材质）；评价 10（好评带图/追评/差评回复/中评/精选回购/视频测评/晒单/默认好评/实验室点评/买家秀）；价格行 8（限时/会员/拼团/直播/首单/学生/秒杀/预售）；操作条 8（加购/抢购/定金尾款/拼团/预约/积分兑换/选购/囤货）；地址 6（家/公司/学校/驿站/暂无引导/备注上门）；服务行 6（正品/顺丰/售后/联保/生鲜包赔/跨境）；订单汇总 9（普通/含运费/含券/含积分/预售/拼团/礼品卡/分期 total 写「2999.66/期」/跨境税并进运费文案）
+- 覆写 src/lib/presets/food.ts（70）：侧栏 14 业态（奶茶/火锅/快餐/日料/烘焙/麻辣烫/烧烤/粤菜/川菜/西餐/轻食/粥粉面/水果/生鲜，active 序号错落）；菜品卡 15（宫保鸡丁/珍珠奶茶/巴斯克/三文鱼/香锅/杨枝甘露/炸鸡桶/水果茶/牛肉面/寿司拼盘/提拉米苏/小龙虾/榴莲披萨/沙拉/豆浆油条）；横滑 9（人气/店长/新品/素食/粤式必点/下午茶/夜宵/儿童餐/低卡）；购物车条 8 业态（快餐 fee:0、烘焙 fee:0 免配送变体）；领券行 7（新客/阶梯满减/免配送/第二份半价/周末/生日/打包费减免）；评分标签 5 档量级；订单状态 6（三枚举 × 骑手场景）；店铺头 4（新店/周年庆/深夜食堂/下午茶）；取餐号 2
+- 自检双保险：①bunx tsc --noEmit 过滤 presets/(mall|shopping|food) 0 错；②自写 /home/z/check-msf.ts（bun run）校验 230 条：计数 90/70/70、baseType 100% 在 registry 可解析、props key 100% ⊆ defaultProps∪fields、230 个 id 在全部 890 个预设中零重复、cells 图标名/枚举值/数字类型/tags 3-5/name 无「组件」字眼 → 问题=0；复核 index.ts totalModules 升至 1034（890 预设 + 144 基础组件）
+
+Stage Summary:
+- 产出 230 个精选预设：mall.ts 90（11 基础组件全覆盖）、shopping.ts 70（9 全覆盖）、food.ts 70（9 全覆盖），本三文件 29/29 基础组件均有预设，全仓预设总量升至 890
+- 文案全真实中文场景：16 行业金刚区与商品卡（价格/原价/销量量级差异）、12 大促 Banner、秒杀场次×券体系（面额/门槛/有效期分层）、SKU 规格双轴（颜色×尺码/口味/容量/香型/配置/尺寸/材质）、评价生态十形态（含差评安抚与官方回复话术）、外卖全链路（14 业态菜单/15 道菜/8 业态购物车/领券/取餐叫号）；name 面向小白说人话、同组件预设以行业×促销形态×双态翻转三维差异化
+- tsc 0 错；props 字段合法性/id 唯一性/枚举与数字类型校验全过（脚本 /home/z/check-msf.ts 可复用）；index.ts 聚合无需改动，组件库预设 tab 可直接消费
+- 建议：后续若扩 preset，order-status 等 select 枚举组件需先查 options 再定文案；cells 型组件一律用逐格数组而非 labels 旧格式
+---
+Task ID: 2-d2
+Agent: presets-charts-fitness
+Task: charts(60)+fitness(80) 精选预设数据生产
+
+Work Log:
+- 按序通读 worklog 尾部（2-a/2-c 的字段清单法与总量优先先例）、presets/types.ts（p() 工厂：id=<baseType>::name-slug 自动生成、tags 自动前置 name+baseType、category 可显式传参）、media.ts 参考写法，确认 index.ts 已聚合 chartsPresets/fitnessPresets（无需改聚合器）
+- 逐个精读 charts.tsx（10 组件）与 fitness.tsx（12 组件）全文 defaultProps/fields/render（含 Interactive 分支），形成字段唯一权威清单；识别出任务示例 chart.kpi-card 的 label/trend 为非法字段，实际字段为 title/value/delta/up(boolean)/yoy，按组件实际修正
+- 关键渲染约束发现并适配：①chart.* 前缀推导 category='chart' 非 CategoryId 合法值 → 全部显式传 'charts'；②kpi-card up 为布尔开关（涨绿跌红），退货率/响应时长等"降即优"指标用 up:false + yoy 文案点明向好；③compare 图例固定「本月/上月」，5 个预设语义按"本期 vs 上期/前后"框架收敛（环比/新老客/A-B/体测前后/减脂前后）；④bar-group 固定 7 柱、compare 固定 4 组、h-bar/pie/rank-top 条目为「名称 空格 数值」且条目内禁中文逗号；⑤fitness.ring-progress 三环图例固定「步数/消耗/时长」、stats-weekly 四格标签固定、weight-log 单位固定 kg、sleep-chart 目标线后缀固定「h」→ 非对称语义由 name/centerLabel/note/title 补足，sleep-chart 5 个预设全部保持小时语义（目标线显示正确）
+- 任务分配建议逐类相加为 66/92，超总数 60/80 → 沿用 2-a/2-c「总量优先、等比收敛、全组件覆盖」先例，收敛为 charts 7/6/7/6/5/9/7/4/4/5、fitness 9/7/10/7/5/5/5/7/7/7/7/4，22/22 基础组件零遗漏
+- 覆写 src/lib/presets/charts.ts：60 个（bar-group 月度销量/季度营收/渠道/部门/流量/周拉新/品类；h-bar 城市/门店/品类/预算/应用下载/获客成本；line-area 年度营收/14 天日活/气温/血糖/耗电/学习时长/粉丝；pie 成交/品类/预算/时间/人群/支付；donut 年目标/云盘/会员成长/课程/预算；kpi 销售额/新增/转化/客单/复购/好评/响应/在线/退货（up 双态：6 真 3 假）；rank 销售/门店/主播/商品/城市/笔记/学员；heatmap 活跃/流量/晨跑/货架（level 1-4 梯度）；gauge 目标/库容/信用/满意度；compare 环比/新老客/A-B/体测前后/减脂前后）
+- 覆写 src/lib/presets/fitness.ts：80 个（ring-progress 步数/燃脂/时长/喝水/睡眠/课表/减脂/里程/课程（中心文案承载语义）；steps-card 日常/万步/晨跑/夜跑/通勤/徒步/逛街（校验末柱=today）；workout-item HIIT/瑜伽/卧推/拉伸/拳击/尊巴/普拉提/单车/跳绳/深蹲（组次×休息+时长消耗真实，video 双态 8 真 2 假）；plan-card 减脂入门/增肌/马甲线/体态矫正/产后/半马/工间（level 入门×4/进阶×1/挑战×2）；calories-ring 三餐/全天/剩余额度（含缺口态 -630）；water-tracker 标准/健身/孕期/减脂/防暑（count 8-12、cupSize 200-350ml）；sleep-chart 深睡/浅睡/午睡/早睡/质量提升；weight-log 减脂/增肌/孕期/宝宝/术后/体脂/腰围（down 双态）；community-post 晨跑/减脂餐/撸铁/瑜伽倒立/登山日出/环湖骑行/人生首马（文案真实有温度、点赞评论量级分层）；coach-card 私教/瑜伽/游泳/拳击/营养师/康复/爵士舞（认证头衔+评分 4.7-5.0+action 文案差异化）；marathon-item 全马/半马/欢乐跑/越野/铁三/骑行/徒步（status 四态全覆盖：报名中×3/即将开跑×2/已满员×1/已结束×1）；stats-weekly 运动/饮食/睡眠/减脂周报）
+- 数据质量自检（bun 脚本 .check-cf.ts，跑完即删）：140 条 ①charts=60/fitness=80 总数精确 ②id 全局零重复 ③baseType 100% 经 registry 解析且 preset.category 与组件 category 逐一相等 ④props key 100% 命中 defaultProps∪fields ⑤附加 tags 3-5 ⑥plan-card level/marathon-item status 枚举合法 ⑦9 类逗号分隔字段无中文逗号 ⑧pair 列表严格「名称 空格 数值」⑨percent/count/highlightIndex 区间合法 ⑩steps-card 末柱与 today 数值一致 → 问题=0
+- 自检：bunx tsc --noEmit 过滤 presets/(charts|fitness) 0 错（并行任务文件的既有报错不在本任务范围）
+
+Stage Summary:
+- 产出 2 个文件：src/lib/presets/charts.ts（60 个）、src/lib/presets/fitness.ts（80 个），合计 140 个精选预设，id 零重复
+- 覆盖基础组件 22/22 全覆盖：charts 10 个（bar-group/h-bar/line-area/pie/donut-progress/kpi-card/rank-top/heatmap/gauge/compare）+ fitness 12 个（ring-progress/steps-card/workout-item/plan-card/calories-ring/water-tracker/sleep-chart/weight-log/community-post/coach-card/marathon-item/stats-weekly）
+- 同组件预设按「行业×数据形态×双态翻转」三轴差异化：up/down 涨跌、video 开关、报名状态四态、难度三档、杯数/容量梯度、点赞评论量级；文案全真实中文场景（电商看板/慢病监测/训练营体测/首马完赛等），name 无「组件/widget」字眼
+- 修复任务示例的非法字段（trend→up 布尔）；修复 chart.* 类目推导陷阱（显式传 'charts'，全部预设经 registry 校验类目相等）；props 字段合法性/id 唯一性/tags 数量校验全过
+- tsc 0 错（本 2 文件）；index.ts 聚合已就位无需改动，组件库「预设」tab 可直接消费；数据适配了 4 处组件级硬编码文案（环形图例/周报格标签/kg 单位/目标线 h 后缀），后续若组件开放这些字段可进一步释放语义

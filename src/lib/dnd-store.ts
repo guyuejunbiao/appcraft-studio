@@ -19,6 +19,8 @@ interface DndState {
   kind: DragKind | null;
   /** kind=new：组件类型 */
   widgetType: string | null;
+  /** kind=new：精选预设（带 props 覆盖，拖入即成品）；无预设时为 null */
+  preset: { name: string; props: Record<string, unknown> } | null;
   /** kind=move：被拖动的实例 id */
   moveId: string | null;
   /** 指针客户区坐标 */
@@ -35,6 +37,7 @@ interface DndState {
     moveId?: string;
     px: number;
     py: number;
+    preset?: { name: string; props: Record<string, unknown> } | null;
   }) => void;
   move: (px: number, py: number) => void;
   /** 越过阈值后标记 started */
@@ -47,18 +50,20 @@ export const useDnd = create<DndState>((set, get) => ({
   started: false,
   kind: null,
   widgetType: null,
+  preset: null,
   moveId: null,
   px: 0,
   py: 0,
   startX: 0,
   startY: 0,
   suppressNextClick: false,
-  begin: ({ kind, widgetType, moveId, px, py }) =>
+  begin: ({ kind, widgetType, moveId, px, py, preset }) =>
     set({
       active: true,
       started: false,
       kind,
       widgetType: widgetType ?? null,
+      preset: preset ?? null,
       moveId: moveId ?? null,
       px,
       py,
@@ -78,6 +83,7 @@ export const useDnd = create<DndState>((set, get) => ({
       started: false,
       kind: null,
       widgetType: null,
+      preset: null,
       moveId: null,
     }),
 }));

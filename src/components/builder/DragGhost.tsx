@@ -13,6 +13,7 @@ export function DragGhost() {
   const started = useDnd((s) => s.started);
   const kind = useDnd((s) => s.kind);
   const widgetType = useDnd((s) => s.widgetType);
+  const preset = useDnd((s) => s.preset);
   const moveId = useDnd((s) => s.moveId);
   const px = useDnd((s) => s.px);
   const py = useDnd((s) => s.py);
@@ -40,7 +41,7 @@ export function DragGhost() {
       <span className="flex size-6 items-center justify-center rounded-lg bg-white/15">
         {def ? <def.icon className="size-3.5" /> : <Move className="size-3.5" />}
       </span>
-      <span className="text-xs font-bold">{def?.name ?? '移动组件'}</span>
+      <span className="text-xs font-bold">{preset?.name ?? def?.name ?? '移动组件'}</span>
       <span className="text-[10px] font-medium text-white/55">
         {kind === 'new' ? '松手放入画布' : '拖动调整'}
       </span>

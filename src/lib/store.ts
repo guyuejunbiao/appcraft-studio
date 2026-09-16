@@ -81,7 +81,7 @@ interface BuilderState {
   renameProject: (id: string, name: string) => Promise<void>;
   openProject: (id: string) => Promise<void>;
   setView: (v: BuilderView) => void;
-  addWidget: (type: string, index?: number, rect?: { x: number; y: number; w: number }) => void;
+  addWidget: (type: string, index?: number, rect?: { x: number; y: number; w: number }, presetProps?: Record<string, unknown>) => void;
   moveWidget: (id: string, toIndex: number) => void;
   /** 按可见顺序上移/下移：dir=-1 上移、1 下移；自动跳过 hidden 组件 */
   moveWidgetRelative: (id: string, dir: -1 | 1) => void;
@@ -160,7 +160,7 @@ interface BuilderState {
   removeTab: (id: string) => void;
   moveTab: (id: string, toIndex: number) => void;
   /** 向指定页面追加组件（无限画布画板内「+」添加；自由布局自动堆叠落位） */
-  addWidgetToPage: (pageId: string, type: string) => void;
+  addWidgetToPage: (pageId: string, type: string, presetProps?: Record<string, unknown>) => void;
   addConnection: (c: Omit<ConnectionData, 'id' | 'action'>) => void;
   removeConnection: (id: string) => void;
   /** 编辑已有连接：改触发组件/目标页/转场动画（流程图连接标签点击编辑） */
@@ -312,7 +312,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
       }
     },
 
-    addWidget(type, index, rect) {
+    addWidget(type, index, rect, presetProps) {
       const page = currentPage();
       if (!page) return;
       const def = getWidget(type);
@@ -320,7 +320,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
       const w: WidgetInstance = {
         id: uid(),
         type,
-        props: deepClone(def.defaultProps),
+        props: presetProps ? { ...deepClone(def.defaultProps), ...deepClone(presetProps) } : deepClone(def.defaultProps),
         width: 'full',
         align: 'left',
         mt: 0,
@@ -1105,7 +1105,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
     },
 
     /** 向指定页面追加组件（无限画布画板内「+」添加）：流式追加尾部，自由布局自动堆叠落位 */
-    addWidgetToPage(pageId, type) {
+    addWidgetToPage(pageId, type, presetProps) {
       const page = get().pages.find((p) => p.id === pageId);
       if (!page) return;
       const def = getWidget(type);
@@ -1113,7 +1113,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
       const w: WidgetInstance = {
         id: uid(),
         type,
-        props: deepClone(def.defaultProps),
+        props: presetProps ? { ...deepClone(def.defaultProps), ...deepClone(presetProps) } : deepClone(def.defaultProps),
         width: 'full',
         align: 'left',
         mt: 0,
