@@ -1034,3 +1034,24 @@ Stage Summary:
 - 关键质量修复 2 项：button 嵌套（hydration 风险清零）、自由布局批量添加叠罗汉（架构级根因修复，点击添加/批量铺满/拖拽定位三种路径语义分离：拖拽=落点坐标、点击=流式回退+实测迁移）
 - 组件库规模现状：144 基础组件 + 970 精选预设 = 1114 总模块（上轮提交 4716fb8），超用户 1000+ 目标
 - 建议下一阶段：①模板卡加真实页面缩略（用模板 pages 前几组件实渲缩小版）②"我的组合"空状态引导 ③移动端窄屏编辑器布局实测 ④git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+---
+Task ID: 36
+Agent: main (Z.ai Code)
+Task: 修复用户报告 bug——画布点击组件框内弹出的就地编辑弹窗"一瞬间就没了"
+
+Work Log:
+- 用户截图箭头指向画布底部弹窗残影（两个下拉框+完成按钮），描述"点击框内会出现弹窗，然后一瞬间就没了"
+- 定位：截图弹窗即 InfiniteCanvas 底部工具条「编辑内容」Popover 渲染的 QuickEditor（就地编辑面板：文字输入+间距+宽度/对齐 Select+完成按钮）；触发路径为 handleWidgetPointerDown 的「再点已选中的组件 = 打开就地编辑」（金刚区被选中后用户再点其框内）
+- agent-browser 实锤复现：注入 MutationObserver 抓到 PopoverContent ADDED→REMOVED 仅隔 ~160ms（无任何用户操作）；再注入 focusin/focusout 监听，焦点时间线：focusin INPUT(inside, autoFocus 聚焦) → focusout INPUT → focusin BUTTON「女装」(OUTSIDE)
+- 根因：打开弹窗的那次 pointerdown 的浏览器默认聚焦动作，把焦点抢给画布内按钮；focusin 落在弹层外触发 Radix DismissableLayer 的 onFocusOutside 自动 dismiss。点工具条「编辑内容」按钮打开则无此问题（Radix 对 Trigger 有豁免），故只有"再点已选中组件"路径必现
+- 修复 1：handleWidgetPointerDown 打开编辑分支 e.preventDefault()——阻止焦点被画布按钮抢走（副作用：Input 保持聚焦，用户可直接打字，体验更好）
+- 修复 2：PopoverContent 加 onFocusOutside={(e)=>e.preventDefault()}——焦点移出弹层不再误关（同时修复弹窗内点「通栏/靠左」Select 下拉时焦点带出弹层导致的同类误关）
+- 修复 3：setSel updater 内调用 setEditing 的 render 阶段 setState 反模式，重构为 selRef 同步判断（useRef 与 setSel/clearSel 同步维护）
+- 实测回归全通过：①弹窗打开 1.5s+ 稳定不消失（修复前 ~160ms 即关）②弹窗内改 banner 主标题画布实时生效 ③「完成」按钮关闭 ④Escape 关闭 ⑤弹窗开着点其他组件→关闭+选中切换（outline 正确迁移）⑥点画板空白→关闭+工具条消失 ⑦弹窗内 Select 选择「半宽」生效且弹窗保持打开
+- 排障记录：测试中修改的 banner 数据（标题/宽度）曾被前端 store autosave 覆盖回写——先关闭/刷新页面再 PUT 恢复（title=年中大促 · 全场 5 折起、width=full），数据库复验稳定
+- tsc 0 错（src 无报错）、bun run lint 0 错、console 0 error；提交 6179d78（1 文件 +28/-16）
+
+Stage Summary:
+- 用户报告的"弹窗一闪而过"闭环修复：根因是 pointerdown 默认聚焦 → focusin 弹层外 → Radix focusOutside 自动 dismiss；双保险修复（preventDefault 焦点保护 + onFocusOutside 豁免）并附带修复弹窗内 Select 下拉误关场景
+- 交互语义保持完整：点其他组件切换选中并关弹窗、点空白清除选中、Esc/完成按钮关闭——全部回归通过；就地编辑弹窗现在"点得开、留得住、用得了"
+- 建议下一阶段：①同类排查其他 Radix 弹层（WidgetPickerPopover/PageManagerDialog 等）是否有程序化 open + 焦点外移的误关隐患 ②git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
