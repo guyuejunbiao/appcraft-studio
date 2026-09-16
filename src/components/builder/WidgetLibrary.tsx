@@ -63,12 +63,24 @@ function PresetCard({ preset, color, onAdd, onDragBegin }: {
   onDragBegin: (e: React.PointerEvent) => void;
 }) {
   const def = useMemo(() => getWidget(preset.baseType), [preset.baseType]);
+  // 注意：外层不能用 <button>——预设缩略实渲内部含 <button>（如登录按钮），
+  // button 嵌套 button 是非法 HTML 且触发 hydration 警告，改用 div[role=button]。
+  const activate = () => onAdd();
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onPointerDown={onDragBegin}
-      onClick={onAdd}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
       title={`${preset.name} · 基于「${def?.name ?? preset.baseType}」`}
-      className="group flex cursor-grab touch-manipulation flex-col overflow-hidden rounded-xl border border-transparent bg-white text-center transition-all hover:border-zinc-200 hover:shadow-md active:cursor-grabbing active:scale-95"
+      aria-label={`添加预设 ${preset.name}`}
+      className="group flex cursor-grab touch-manipulation flex-col overflow-hidden rounded-xl border border-transparent bg-white text-center transition-all hover:border-zinc-200 hover:shadow-md active:cursor-grabbing active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
     >
       <span
         className="relative flex h-[62px] w-full items-start justify-center overflow-hidden pt-1"
@@ -85,7 +97,7 @@ function PresetCard({ preset, color, onAdd, onDragBegin }: {
       <span className="flex w-full items-center gap-1 border-t border-zinc-100 px-1.5 py-1.5">
         <span className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-zinc-700">{preset.name}</span>
       </span>
-    </button>
+    </div>
   );
 }
 

@@ -23,6 +23,7 @@ import { DragGhost } from './DragGhost';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { CanvasBlankMenu } from './CanvasBlankMenu';
 import { SavePresetDialog } from './PresetMarket';
+import { CanvasStarterGuide } from './StarterKits';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
@@ -915,13 +916,9 @@ export function Canvas() {
                 </div>
               )}
 
-              {/* 空状态 */}
+              {/* 空状态：小白 3 步引导 + 示例套装一键铺满 */}
               {page.components.length === 0 && !indicator && !freePreview && (
-                <div className="m-3 flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-zinc-400">
-                  <Scan className="size-7 opacity-50" />
-                  <p className="text-sm font-medium">从左侧组件仓库拖入组件</p>
-                  <p className="text-xs">或直接点击组件卡片快速添加</p>
-                </div>
+                <CanvasStarterGuide />
               )}
 
               {isFree ? (

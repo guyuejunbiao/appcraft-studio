@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
 import { templates } from '@/lib/templates';
-import { allWidgets, categories } from '@/components/widgets/registry';
+import { categories } from '@/components/widgets/registry';
+import { totalModules } from '@/lib/presets';
 import { ProjectThumb, parseThemeConfig, type ThumbData } from './ProjectThumb';
 import { AppIconBadge } from './AppIconBadge';
 import type { ThemeConfig } from '@/lib/types';
@@ -31,8 +32,8 @@ const TEMPLATE_ICONS: Record<string, typeof Sparkles> = {
   Sparkles, LockKeyhole, ShoppingBag, MessageCircle, UtensilsCrossed, LayoutGrid,
 };
 
-/** 组件总数（组件仓库全量） */
-const WIDGET_TOTAL = allWidgets.length;
+/** 组件库总模块数（基础组件 + 精选预设，1000+） */
+const WIDGET_TOTAL = totalModules;
 
 const GRADIENTS: Record<string, string> = {
   blank: 'from-zinc-400 to-zinc-600',
@@ -42,6 +43,13 @@ const GRADIENTS: Record<string, string> = {
   'food-demo': 'from-orange-400 to-amber-500',
   'tool-demo': 'from-violet-400 to-purple-500',
 };
+
+/** 三步上手（小白引导） */
+const STEPS = [
+  { icon: Pencil, title: '第 1 步 · 选起点', desc: '选套模板一键套用，或空白自己搭' },
+  { icon: Boxes, title: '第 2 步 · 拖拽加内容', desc: '上千个成品组件点一下就进页面，改字即用' },
+  { icon: Play, title: '第 3 步 · 预览与上架', desc: '随时预览真实效果，一键上架生成可分享版本' },
+];
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -113,23 +121,32 @@ export function ProjectHome() {
           </div>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">AppCraft Studio</h1>
           <p className="mt-3 max-w-xl text-sm leading-6 text-white/90 sm:text-base">
-            像搭积木一样 DIY 你的专属 App：{WIDGET_TOTAL} 个精选小组件、{categories.length} 大功能目录、自由组建页面、
-            自定义页面跳转关系，一键上架生成可交互预览。
+            像搭积木一样 DIY 你的专属 App：{WIDGET_TOTAL} 个成品模块（可用的组件 + 调好文案的预设）
+            、{categories.length} 大功能目录，不用懂代码，拖一拖就能搓出能用的 App。
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">{WIDGET_TOTAL} 组件</span>
+            <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">{WIDGET_TOTAL} 可用模块</span>
             <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">{categories.length} 大目录</span>
             <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">{templates.length} 套模板</span>
             <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">流程图连接</span>
             <span className="rounded-full bg-white/20 px-3 py-1.5 backdrop-blur">暗色主题</span>
           </div>
-          <Button
-            size="lg"
-            className="mt-7 bg-white text-orange-600 hover:bg-orange-50"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="size-5" /> 立即创建我的 App
-          </Button>
+          <div className="mt-7 flex flex-wrap items-center gap-2.5">
+            <Button
+              size="lg"
+              className="bg-white text-orange-600 hover:bg-orange-50"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus className="size-5" /> 立即创建我的 App
+            </Button>
+            <span className="hidden items-center gap-1.5 text-xs font-semibold text-white/90 sm:flex">
+              <span className="rounded-full bg-white/20 px-2.5 py-1 backdrop-blur">① 选模板/空白</span>
+              <span className="text-white/60">→</span>
+              <span className="rounded-full bg-white/20 px-2.5 py-1 backdrop-blur">② 拖组件改文案</span>
+              <span className="text-white/60">→</span>
+              <span className="rounded-full bg-white/20 px-2.5 py-1 backdrop-blur">③ 预览上架</span>
+            </span>
+          </div>
         </div>
       </header>
 
@@ -147,6 +164,51 @@ export function ProjectHome() {
           {homeLoading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[210px] rounded-2xl" />)}
+            </div>
+          ) : projects.length === 0 ? (
+            /* 空状态：三步上手引导 + 模板直达（小白第一次进来就能看懂怎么开始） */
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl bg-gradient-to-br from-orange-50 to-rose-50 p-5 ring-1 ring-orange-100">
+                <p className="text-base font-black text-zinc-800">还没有应用，3 步开始：</p>
+                <ol className="mt-3 space-y-3">
+                  {STEPS.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-orange-100">
+                        <s.icon className="size-3.5 text-orange-500" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-bold text-zinc-700">{s.title}</span>
+                        <span className="block text-[11px] leading-4 text-zinc-400">{s.desc}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <Button size="sm" className="mt-4 w-full bg-orange-500 hover:bg-orange-600" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" /> 从下面挑一套模板开始
+                </Button>
+              </div>
+              {templates.filter((t) => t.id !== 'blank').map((t) => {
+                const Icon = TEMPLATE_ICONS[t.icon] ?? Sparkles;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTplId(t.id); setCreateOpen(true); }}
+                    className="group flex min-h-[210px] flex-col rounded-2xl bg-white p-4 text-left shadow-sm ring-1 ring-zinc-200 transition-all hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <span className={`flex size-11 items-center justify-center rounded-xl bg-gradient-to-br ${GRADIENTS[t.id]} text-white shadow-sm`}>
+                      <Icon className="size-5" />
+                    </span>
+                    <span className="mt-3 flex items-center gap-1.5 text-sm font-bold text-zinc-900">
+                      {t.name}
+                      <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">一键套用</span>
+                    </span>
+                    <span className="mt-1 line-clamp-2 flex-1 text-xs leading-5 text-zinc-400">{t.desc}</span>
+                    <span className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-orange-500">
+                      含 {t.pages.length} 个预置页面，套用即得完整 App →
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

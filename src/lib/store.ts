@@ -335,16 +335,16 @@ export const useBuilder = create<BuilderState>((set, get) => {
           w.x = partner.x ?? 10;
           w.y = partner.y ?? 0;
           w.w = partner.w ?? fullW;
-        } else {
-          const maxBottom = page.components.reduce(
-            (m, c) => Math.max(m, (c.y ?? 0) + (c.h ?? 64)),
-            0
-          );
-          w.x = rect?.x ?? (def.fullBleed ? 0 : 10);
-          w.y = rect?.y ?? maxBottom + 12;
-          w.w = rect?.w ?? fullW;
+        } else if (rect?.y !== undefined) {
+          /* 明确拖拽定位：直接用落点坐标 */
+          w.x = rect.x;
+          w.y = rect.y;
+          w.w = rect.w ?? fullW;
           w.x = Math.max(0, Math.min(w.x ?? 0, 375 - (w.w ?? fullW)));
         }
+        /* 无落点（点击添加 / 一键铺满套装）：不写 x/y —— 页面自动回退流式渲染，
+         * Canvas 迁移逻辑随后用 DOM 实测高度生成正确坐标。
+         * 旧逻辑用 (c.h ?? 64) 估算，banner 等高组件实际 200px+，批量添加必然叠罗汉。 */
       }
       commit(({ pages }) => ({
         pages: pages.map((p) =>
