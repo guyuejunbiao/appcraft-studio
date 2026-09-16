@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
   Crown, Wallet, CreditCard, Package, Truck, Star, ClipboardList, Coins,
@@ -16,6 +18,7 @@ import {
 } from './grid-kit';
 import { useBusScope, useScene } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
+import { stopAct, useAction, useLocalToggle, ActStatusIcon } from './action-kit';
 
 /**
  * 个人中心 组件库（目录：profile）
@@ -244,6 +247,432 @@ function ThemeRowInteractive({ props }: InteractiveCtx) {
 /** me.achievement-badge 成就徽章图标（按序取用） */
 const BADGE_ICONS = [Trophy, Medal, Star, Flame];
 
+/* ------------------------------------------------------------------ */
+/* 交互实现（action-kit 规范）：视觉复制 render，仅替换可交互元素          */
+/* ------------------------------------------------------------------ */
+
+/** me.member-card 交互：金色「立即续费」→ busy → 成功 toast / 绑定跳页 */
+function MemberCardInteractive({ props, onTap }: InteractiveCtx) {
+  const act = useAction();
+  const gold = props.style !== 'purple';
+  const bg = gold
+    ? 'linear-gradient(120deg, #1c1917 0%, #292524 55%, #0c0a09 100%)'
+    : 'linear-gradient(120deg, #12101a 0%, #2e1065 68%, #0c0a09 100%)';
+  const btnBg = gold
+    ? 'linear-gradient(120deg, #fde68a, #f59e0b)'
+    : 'linear-gradient(120deg, #c4b5fd, #8b5cf6)';
+  const btnColor = gold ? '#451a03' : '#ffffff';
+  return (
+    <div
+      className="relative overflow-hidden p-4"
+      style={{ borderRadius: 'var(--pr)', background: bg }}
+    >
+      <div className="absolute -right-8 -top-10 size-28 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }} />
+      <div className="absolute -bottom-12 -left-6 size-24 rounded-full" style={{ background: 'rgba(255,255,255,0.05)' }} />
+      <div className="relative flex items-center gap-3">
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'rgba(255,255,255,0.08)' }}
+        >
+          <Crown className="size-5 text-amber-400" fill="currentColor" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[15px] font-bold text-white">{props.name}</span>
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-300"
+              style={{ border: '1px solid rgba(251,191,36,0.55)' }}
+            >
+              {props.level}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-white/55">{props.expire}</div>
+        </div>
+        <button
+          type="button"
+          aria-label="立即续费"
+          onClick={(e) => {
+            stopAct(e);
+            act.run(() => {
+              if (onTap) onTap();
+              else act.toast('已续费会员（演示）', 'success');
+            });
+          }}
+          className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-full px-3 text-[11px] font-bold shadow-sm transition-transform active:scale-[0.97]"
+          style={{ background: btnBg, color: btnColor }}
+        >
+          {(act.busy || act.done) && <ActStatusIcon busy={act.busy} done={act.done} className="size-3" />}
+          立即续费
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** me.wallet-card 交互：提现 / 充值各自 busy → 演示 toast / 绑定跳页 */
+function WalletCardInteractive({ props, onTap }: InteractiveCtx) {
+  const wd = useAction();
+  const rc = useAction();
+  const buttons = [
+    { label: String(props.withdraw ?? ''), act: wd },
+    { label: String(props.recharge ?? ''), act: rc },
+  ].filter((b) => b.label);
+  return (
+    <div
+      className="relative overflow-hidden p-4"
+      style={{
+        borderRadius: 'var(--pr)',
+        background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 62%, #fff))',
+        color: 'var(--pf)',
+      }}
+    >
+      <div className="absolute -right-7 -top-9 size-28 rounded-full" style={{ background: 'rgba(255,255,255,0.16)' }} />
+      <div className="absolute -bottom-12 -left-5 size-24 rounded-full" style={{ background: 'rgba(255,255,255,0.10)' }} />
+      <Wallet className="absolute right-4 top-4 size-9 opacity-25" />
+      <div className="relative">
+        <div className="text-xs opacity-80">钱包余额（元）</div>
+        <div className="mt-1.5 text-[32px] font-extrabold leading-none tracking-tight">{props.balance}</div>
+        <div className="mt-4 flex gap-2.5">
+          {buttons.map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              aria-label={b.label}
+              onClick={(e) => {
+                stopAct(e);
+                b.act.run(() => {
+                  if (onTap) onTap();
+                  else b.act.toast(`${b.label}（演示）`, 'success');
+                });
+              }}
+              className="flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full px-5 text-xs font-bold transition-transform active:scale-[0.97]"
+              style={{ background: 'rgba(255,255,255,0.26)' }}
+            >
+              {(b.act.busy || b.act.done) && <ActStatusIcon busy={b.act.busy} done={b.act.done} className="size-3" />}
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** me.sign-in-card 交互：签到 ⇄ 已签到原地翻转，七日圆点当日点亮 */
+function SignInCardInteractive({ props }: InteractiveCtx) {
+  const scope = useBusScope();
+  const baseDays = Math.max(0, Math.min(7, Math.round(Number(props.days) || 0)));
+  const [signed, toggleSigned] = useLocalToggle(props.signed === true);
+  /* 当日本已签到时点击撤销不叠加天数；首次签到点亮下一格 */
+  const days = Math.min(7, baseDays + (signed && props.signed !== true ? 1 : 0));
+  const onSign = (e: React.MouseEvent) => {
+    stopAct(e);
+    const wasSigned = signed;
+    toggleSigned();
+    fireToast(scope, wasSigned ? '已取消今日签到' : '签到成功 +5 积分', wasSigned ? 'info' : 'success');
+  };
+  return (
+    <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[15px] font-extrabold">{props.title}</span>
+        {signed ? (
+          <button
+            type="button"
+            aria-label="取消签到"
+            onClick={onSign}
+            className="flex h-8 cursor-pointer items-center gap-1 rounded-full border w-line px-4 text-xs font-semibold opacity-50 transition-transform active:scale-[0.97] w-chip"
+          >
+            <Check className="size-3.5" /> 已签到
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="签到"
+            onClick={onSign}
+            className="flex h-8 cursor-pointer items-center rounded-full px-4 text-xs font-bold shadow-sm transition-transform active:scale-[0.97]"
+            style={{ background: 'var(--p)', color: 'var(--pf)' }}
+          >
+            签到
+          </button>
+        )}
+      </div>
+      <div className="mt-1.5 text-xs opacity-60">
+        已连续签到 <span className="font-bold" style={{ color: 'var(--p)' }}>{days}</span> 天
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        {Array.from({ length: 7 }).map((_, i) => {
+          const on = i < days;
+          return (
+            <span
+              key={i}
+              className={`flex size-7 items-center justify-center rounded-full ${on ? '' : 'w-chip border w-line'}`}
+              style={on ? { background: 'var(--p)', color: 'var(--pf)' } : undefined}
+            >
+              {on ? <Check className="size-3.5" /> : <span className="size-1 rounded-full bg-current opacity-30" />}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** me.points-mall 交互：「去兑换」busy → 兑换成功 toast；整卡跳页由外层分流 */
+function PointsMallInteractive({ props }: InteractiveCtx) {
+  const act = useAction();
+  const goods = splitList(props.items).slice(0, 2).map((raw) => {
+    const [name, ...rest] = raw.split(/\s+/);
+    return { name, cost: rest.join(' ') };
+  });
+  return (
+    <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="text-[11px] opacity-50">我的积分</div>
+          <div className="mt-1 text-3xl font-extrabold leading-none tracking-tight" style={{ color: 'var(--p)' }}>
+            {props.points}
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label={String(props.btnText || '去兑换')}
+          onClick={(e) => {
+            stopAct(e);
+            act.run(() => act.toast('兑换成功（演示）', 'success'));
+          }}
+          className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-4 text-xs font-bold shadow-sm transition-transform active:scale-[0.97]"
+          style={{ background: 'var(--p)', color: 'var(--pf)' }}
+        >
+          {(act.busy || act.done) && <ActStatusIcon busy={act.busy} done={act.done} className="size-3" />}
+          {props.btnText}
+        </button>
+      </div>
+      <div className="mt-3.5 grid grid-cols-2 gap-2.5">
+        {goods.map((g, i) => (
+          <div key={`${g.name}-${i}`}>
+            <div
+              className="flex h-20 items-center justify-center"
+              style={{
+                borderRadius: 'calc(var(--pr) - 4px)',
+                background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${14 + i * 8}%, transparent), color-mix(in srgb, var(--p) ${38 + i * 8}%, transparent))`,
+              }}
+            >
+              <ImageIcon className="size-6 opacity-30" />
+            </div>
+            <div className="mt-1.5 truncate text-[11px] font-semibold">{g.name}</div>
+            <div className="mt-0.5 text-[10px] font-bold" style={{ color: 'var(--p)' }}>
+              {g.cost || '—'} <span className="font-normal opacity-45">积分</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** me.version-card 交互：「检查更新」busy 1.2s → 已是最新版本 toast */
+function VersionCardInteractive({ props }: InteractiveCtx) {
+  const act = useAction();
+  return (
+    <div className="w-card flex h-14 items-center justify-between px-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-baseline gap-2">
+        <span className="text-sm font-semibold">当前版本</span>
+        <span className="text-sm opacity-45">{props.version}</span>
+      </div>
+      <span className="relative">
+        <button
+          type="button"
+          aria-label={String(props.btnText || '检查更新')}
+          onClick={(e) => {
+            stopAct(e);
+            act.run(() => act.toast('已是最新版本', 'success'), 1200);
+          }}
+          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-transform active:scale-[0.97]"
+          style={{ border: '1.5px solid var(--p)', color: 'var(--p)' }}
+        >
+          {(act.busy || act.done) && <ActStatusIcon busy={act.busy} done={act.done} className="size-3" />}
+          {props.btnText}
+        </button>
+        {props.hasNew === true && (
+          <span
+            className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full px-1 py-0.5 text-[8px] font-bold leading-none text-white"
+            style={{ background: '#f43f5e' }}
+          >
+            NEW
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** me.vip-banner 交互：「立即开通」busy → 开通成功 toast / 绑定跳页 */
+function VipBannerInteractive({ props, onTap }: InteractiveCtx) {
+  const act = useAction();
+  const gold = props.style !== 'primary';
+  return (
+    <div
+      className="flex items-center gap-3 p-3.5"
+      style={{
+        borderRadius: 'var(--pr)',
+        background: gold
+          ? 'linear-gradient(115deg, #b45309 0%, #d97706 48%, #f59e0b 100%)'
+          : 'linear-gradient(115deg, var(--p), color-mix(in srgb, var(--p) 62%, #fff))',
+        color: gold ? '#ffffff' : 'var(--pf)',
+      }}
+    >
+      <Crown className="size-6 shrink-0" fill="currentColor" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-extrabold">{props.title}</div>
+        <div className="mt-0.5 truncate text-[10px] opacity-80">{props.sub}</div>
+      </div>
+      <button
+        type="button"
+        aria-label={String(props.btnText || '立即开通')}
+        onClick={(e) => {
+          stopAct(e);
+          act.run(() => {
+            if (onTap) onTap();
+            else act.toast('开通成功（演示）', 'success');
+          });
+        }}
+        className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-full px-3 text-[11px] font-bold transition-transform active:scale-[0.97]"
+        style={
+          gold
+            ? { background: '#1c1917', color: '#fcd34d' }
+            : { background: 'rgba(0,0,0,0.28)', color: 'var(--pf)' }
+        }
+      >
+        {(act.busy || act.done) && <ActStatusIcon busy={act.busy} done={act.done} className="size-3" />}
+        {props.btnText}
+      </button>
+    </div>
+  );
+}
+
+/** me.achievement-badge 交互：徽章圆钮点击 toast 成就详情 */
+function AchievementBadgeInteractive({ props }: InteractiveCtx) {
+  const scope = useBusScope();
+  const unlocked = Math.max(0, Math.min(4, Math.round(Number(props.unlocked) || 0)));
+  const badges = splitList(props.items).slice(0, 4).map((raw) => {
+    const [name, ...rest] = raw.split(/\s+/);
+    return { name, date: rest.join(' ') };
+  });
+  return (
+    <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[15px] font-extrabold">{props.title}</span>
+        <span className="text-[11px] opacity-45">{unlocked}/{badges.length} 已解锁</span>
+      </div>
+      <div className="mt-3.5 grid grid-cols-4 gap-2">
+        {badges.map((b, i) => {
+          const on = i < unlocked;
+          const Icon = BADGE_ICONS[i % BADGE_ICONS.length];
+          return (
+            <div key={`${b.name}-${i}`} className="flex min-w-0 flex-col items-center gap-1.5">
+              <button
+                type="button"
+                aria-label={`成就：${b.name}`}
+                onClick={(e) => {
+                  stopAct(e);
+                  fireToast(
+                    scope,
+                    on ? `成就：${b.name}${b.date ? `（${b.date}）` : ''}` : `「${b.name}」尚未解锁`,
+                    'info'
+                  );
+                }}
+                className={`flex size-[52px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-[0.92] ${on ? 'shadow-sm' : 'w-chip border border-dashed w-line'}`}
+                style={on ? { background: 'linear-gradient(135deg, #fbbf24, #d97706)', color: '#fff' } : undefined}
+              >
+                <Icon className="size-5" style={on ? { color: '#fff' } : { opacity: 0.3 }} />
+              </button>
+              <span className={`max-w-full truncate text-[10px] ${on ? 'font-semibold' : 'opacity-35'}`}>{b.name}</span>
+              <span className="text-[9px] leading-none opacity-40">{on ? (b.date || '已解锁') : '未解锁'}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** me.logout-btn 交互：确认弹窗 → 真实清会话（onLogout）；无会话时演示提示 */
+function LogoutBtnInteractive({ props, onLogout }: InteractiveCtx) {
+  const scope = useBusScope();
+  const [ask, setAsk] = useState(false);
+  const label = String(props.text || '退出登录');
+  const dialog =
+    ask && onLogout && typeof document !== 'undefined'
+      ? createPortal(
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 z-[85] flex flex-col justify-end bg-black/50"
+            onClick={() => setAsk(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="退出登录确认"
+          >
+            <motion.div
+              initial={{ y: 220 }}
+              animate={{ y: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+              className="rounded-t-3xl bg-white px-5 pb-8 pt-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-200" />
+              <h3 className="text-center text-base font-bold text-zinc-900">退出登录？</h3>
+              <p className="mt-2 text-center text-xs leading-5 text-zinc-500">
+                退出后将清除本次登录状态，需要重新登录才能继续使用
+              </p>
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAsk(false)}
+                  className="h-11 flex-1 rounded-full border border-zinc-200 text-sm font-semibold text-zinc-500 transition-transform active:scale-[0.97]"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsk(false);
+                    onLogout?.();
+                  }}
+                  className="flex h-11 flex-[1.6] items-center justify-center gap-1.5 rounded-full bg-rose-500 text-sm font-bold text-white shadow-md transition-transform active:scale-[0.97]"
+                >
+                  <LogOut className="size-4" /> {label}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>,
+          document.getElementById('phone-screen') ?? document.body
+        )
+      : null;
+  return (
+    <>
+      <div
+        role="button"
+        aria-label={label}
+        onClick={(e) => {
+          stopAct(e);
+          if (onLogout) setAsk(true);
+          else fireToast(scope, '演示环境无会话', 'info');
+        }}
+        className="w-card flex h-12 cursor-pointer items-center justify-center transition-opacity active:opacity-70"
+        style={{ borderRadius: 'var(--pr)' }}
+      >
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-rose-500">
+          <LogOut className="size-4" />
+          {label}
+        </span>
+      </div>
+      {dialog}
+    </>
+  );
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'me.member-card',
@@ -261,6 +690,7 @@ export const widgets: WidgetDef[] = [
         options: [{ label: '黑金', value: 'gold' }, { label: '黑紫', value: 'purple' }],
       },
     ],
+    Interactive: MemberCardInteractive,
     render: (p) => {
       const gold = p.style !== 'purple';
       const bg = gold
@@ -322,6 +752,7 @@ export const widgets: WidgetDef[] = [
       { key: 'withdraw', label: '左侧按钮', type: 'text' },
       { key: 'recharge', label: '右侧按钮', type: 'text' },
     ],
+    Interactive: WalletCardInteractive,
     render: (p) => (
       <div
         className="relative overflow-hidden p-4"
@@ -418,6 +849,7 @@ export const widgets: WidgetDef[] = [
       { key: 'days', label: '已连续天数', type: 'number', min: 0, max: 7, step: 1 },
       { key: 'signed', label: '今日已签到', type: 'switch' },
     ],
+    Interactive: SignInCardInteractive,
     render: (p) => {
       const days = Math.max(0, Math.min(7, Math.round(Number(p.days) || 0)));
       const signed = p.signed === true;
@@ -475,6 +907,7 @@ export const widgets: WidgetDef[] = [
       { key: 'btnText', label: '按钮文案', type: 'text' },
       { key: 'items', label: '商品位（名称 积分，逗号分隔 2 个）', type: 'textarea' },
     ],
+    Interactive: PointsMallInteractive,
     render: (p) => {
       const goods = splitList(p.items).slice(0, 2).map((raw) => {
         const [name, ...rest] = raw.split(/\s+/);
@@ -602,6 +1035,7 @@ export const widgets: WidgetDef[] = [
       { key: 'btnText', label: '按钮文案', type: 'text' },
       { key: 'hasNew', label: '显示 NEW 角标', type: 'switch' },
     ],
+    Interactive: VersionCardInteractive,
     render: (p) => (
       <div className="w-card flex h-14 items-center justify-between px-4" style={{ borderRadius: 'var(--pr)' }}>
         <div className="flex items-baseline gap-2">
@@ -643,6 +1077,7 @@ export const widgets: WidgetDef[] = [
         options: [{ label: '金色', value: 'gold' }, { label: '主题色', value: 'primary' }],
       },
     ],
+    Interactive: VipBannerInteractive,
     render: (p) => {
       const gold = p.style !== 'primary';
       return (
@@ -692,6 +1127,7 @@ export const widgets: WidgetDef[] = [
       { key: 'unlocked', label: '已解锁数量', type: 'number', min: 0, max: 4, step: 1 },
       { key: 'items', label: '徽章（名称 获取时间，逗号分隔 4 个）', type: 'textarea' },
     ],
+    Interactive: AchievementBadgeInteractive,
     render: (p) => {
       const unlocked = Math.max(0, Math.min(4, Math.round(Number(p.unlocked) || 0)));
       const badges = splitList(p.items).slice(0, 4).map((raw) => {
@@ -736,6 +1172,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'text', label: '按钮文案', type: 'text' },
     ],
+    Interactive: LogoutBtnInteractive,
     render: (p) => (
       <div className="w-card flex h-12 items-center justify-center active:opacity-70" style={{ borderRadius: 'var(--pr)' }}>
         <span className="flex items-center gap-1.5 text-sm font-semibold text-rose-500">

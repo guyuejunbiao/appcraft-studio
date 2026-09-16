@@ -1,10 +1,16 @@
+'use client';
+
+import { useState } from 'react';
 import {
   Activity, Footprints, Dumbbell, CalendarDays, Flame, Droplets, Moon, Scale,
   MessageCircle, UserRound, Medal, LayoutGrid, MonitorPlay, Play, UtensilsCrossed,
   GlassWater, TrendingUp, TrendingDown, MapPin, Heart, Star, BadgeCheck,
   CalendarCheck, ChevronRight, Timer, Zap, Route,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { useBusScope } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
+import { stopAct, useAction, useLikeCount, ActStatusIcon, fmtCount } from './action-kit';
 
 /**
  * 健康运动 组件库（目录：fitness）
@@ -45,6 +51,341 @@ const RACE_STATUS: Record<string, { fg: string; bg: string }> = {
   '已满员': { fg: C_ROSE, bg: 'color-mix(in srgb, #f43f5e 12%, transparent)' },
   '已结束': { fg: 'currentColor', bg: 'color-mix(in srgb, currentColor 8%, transparent)' },
 };
+
+/* ------------------------------------------------------------------ */
+/* 交互实现（action-kit 规范）：视觉复制 render，仅替换可交互元素          */
+/* ------------------------------------------------------------------ */
+
+/** fitness.water-tracker 交互：水杯格子点击原地填充/取消（打卡即开关） */
+function WaterTrackerInteractive({ props }: InteractiveCtx) {
+  const scope = useBusScope();
+  const count = clamp(Math.round(Number(props.count) || 8), 4, 12);
+  const [cups, setCups] = useState<boolean[]>(() =>
+    Array.from({ length: count }, (_, i) => i < clamp(Math.round(Number(props.done) || 0), 0, count))
+  );
+  const done = cups.filter(Boolean).length;
+  const cupMl = looseNum(props.cupSize) || 250;
+  const pct = Math.round((done / count) * 100);
+  const clickCup = (i: number) => {
+    const wasFilled = cups[i] ?? false;
+    setCups((arr) => {
+      const next = [...arr];
+      next[i] = !wasFilled;
+      return next;
+    });
+    fireToast(scope, wasFilled ? `已取消第 ${i + 1} 杯` : `已打卡第 ${i + 1} 杯`, wasFilled ? 'info' : 'success');
+  };
+  return (
+    <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[13px] font-bold">
+          <Droplets className="size-4" style={{ color: 'var(--p)' }} />
+          今日喝水
+        </span>
+        <span className="text-[11px] font-bold" style={{ color: 'var(--p)' }}>
+          {done}<span className="font-normal opacity-40"> / {count} 杯</span>
+        </span>
+      </div>
+      {/* 水杯格子：点击切换该杯填充态 */}
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {Array.from({ length: count }).map((_, i) => {
+          const filled = cups[i] ?? false;
+          return (
+            <button
+              key={i}
+              type="button"
+              aria-label={`第 ${i + 1} 杯${filled ? '，点击取消打卡' : '，点击打卡'}`}
+              onClick={(e) => { stopAct(e); clickCup(i); }}
+              className={`flex h-11 cursor-pointer flex-col items-center justify-center gap-0.5 transition-transform active:scale-[0.93] ${filled ? '' : 'w-chip'}`}
+              style={{
+                borderRadius: 'calc(var(--pr) - 4px)',
+                background: filled ? 'var(--p)' : undefined,
+              }}
+            >
+              <GlassWater className={`size-4 ${filled ? '' : 'opacity-30'}`} style={filled ? { color: 'var(--pf)' } : undefined} />
+              <span className={`text-[8px] leading-none ${filled ? '' : 'opacity-30'}`} style={filled ? { color: 'var(--pf)' } : undefined}>
+                {i + 1}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {/* 补水量进度 */}
+      <div className="mt-3 flex items-center gap-2">
+        <div className="h-1.5 min-w-0 flex-1 overflow-hidden" style={{ borderRadius: '999px' }}>
+          <div
+            className="h-full transition-all"
+            style={{ width: `${Math.max(3, pct)}%`, borderRadius: '999px', background: 'var(--p)' }}
+          />
+        </div>
+        <span className="shrink-0 text-[10px] opacity-45">
+          {done * cupMl} / {count * cupMl} ml
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** fitness.community-post 交互：点赞红心原地翻转 + 计数 ±1 */
+function CommunityPostInteractive({ props }: InteractiveCtx) {
+  const [liked, likes, clickLike] = useLikeCount(false, looseNum(props.likes));
+  return (
+    <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))' }}
+        >
+          <UserRound className="size-5" style={{ color: 'var(--pf)' }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-bold">{props.nickname}</span>
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-none"
+              style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+            >
+              {props.tag}
+            </span>
+          </div>
+          <div className="mt-0.5 text-[10px] opacity-40">{props.time}</div>
+        </div>
+      </div>
+      <p className="mt-2.5 line-clamp-2 text-[12.5px] leading-relaxed opacity-80">{props.content}</p>
+      {/* 点赞 / 评论：红心原地翻转 */}
+      <div className="mt-3 flex items-center gap-5 border-t w-line pt-2.5 text-[11px] opacity-55">
+        <button
+          type="button"
+          aria-label={liked ? '取消点赞' : '点赞'}
+          onClick={(e) => { stopAct(e); clickLike(); }}
+          className={`flex cursor-pointer items-center gap-1 transition-transform active:scale-90 ${liked ? 'font-bold' : ''}`}
+          style={liked ? { color: C_ROSE, opacity: 1 } : undefined}
+        >
+          <Heart className="size-3.5" style={{ color: C_ROSE }} fill={liked ? C_ROSE : 'none'} />
+          {fmtCount(likes)}
+        </button>
+        <span className="flex items-center gap-1"><MessageCircle className="size-3.5" />{props.comments}</span>
+        <span className="ml-auto flex items-center opacity-60">
+          <ChevronRight className="size-3.5" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** fitness.plan-card 交互：「开始训练」busy → 开始训练 toast / 绑定跳页 */
+function PlanCardInteractive({ props, onTap }: InteractiveCtx) {
+  const act = useAction();
+  const levelStyle: Record<string, { fg: string; bg: string }> = {
+    '入门': { fg: C_GREEN, bg: 'color-mix(in srgb, #10b981 16%, transparent)' },
+    '进阶': { fg: C_AMBER, bg: 'color-mix(in srgb, #f59e0b 18%, transparent)' },
+    '挑战': { fg: C_ROSE, bg: 'color-mix(in srgb, #f43f5e 16%, transparent)' },
+  };
+  const lv = levelStyle[props.level] ?? levelStyle['入门'];
+  return (
+    <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+      <div
+        className="relative h-28 overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))',
+        }}
+      >
+        <span className="absolute -right-5 -top-7 size-24 rounded-full bg-white opacity-10" />
+        <span className="absolute -bottom-8 left-9 size-20 rounded-full bg-white opacity-[0.07]" />
+        <span
+          className="absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold"
+          style={{ background: lv.bg, color: '#fff' }}
+        >
+          {props.level}
+        </span>
+        <Dumbbell className="absolute bottom-3 right-4 size-12 text-white opacity-25" />
+        <div className="absolute bottom-3 left-4 right-24">
+          <div className="truncate text-[15px] font-extrabold text-white">{props.title}</div>
+        </div>
+      </div>
+      <div className="p-3.5">
+        <div className="flex items-center justify-between text-[11px] opacity-60">
+          <span className="flex items-center gap-1"><CalendarDays className="size-3.5" />{props.weeks}</span>
+          <span className="flex items-center gap-1"><Timer className="size-3.5" />{props.duration}</span>
+          <span className="flex items-center gap-1"><Zap className="size-3.5" />{props.freq}</span>
+        </div>
+        <button
+          type="button"
+          aria-label="开始训练"
+          onClick={(e) => {
+            stopAct(e);
+            act.run(() => {
+              if (onTap) onTap();
+              else act.toast(`开始训练：${props.title}`, 'success');
+            });
+          }}
+          className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 py-2.5 text-[13px] font-bold transition-transform active:scale-[0.98]"
+          style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: 'calc(var(--pr) - 4px)' }}
+        >
+          {act.busy ? <ActStatusIcon busy done={false} className="size-3.5" /> : <Play className="size-3.5" />}
+          开始训练
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** fitness.coach-card 交互：「立即预约」busy → 预约成功 toast / 绑定跳页 */
+function CoachCardInteractive({ props, onTap }: InteractiveCtx) {
+  const act = useAction();
+  return (
+    <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center gap-3">
+        <span
+          className="flex size-14 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #000))' }}
+        >
+          <UserRound className="size-7" style={{ color: 'var(--pf)' }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[14px] font-extrabold">{props.name}</span>
+            <BadgeCheck className="size-4 shrink-0" style={{ color: C_AMBER }} />
+          </div>
+          <div className="mt-0.5 truncate text-[11px] opacity-50">{props.title}</div>
+          <div className="mt-1 flex items-center gap-1 text-[11px]">
+            <Star className="size-3" style={{ color: C_AMBER, fill: C_AMBER }} />
+            <span className="font-bold">{props.rating}</span>
+            <span className="text-[10px] opacity-40">综合评分</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between border-t w-line pt-3">
+        <span className="text-[11px] opacity-50">{props.students}</span>
+        <button
+          type="button"
+          aria-label={String(props.action || '立即预约')}
+          onClick={(e) => {
+            stopAct(e);
+            act.run(() => {
+              if (onTap) onTap();
+              else act.toast('预约成功（演示）', 'success');
+            });
+          }}
+          className="flex shrink-0 cursor-pointer items-center gap-1 px-3.5 py-1.5 text-[12px] font-bold transition-transform active:scale-[0.97]"
+          style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: '999px' }}
+        >
+          {act.busy ? <ActStatusIcon busy done={false} className="size-3.5" /> : <CalendarCheck className="size-3.5" />}
+          {props.action}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** fitness.workout-item 交互：视频圆钮 toast；整卡跳页由外层分流 */
+function WorkoutItemInteractive({ props }: InteractiveCtx) {
+  const scope = useBusScope();
+  const idx = clamp(Math.round(Number(props.index) || 1), 1, 99);
+  return (
+    <div className="w-card flex items-center gap-3 p-3" style={{ borderRadius: 'var(--pr)' }}>
+      <span
+        className="flex size-9 shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold"
+        style={{ background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        {idx}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-bold">{props.name}</div>
+        <div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
+          <span className="shrink-0">{props.sets}</span>
+          {props.rest ? <><span className="opacity-40">·</span><span className="truncate">{props.rest}</span></> : null}
+        </div>
+      </div>
+      {props.video !== false ? (
+        <button
+          type="button"
+          aria-label="播放教学视频"
+          onClick={(e) => { stopAct(e); fireToast(scope, '▶ 播放教学视频', 'info'); }}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-90"
+          style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+        >
+          <MonitorPlay className="size-4" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** fitness.marathon-item 交互：整行点击查看赛事详情 / 绑定跳页 */
+function MarathonItemInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  const st = RACE_STATUS[props.status] ?? RACE_STATUS['报名中'];
+  return (
+    <div
+      role="button"
+      aria-label="查看赛事详情"
+      onClick={(e) => { stopAct(e); if (onTap) onTap(); else fireToast(scope, '查看赛事详情', 'info'); }}
+      className="w-card flex cursor-pointer items-center gap-3 p-3 transition-opacity active:opacity-80"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <div className="w-chip flex w-[52px] shrink-0 flex-col items-center justify-center rounded-xl py-2">
+        <span className="text-[9px] leading-none opacity-50">{props.month}</span>
+        <span className="mt-1 text-lg font-extrabold leading-none" style={{ color: 'var(--p)' }}>{props.day}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-bold">{props.title}</div>
+        <div className="mt-1 flex items-center gap-1 text-[11px] opacity-50">
+          <MapPin className="size-3 shrink-0" />
+          <span className="truncate">{props.location}</span>
+        </div>
+      </div>
+      <span
+        className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold leading-none"
+        style={{ background: st.bg, color: st.fg, opacity: props.status === '已结束' ? 0.55 : undefined }}
+      >
+        {props.status}
+      </span>
+    </div>
+  );
+}
+
+/** fitness.stats-weekly 交互：整卡点击查看周报 / 绑定跳页 */
+function StatsWeeklyInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  const cells = [
+    { icon: Dumbbell, label: '运动次数', value: props.sessions },
+    { icon: Timer, label: '运动时长', value: props.duration },
+    { icon: Flame, label: '消耗热量', value: props.calories },
+    { icon: Route, label: '运动里程', value: props.distance },
+  ];
+  return (
+    <div
+      role="button"
+      aria-label="查看周报"
+      onClick={(e) => { stopAct(e); if (onTap) onTap(); else fireToast(scope, '查看周报', 'info'); }}
+      className="w-card cursor-pointer p-3.5 transition-opacity active:opacity-80"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-bold">{props.title}</span>
+        <span className="flex items-center text-[10px] opacity-40">
+          查看报告
+          <ChevronRight className="size-3" />
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        {cells.map((cell) => (
+          <div key={cell.label} className="w-chip rounded-xl p-3" style={{ borderRadius: 'calc(var(--pr) - 4px)' }}>
+            <span
+              className="flex size-8 items-center justify-center rounded-lg"
+              style={{ background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }}
+            >
+              <cell.icon className="size-4" />
+            </span>
+            <div className="mt-2 text-[10px] opacity-45">{cell.label}</div>
+            <div className="mt-0.5 truncate text-[15px] font-extrabold leading-tight">{cell.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export const widgets: WidgetDef[] = [
   {
@@ -209,6 +550,7 @@ export const widgets: WidgetDef[] = [
       { key: 'rest', label: '休息说明', type: 'text' },
       { key: 'video', label: '显示视频图标', type: 'switch' },
     ],
+    Interactive: WorkoutItemInteractive,
     render: (p) => {
       const idx = clamp(Math.round(Number(p.index) || 1), 1, 99);
       return (
@@ -262,6 +604,7 @@ export const widgets: WidgetDef[] = [
       { key: 'duration', label: '单次时长', type: 'text' },
       { key: 'freq', label: '训练频次', type: 'text' },
     ],
+    Interactive: PlanCardInteractive,
     render: (p) => {
       const levelStyle: Record<string, { fg: string; bg: string }> = {
         '入门': { fg: C_GREEN, bg: 'color-mix(in srgb, #10b981 16%, transparent)' },
@@ -399,6 +742,7 @@ export const widgets: WidgetDef[] = [
       { key: 'done', label: '已喝杯数', type: 'number', min: 0, max: 12, step: 1 },
       { key: 'cupSize', label: '每杯容量', type: 'text' },
     ],
+    Interactive: WaterTrackerInteractive,
     render: (p) => {
       const count = clamp(Math.round(Number(p.count) || 8), 4, 12);
       const done = clamp(Math.round(Number(p.done) || 0), 0, count);
@@ -619,6 +963,7 @@ export const widgets: WidgetDef[] = [
       { key: 'likes', label: '点赞数', type: 'text' },
       { key: 'comments', label: '评论数', type: 'text' },
     ],
+    Interactive: CommunityPostInteractive,
     render: (p) => (
       <div className="w-card p-3.5" style={{ borderRadius: 'var(--pr)' }}>
         <div className="flex items-center gap-2.5">
@@ -674,6 +1019,7 @@ export const widgets: WidgetDef[] = [
       { key: 'students', label: '学员规模', type: 'text' },
       { key: 'action', label: '按钮文字', type: 'text' },
     ],
+    Interactive: CoachCardInteractive,
     render: (p) => (
       <div className="w-card p-4" style={{ borderRadius: 'var(--pr)' }}>
         <div className="flex items-center gap-3">
@@ -735,6 +1081,7 @@ export const widgets: WidgetDef[] = [
         { label: '已结束', value: '已结束' },
       ] },
     ],
+    Interactive: MarathonItemInteractive,
     render: (p) => {
       const st = RACE_STATUS[p.status] ?? RACE_STATUS['报名中'];
       return (
@@ -781,6 +1128,7 @@ export const widgets: WidgetDef[] = [
       { key: 'calories', label: '总消耗', type: 'text' },
       { key: 'distance', label: '总里程', type: 'text' },
     ],
+    Interactive: StatsWeeklyInteractive,
     render: (p) => {
       const cells = [
         { icon: Dumbbell, label: '运动次数', value: p.sessions },

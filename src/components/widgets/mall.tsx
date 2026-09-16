@@ -1,17 +1,17 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Search, GalleryHorizontal, Image as ImageIcon, Megaphone, LayoutGrid, Heading1,
   ShoppingBag, Shirt, Coffee, Gamepad2, Headphones, Gift, Watch, Smartphone,
-  Grid2x2, Plus, Flame, TicketPercent, Ticket, Crown, ChevronRight,
+  Grid2x2, Plus, Check, X, Flame, TicketPercent, Ticket, Crown, ChevronRight,
 } from 'lucide-react';
 import type { WidgetDef, WidgetProps, InteractiveCtx } from '@/lib/widget-types';
-import { SearchInputInteractive } from './interactive';
 import { parseCells, splitList, cellsToSlots, useCellAct, type GridCell } from './grid-kit';
 import { useBusScope } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
+import { stopAct, useAction, useLocalToggle } from './action-kit';
 
 /**
  * 商城首页 组件库（目录：mall）
@@ -87,6 +87,432 @@ function CategoryGridInteractive({ props, slotPush, onTap }: InteractiveCtx) {
   return <CategoryGridView cells={cells} onTapCell={onCell} />;
 }
 
+/* ------------------------------------------------------------------ */
+/* 商城组件 Interactive 实现（仅预览模式挂载）：所有可点元素原地生效     */
+/* ------------------------------------------------------------------ */
+
+/** 搜索栏：可输入 + 清空 + 搜索钮点击 toast（有词搜词，空词提示） */
+function MallSearchInteractive({ props }: InteractiveCtx) {
+  const [val, setVal] = useState('');
+  const { toast } = useAction();
+  const doSearch = () => {
+    const kw = val.trim();
+    toast(kw ? `搜索：${kw}` : '请输入搜索内容', 'info');
+  };
+  return (
+    <div className="w-input flex h-10 items-center gap-2 pl-3.5 pr-1" style={{ borderRadius: '999px' }}>
+      <Search className="size-4 shrink-0 opacity-45" />
+      <input
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') doSearch(); }}
+        placeholder={props.placeholder}
+        aria-label="搜索商品"
+        className="flex-1 bg-transparent text-[13px] outline-none placeholder:opacity-40"
+      />
+      {val && (
+        <button
+          type="button"
+          aria-label="清空搜索"
+          onClick={(e) => { stopAct(e); setVal(''); }}
+          className="flex size-5 cursor-pointer items-center justify-center rounded-full bg-black/10 opacity-70 transition-opacity active:opacity-50"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label={String(props.btnText || '搜索')}
+        onClick={(e) => { stopAct(e); doSearch(); }}
+        className="flex h-8 shrink-0 cursor-pointer items-center px-4 text-xs font-semibold transition-transform active:scale-[0.97]"
+        style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        {props.btnText}
+      </button>
+    </div>
+  );
+}
+
+/** 首页 Banner：整卡点击 → 已绑定页面则跳页，否则 toast 查看活动详情 */
+function BannerInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const h = Math.min(220, Math.max(120, Number(props.height) || 160));
+  return (
+    <div
+      role="button"
+      aria-label={String(props.title || '活动 Banner')}
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('查看活动详情', 'info');
+      }}
+      className="relative w-full cursor-pointer overflow-hidden transition-opacity active:opacity-90"
+      style={{ height: h }}
+    >
+      {/* 渐变主视觉（基于主色 color-mix）+ 装饰圆 */}
+      <div
+        className="absolute inset-0"
+        style={{ background: 'linear-gradient(118deg, var(--p) 0%, color-mix(in srgb, var(--p) 62%, #fff) 58%, color-mix(in srgb, var(--p) 88%, #000) 100%)' }}
+      />
+      <div className="absolute -right-7 -top-12 size-32 rounded-full" style={{ background: 'color-mix(in srgb, #fff 20%, transparent)' }} />
+      <div className="absolute -bottom-14 -left-6 size-28 rounded-full" style={{ background: 'color-mix(in srgb, #fff 12%, transparent)' }} />
+      {/* 文案 */}
+      <div className="absolute inset-0 flex flex-col justify-center gap-1.5 px-5">
+        <span className="text-xl font-extrabold tracking-wide" style={{ color: 'var(--pf)' }}>{props.title}</span>
+        <span className="text-xs opacity-80" style={{ color: 'var(--pf)' }}>{props.subtitle}</span>
+      </div>
+      {/* 指示器：当前点白色实心 */}
+      <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <span
+            key={i}
+            className="size-1.5 rounded-full"
+            style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 公告栏：整条点击 → 已绑定页面则跳页，否则 toast 查看公告详情 */
+function NoticeBarInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  return (
+    <div
+      role="button"
+      aria-label="查看公告详情"
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('查看公告详情', 'info');
+      }}
+      className="w-chip flex h-10 cursor-pointer items-center gap-2 px-3 transition-opacity active:opacity-80"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <Megaphone className="size-4 shrink-0" style={{ color: 'var(--p)' }} />
+      <span
+        className="shrink-0 px-1.5 py-0.5 text-[10px] font-bold leading-none"
+        style={{ borderRadius: '4px', background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        公告
+      </span>
+      <span className="flex-1 truncate text-xs opacity-60">{props.text}</span>
+      <ChevronRight className="size-3.5 shrink-0 opacity-40" />
+    </div>
+  );
+}
+
+/** 标题行：「查看全部 >」点击 → 已绑定页面则跳页，否则 toast 查看全部 */
+function SectionHeaderInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const more = String(props.more ?? '');
+  return (
+    <div className="flex items-center justify-between px-0.5">
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-1 rounded-full" style={{ background: 'var(--p)' }} />
+        <span className="text-[15px] font-bold">{props.title}</span>
+      </div>
+      {more ? (
+        <button
+          type="button"
+          aria-label={more}
+          onClick={(e) => {
+            stopAct(e);
+            if (onTap) onTap();
+            else toast(more || '查看全部', 'info');
+          }}
+          className="flex cursor-pointer items-center text-[11px] opacity-50 transition-opacity active:opacity-40"
+        >
+          {more} <ChevronRight className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** 单列商品卡：整卡点击查看商品；圆形加购钮即时 toast + 短暂变 ✓ */
+function ProductCardInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const [added, setAdded] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const onAdd = (e: React.MouseEvent) => {
+    stopAct(e);
+    toast('已加入购物车', 'success');
+    setAdded(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setAdded(false), 900);
+  };
+  return (
+    <div
+      role="button"
+      aria-label="查看商品"
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('查看商品', 'info');
+      }}
+      className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      {/* 渐变图片占位 */}
+      <div
+        className="flex h-36 items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--p) 16%, transparent), color-mix(in srgb, var(--p) 42%, transparent))' }}
+      >
+        <ImageIcon className="size-9 opacity-30" />
+      </div>
+      <div className="p-3">
+        <p className="line-clamp-2 min-h-10 text-[13px] leading-5">{props.name}</p>
+        <div className="mt-2 flex items-baseline gap-1.5">
+          <span className="text-lg font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+            <span className="text-xs">¥</span>{props.price}
+          </span>
+          <span className="text-[11px] line-through opacity-40">¥{props.original}</span>
+        </div>
+        <div className="mt-1.5 flex items-end justify-between">
+          <span className="text-[10px] opacity-45">已售 {props.sales}</span>
+          {/* 圆形加购按钮：点击后短暂变 ✓ */}
+          <button
+            type="button"
+            aria-label="加入购物车"
+            onClick={onAdd}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-full shadow-sm transition-transform active:scale-[0.9]"
+            style={{ background: 'var(--p)', color: 'var(--pf)' }}
+          >
+            {added ? <Check className="size-4" /> : <Plus className="size-4" />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 双列商品网格：每张迷你卡可点击查看商品 */
+function ProductGridInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const count = Math.min(6, Math.max(2, Number(props.count) || 4));
+  const prices = ['128', '59', '199', '89', '45', '159'];
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          role="button"
+          aria-label="查看商品"
+          onClick={(e) => {
+            stopAct(e);
+            if (onTap) onTap();
+            else toast('查看商品', 'info');
+          }}
+          className="w-card cursor-pointer overflow-hidden transition-opacity active:opacity-90"
+          style={{ borderRadius: 'var(--pr)' }}
+        >
+          <div
+            className="flex h-24 items-center justify-center"
+            style={{ background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${14 + (i % 3) * 7}%, transparent), color-mix(in srgb, var(--p) ${36 + (i % 3) * 7}%, transparent))` }}
+          >
+            <ImageIcon className="size-7 opacity-30" />
+          </div>
+          <div className="space-y-1.5 p-2.5">
+            {/* 两行文字骨架线 */}
+            <span className="block h-2 w-4/5 rounded-full bg-current opacity-15" />
+            <span className="block h-2 w-3/5 rounded-full bg-current opacity-15" />
+            <span className="block pt-0.5 text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+              <span className="text-[10px]">¥</span>{prices[i % prices.length]}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 限时秒杀横条：整卡点击 → 已绑定页面则跳页，否则 toast 查看秒杀 */
+function FlashSaleInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  /* 时 / 分均取两位数字（容忍 '2 h' 之类写法，非法按 0） */
+  const pad2 = (v: unknown) =>
+    String(Math.min(99, Math.max(0, Math.round(Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0)))).padStart(2, '0');
+  const blocks = [pad2(props.hours), pad2(props.minutes)];
+  const prices = ['29', '99', '59'];
+  const originals = ['69', '199', '129'];
+  return (
+    <div
+      role="button"
+      aria-label="查看秒杀"
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('查看秒杀', 'info');
+      }}
+      className="w-card cursor-pointer p-3 transition-opacity active:opacity-90"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Flame className="size-4" style={{ color: 'var(--p)' }} />
+          <span className="text-[15px] font-extrabold">{props.title}</span>
+        </div>
+        {/* 倒计时色块（时 : 分，黑底白字） */}
+        <div className="flex items-center gap-1">
+          {blocks.map((t, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <span className="text-[10px] font-bold opacity-40">:</span>}
+              <span className="rounded-md bg-zinc-900 px-1.5 py-1 font-mono text-[11px] font-bold leading-none text-white">{t}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      {/* 横排 3 个秒杀商品位（图块 + 主色价格） */}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i}>
+            <div
+              className="flex h-20 items-center justify-center"
+              style={{
+                borderRadius: 'calc(var(--pr) - 4px)',
+                background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${16 + i * 8}%, transparent), color-mix(in srgb, var(--p) ${40 + i * 8}%, transparent))`,
+              }}
+            >
+              <ImageIcon className="size-6 opacity-30" />
+            </div>
+            <div className="mt-1.5 flex items-baseline justify-center gap-1">
+              <span className="text-sm font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+                <span className="text-[10px]">¥</span>{prices[i]}
+              </span>
+              <span className="text-[10px] line-through opacity-40">¥{originals[i]}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 优惠券：票券钮点击原地变「已领取」灰态；已领取再点提示 */
+function CouponCardInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const [claimed, toggleClaimed] = useLocalToggle(false);
+  return (
+    <div className="w-card flex items-stretch overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+      {/* 左侧主色金额区 */}
+      <div className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 py-4" style={{ background: 'var(--p)', color: 'var(--pf)' }}>
+        <span className="font-extrabold leading-none">
+          <span className="text-xs">¥</span>
+          <span className="text-2xl">{props.amount}</span>
+        </span>
+        <span className="text-[10px] opacity-80">满 {props.condition} 可用</span>
+      </div>
+      {/* 虚线撕票分隔 */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 border-l border-dashed w-line px-3.5">
+        <span className="truncate text-xs font-semibold opacity-75">{props.desc}</span>
+        <span className="text-[10px] opacity-45">{props.date}</span>
+      </div>
+      <div className="flex items-center pr-3">
+        <button
+          type="button"
+          aria-label={claimed ? '优惠券已领取' : String(props.btnText || '立即领取')}
+          onClick={(e) => {
+            stopAct(e);
+            if (claimed) {
+              toast('已领取过啦', 'info');
+              return;
+            }
+            toggleClaimed();
+            toast('领取成功', 'success');
+          }}
+          className={`flex h-8 cursor-pointer items-center whitespace-nowrap rounded-full border px-3 text-xs font-bold w-line transition-all active:scale-[0.97] ${claimed ? 'opacity-45' : ''}`}
+          style={claimed ? undefined : { borderColor: 'var(--p)', color: 'var(--p)' }}
+        >
+          {claimed ? '已领取' : props.btnText}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** 优惠券横条：2~3 张券各自独立领取态，领取后原地变「已领取」 */
+function CouponRowInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const amounts = splitList(props.amount).slice(0, 3);
+  const thresholds = splitList(props.threshold);
+  const list = amounts.length ? amounts : ['50', '30', '20'];
+  const [claimed, setClaimed] = useState<boolean[]>([]);
+  const claim = (i: number) => {
+    if (claimed[i]) {
+      toast('已领取过啦', 'info');
+      return;
+    }
+    setClaimed((prev) => { const next = [...prev]; next[i] = true; return next; });
+    toast('领取成功', 'success');
+  };
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${list.length}, minmax(0, 1fr))` }}>
+      {list.map((amt, i) => (
+        <div key={`${amt}-${i}`} className="w-card px-2 py-2.5 text-center" style={{ borderRadius: 'var(--pr)' }}>
+          {/* 面额大字（主色） */}
+          <div className="font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+            <span className="text-[10px]">¥</span>
+            <span className="text-lg">{amt}</span>
+          </div>
+          {/* 门槛小字 */}
+          <div className="mt-1 truncate text-[9px] leading-none opacity-45">满 {thresholds[i] ?? '0'} 可用</div>
+          {/* 虚线撕票分隔 + 领取按钮（主色圆角） */}
+          <div className="mt-2 border-t border-dashed w-line pt-2">
+            <button
+              type="button"
+              aria-label={claimed[i] ? `已领取 ¥${amt} 优惠券` : `领取 ¥${amt} 优惠券`}
+              onClick={(e) => { stopAct(e); claim(i); }}
+              className={`block w-full cursor-pointer py-1 text-[10px] font-bold leading-none transition-all active:scale-[0.97] ${claimed[i] ? 'opacity-45' : ''}`}
+              style={claimed[i]
+                ? { borderRadius: '999px', background: 'color-mix(in srgb, currentColor 12%, transparent)' }
+                : { borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+            >
+              {claimed[i] ? '已领取' : '领取'}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 品牌馆：每张品牌卡可点击进入品牌馆 */
+function BrandRowInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  return (
+    <div className="flex gap-2 overflow-hidden">
+      {splitList(props.brands).slice(0, 3).map((brand, i) => (
+        <div
+          key={`${brand}-${i}`}
+          role="button"
+          aria-label={`进入${brand}品牌馆`}
+          onClick={(e) => {
+            stopAct(e);
+            if (onTap) onTap();
+            else toast('进入品牌馆', 'info');
+          }}
+          className="flex h-20 w-[32%] shrink-0 cursor-pointer flex-col justify-end gap-1 overflow-hidden p-2.5 transition-opacity active:opacity-85"
+          style={{
+            borderRadius: 'var(--pr)',
+            background: `linear-gradient(135deg, color-mix(in srgb, var(--p) ${30 - i * 8}%, transparent), color-mix(in srgb, var(--p) ${10 - i * 2}%, transparent))`,
+          }}
+        >
+          <span className="truncate text-[13px] font-bold">{brand}</span>
+          <span
+            className="w-fit px-1 py-0.5 text-[9px] font-semibold leading-none"
+            style={{ borderRadius: '4px', background: 'var(--p)', color: 'var(--pf)' }}
+          >
+            官方旗舰
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'mall.search',
@@ -99,7 +525,7 @@ export const widgets: WidgetDef[] = [
       { key: 'placeholder', label: '提示文案', type: 'text' },
       { key: 'btnText', label: '按钮文案', type: 'text' },
     ],
-    Interactive: SearchInputInteractive,
+    Interactive: MallSearchInteractive,
     render: (p) => (
       <div className="w-input flex h-10 items-center gap-2 pl-3.5 pr-1" style={{ borderRadius: '999px' }}>
         <Search className="size-4 shrink-0 opacity-45" />
@@ -126,6 +552,7 @@ export const widgets: WidgetDef[] = [
       { key: 'subtitle', label: '副标题', type: 'text' },
       { key: 'height', label: '高度', type: 'number', min: 120, max: 220, step: 10 },
     ],
+    Interactive: BannerInteractive,
     render: (p) => {
       const h = Math.min(220, Math.max(120, Number(p.height) || 160));
       return (
@@ -167,6 +594,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'text', label: '公告文案', type: 'textarea' },
     ],
+    Interactive: NoticeBarInteractive,
     render: (p) => (
       <div className="w-chip flex h-10 items-center gap-2 px-3" style={{ borderRadius: 'var(--pr)' }}>
         <Megaphone className="size-4 shrink-0" style={{ color: 'var(--p)' }} />
@@ -210,6 +638,7 @@ export const widgets: WidgetDef[] = [
       { key: 'title', label: '标题', type: 'text' },
       { key: 'more', label: '右侧文案', type: 'text' },
     ],
+    Interactive: SectionHeaderInteractive,
     render: (p) => (
       <div className="flex items-center justify-between px-0.5">
         <div className="flex items-center gap-2">
@@ -237,6 +666,7 @@ export const widgets: WidgetDef[] = [
       { key: 'original', label: '原价', type: 'text' },
       { key: 'sales', label: '已售', type: 'text' },
     ],
+    Interactive: ProductCardInteractive,
     render: (p) => (
       <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
         {/* 渐变图片占位 */}
@@ -278,6 +708,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'count', label: '商品数量', type: 'number', min: 2, max: 6, step: 2 },
     ],
+    Interactive: ProductGridInteractive,
     render: (p) => {
       const count = Math.min(6, Math.max(2, Number(p.count) || 4));
       const prices = ['128', '59', '199', '89', '45', '159'];
@@ -317,6 +748,7 @@ export const widgets: WidgetDef[] = [
       { key: 'hours', label: '倒计时 · 时', type: 'text', placeholder: '如 02' },
       { key: 'minutes', label: '倒计时 · 分', type: 'text', placeholder: '如 45' },
     ],
+    Interactive: FlashSaleInteractive,
     render: (p) => {
       /* 时 / 分均取两位数字（容忍 '2 h' 之类写法，非法按 0） */
       const pad2 = (v: unknown) =>
@@ -381,6 +813,7 @@ export const widgets: WidgetDef[] = [
       { key: 'date', label: '有效期', type: 'text' },
       { key: 'btnText', label: '按钮文案', type: 'text' },
     ],
+    Interactive: CouponCardInteractive,
     render: (p) => (
       <div className="w-card flex items-stretch overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
         {/* 左侧主色金额区 */}
@@ -418,6 +851,7 @@ export const widgets: WidgetDef[] = [
       { key: 'amount', label: '面额（逗号分隔）', type: 'textarea', placeholder: '如 50,30,20，取前 3 张' },
       { key: 'threshold', label: '使用门槛（逗号分隔）', type: 'textarea', placeholder: '与面额一一对应，如 199,99,59' },
     ],
+    Interactive: CouponRowInteractive,
     render: (p) => {
       const amounts = splitList(p.amount).slice(0, 3);
       const thresholds = splitList(p.threshold);
@@ -458,6 +892,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'brands', label: '品牌名', type: 'textarea', placeholder: '逗号分隔，最多 3 个' },
     ],
+    Interactive: BrandRowInteractive,
     render: (p) => (
       <div className="flex gap-2 overflow-hidden">
         {splitList(p.brands).slice(0, 3).map((brand, i) => (

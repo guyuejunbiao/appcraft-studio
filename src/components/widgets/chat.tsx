@@ -1,10 +1,12 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Phone, MoreVertical, Contact, MessagesSquare, MessageSquare,
   MessageSquareDot, Image as ImageIcon, Mic, UserRound, Info, CirclePlus,
   SendHorizontal, Keyboard, PanelBottom, MessageCircle, BookUser, Compass,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
 import { ChatTabbarInteractive } from './interactive';
+import { stopAct, useAction } from './action-kit';
 
 /**
  * 即时聊天 组件库（目录：chat）
@@ -35,6 +37,231 @@ const CHAT_TABS = [
   { key: 'me', label: '我', icon: UserRound },
 ];
 
+/* ------------------------------------------------------------------ */
+/* 预览交互实现（Interactive）：复制对应 render 的视觉结构（保视觉一致），  */
+/* 把静态元素替换为可交互元素。所有内部按钮 stopAct 阻断冒泡。             */
+/* ------------------------------------------------------------------ */
+
+/** 聊天导航交互：返回箭头回退页面栈（无栈时提示已在首页）；电话/更多各自 toast */
+function ChatHeaderInteractive({ props, navBack }: InteractiveCtx) {
+  const { toast } = useAction();
+  return (
+    <div className="flex items-center gap-2.5 border-b w-line px-3.5 py-2.5">
+      <button
+        type="button"
+        aria-label="返回"
+        onClick={(e) => { stopAct(e); if (navBack) navBack(); else toast('已在首页', 'info'); }}
+        className="cursor-pointer transition-transform active:scale-90"
+      >
+        <ArrowLeft className="size-5 opacity-70" />
+      </button>
+      <div
+        className="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+        style={{ background: PRIMARY_GRAD }}
+      >
+        {String(props.name || '友').slice(0, 1)}
+      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="truncate text-sm font-bold">{props.name}</span>
+        <span className={`size-1.5 shrink-0 rounded-full ${props.online !== false ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+      </div>
+      <button
+        type="button"
+        aria-label="语音通话"
+        onClick={(e) => { stopAct(e); toast('正在呼叫…', 'info'); }}
+        className="cursor-pointer transition-opacity active:opacity-60"
+      >
+        <Phone className="size-[18px] opacity-55" />
+      </button>
+      <button
+        type="button"
+        aria-label="更多操作"
+        onClick={(e) => { stopAct(e); toast('更多操作（演示）', 'info'); }}
+        className="cursor-pointer transition-opacity active:opacity-60"
+      >
+        <MoreVertical className="size-[18px] opacity-55" />
+      </button>
+    </div>
+  );
+}
+
+/** 会话列表项交互：整行 → onTap 优先，否则 toast 打开会话 */
+function ContactItemInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const name = String(props.name || '友');
+  return (
+    <div
+      role="button"
+      aria-label={`打开会话：${name}`}
+      className="w-card flex cursor-pointer items-center gap-3 p-3 transition-transform active:scale-[0.99]"
+      onClick={(e) => { stopAct(e); if (onTap) onTap(); else toast(`打开会话：${name}`, 'info'); }}
+    >
+      <div
+        className="flex size-11 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white"
+        style={{ background: props.color === 'primary' ? PRIMARY_GRAD : avatarGrad(name) }}
+      >
+        {name.slice(0, 1)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold">{props.name}</div>
+        <div className="mt-0.5 truncate text-xs opacity-45">{props.lastMsg}</div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <span className="text-[10px] opacity-35">{props.time}</span>
+        {Number(props.unread) > 0 && (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+            {props.unread}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 图片消息交互：点击 → 查看大图 toast */
+function MsgImageInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const w = Math.min(220, Math.max(120, Number(props.width) || 168));
+  return (
+    <div className="flex">
+      <div
+        role="button"
+        aria-label="查看大图"
+        className="w-chip cursor-pointer p-1.5 transition-transform active:scale-[0.98]"
+        style={{ borderRadius: 'var(--pr) var(--pr) var(--pr) 4px' }}
+        onClick={(e) => { stopAct(e); toast('查看大图（演示）', 'info'); }}
+      >
+        <div
+          className="relative flex items-center justify-center overflow-hidden"
+          style={{
+            width: w,
+            height: Math.round(w * 0.72),
+            borderRadius: 'calc(var(--pr) - 4px)',
+            background: PRIMARY_GRAD,
+          }}
+        >
+          <ImageIcon className="size-7 text-white/85" />
+          {props.duration ? (
+            <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white">
+              {props.duration}
+            </span>
+          ) : null}
+        </div>
+        {props.caption ? <div className="px-1 pb-0.5 pt-1.5 text-xs opacity-60">{props.caption}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+/** 语音消息交互：点击 → 播放态波形动画 + toast，自动停止 */
+function MsgVoiceInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const [playing, setPlaying] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const seconds = Number(props.seconds) || 12;
+  const right = props.side === 'right';
+  const play = (e: React.MouseEvent) => {
+    stopAct(e);
+    if (playing) return;
+    setPlaying(true);
+    toast(`▶ 播放语音 ${seconds}''`, 'info');
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setPlaying(false), Math.min(2400, 500 + seconds * 80));
+  };
+  return (
+    <div className={`flex items-end gap-2 ${right ? 'flex-row-reverse' : ''}`}>
+      <div
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-white"
+        style={{ background: PRIMARY_GRAD }}
+      >
+        <UserRound className="size-4" />
+      </div>
+      <div
+        role="button"
+        aria-label={`播放语音 ${seconds} 秒`}
+        onClick={play}
+        className={`flex cursor-pointer items-center gap-2 px-3 py-2 transition-transform active:scale-[0.97] ${right ? '' : 'w-chip'}`}
+        style={{
+          borderRadius: right ? 'var(--pr) var(--pr) 4px var(--pr)' : 'var(--pr) var(--pr) var(--pr) 4px',
+          ...(right ? { background: 'var(--p)', color: 'var(--pf)' } : {}),
+        }}
+      >
+        <Mic className={`size-4 shrink-0 ${playing ? 'animate-pulse' : ''}`} style={right ? undefined : { color: 'var(--p)' }} />
+        <span className="shrink-0 text-xs font-semibold">{seconds}''</span>
+        <span className={`flex shrink-0 items-center gap-[3px] ${playing ? 'animate-pulse' : ''}`}>
+          {[9, 16, 7, 12].map((h, i) => (
+            <span
+              key={i}
+              className="w-[3px] rounded-full"
+              style={{ height: h, background: right ? 'rgba(255,255,255,0.85)' : 'var(--p)' }}
+            />
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** 聊天输入栏交互：真实输入 + 发送（空文案拦截）；⊕/麦克风各自 toast */
+function InputBarInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const [val, setVal] = useState('');
+  const send = () => {
+    const text = val.trim();
+    if (!text) {
+      toast('请输入消息', 'info');
+      return;
+    }
+    toast(`已发送：${text}`, 'success');
+    setVal('');
+  };
+  return (
+    <div className="w-card flex items-center gap-2 border-t w-line px-3 py-2">
+      <button
+        type="button"
+        aria-label="更多功能"
+        onClick={(e) => { stopAct(e); toast('更多功能（演示）', 'info'); }}
+        className="cursor-pointer transition-opacity active:opacity-60"
+      >
+        <CirclePlus className="size-[22px] shrink-0 opacity-35" />
+      </button>
+      <div className="w-input flex h-9 min-w-0 flex-1 items-center px-3.5" style={{ borderRadius: '999px' }}>
+        <input
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.stopPropagation();
+              send();
+            }
+          }}
+          placeholder={String(props.placeholder || '发消息…')}
+          aria-label="聊天输入框"
+          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:opacity-35"
+        />
+      </div>
+      <button
+        type="button"
+        aria-label="按住说话"
+        onClick={(e) => { stopAct(e); toast('按住说话（演示）', 'info'); }}
+        className="cursor-pointer transition-opacity active:opacity-60"
+      >
+        <Mic className="size-5 shrink-0 opacity-50" />
+      </button>
+      <button
+        type="button"
+        aria-label="发送"
+        onClick={(e) => { stopAct(e); send(); }}
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center transition-transform active:scale-90"
+        style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        <SendHorizontal className="size-4" />
+      </button>
+    </div>
+  );
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'chat.header',
@@ -48,6 +275,7 @@ export const widgets: WidgetDef[] = [
       { key: 'name', label: '对方昵称', type: 'text' },
       { key: 'online', label: '在线状态', type: 'switch' },
     ],
+    Interactive: ChatHeaderInteractive,
     render: (p) => (
       <div className="flex items-center gap-2.5 border-b w-line px-3.5 py-2.5">
         <ArrowLeft className="size-5 shrink-0 opacity-70" />
@@ -83,6 +311,7 @@ export const widgets: WidgetDef[] = [
         options: [{ label: '循环配色', value: 'cycle' }, { label: '跟随主色', value: 'primary' }],
       },
     ],
+    Interactive: ContactItemInteractive,
     render: (p) => (
       <div className="w-card flex items-center gap-3 p-3">
         <div
@@ -171,6 +400,7 @@ export const widgets: WidgetDef[] = [
       { key: 'width', label: '图片宽度', type: 'number', min: 120, max: 220, step: 4 },
       { key: 'duration', label: '角标时长（可选）', type: 'text', placeholder: '如 00:12，留空不显示' },
     ],
+    Interactive: MsgImageInteractive,
     render: (p) => {
       const w = Math.min(220, Math.max(120, Number(p.width) || 168));
       return (
@@ -212,6 +442,7 @@ export const widgets: WidgetDef[] = [
         options: [{ label: '对方（左）', value: 'left' }, { label: '我方（右）', value: 'right' }],
       },
     ],
+    Interactive: MsgVoiceInteractive,
     render: (p) => {
       const right = p.side === 'right';
       return (
@@ -271,6 +502,7 @@ export const widgets: WidgetDef[] = [
     fullBleed: true,
     defaultProps: { placeholder: '发消息…' },
     fields: [{ key: 'placeholder', label: '提示文案', type: 'text' }],
+    Interactive: InputBarInteractive,
     render: (p) => (
       <div className="w-card flex items-center gap-2 border-t w-line px-3 py-2">
         <CirclePlus className="size-[22px] shrink-0 opacity-35" />

@@ -1,9 +1,12 @@
+'use client';
+
 import {
   Image as ImageIcon, Heart, JapaneseYen, Palette, Minus, Plus, ShieldCheck, Truck,
   RotateCcw, Star, MapPin, ChevronRight, ShoppingCart, MessageCircle, ReceiptText,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
 import { QtyStepperInteractive, SkuSelectInteractive } from './interactive';
+import { stopAct, useAction, useLocalToggle, ActStatusIcon } from './action-kit';
 
 /**
  * 购物 / 商品详情 组件库（目录：shopping）
@@ -17,6 +20,172 @@ import { QtyStepperInteractive, SkuSelectInteractive } from './interactive';
 const splitList = (raw: unknown): string[] =>
   String(raw ?? '').split(/[,,]/).map((s) => s.trim()).filter(Boolean);
 
+/* ------------------------------------------------------------------ */
+/* Interactive 实现（仅预览模式挂载）：预览中按钮/开关原地生效，杜绝死按钮 */
+/* ------------------------------------------------------------------ */
+
+/** 商品主图：右上角收藏心形原地翻转（白描边 ⇄ 红色填充）+ toast 反馈 */
+function DetailHeroInteractive({ props }: InteractiveCtx) {
+  const [fav, toggleFav] = useLocalToggle(false);
+  const { toast } = useAction();
+  return (
+    <div className="relative h-[260px] w-full">
+      {/* 渐变图片占位 */}
+      <div
+        className="absolute inset-0 flex items-center justify-center"
+        style={{ background: 'linear-gradient(160deg, color-mix(in srgb, var(--p) 22%, transparent), color-mix(in srgb, var(--p) 52%, transparent))' }}
+      >
+        <ImageIcon className="size-14 opacity-30" />
+      </div>
+      {/* 右上角收藏心形：点击原地翻转 */}
+      {props.fav !== false && (
+        <button
+          type="button"
+          aria-label={fav ? '取消收藏' : '收藏商品'}
+          onClick={(e) => {
+            stopAct(e);
+            toggleFav();
+            toast(fav ? '已取消收藏' : '已收藏', 'success');
+          }}
+          className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/25 transition-transform active:scale-[0.88]"
+        >
+          <Heart
+            className="size-4 text-white transition-colors"
+            style={fav ? { color: '#f43f5e', fill: '#f43f5e' } : undefined}
+          />
+        </button>
+      )}
+      {/* 底部指示点 */}
+      <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span
+            key={i}
+            className="size-1.5 rounded-full"
+            style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 服务保障行：整行点击 → 已绑定页面则跳页（onTap），否则 toast 服务说明 */
+function ServiceRowInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  return (
+    <div
+      role="button"
+      aria-label="查看服务说明"
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('查看服务说明（演示）', 'info');
+      }}
+      className="flex cursor-pointer items-center justify-between border-y w-line px-1 py-3 transition-opacity active:opacity-80"
+    >
+      {[
+        { icon: Truck, text: props.s1 },
+        { icon: RotateCcw, text: props.s2 },
+        { icon: ShieldCheck, text: props.s3 },
+      ].map(({ icon: Icon, text }, i) => (
+        <span key={i} className="flex items-center gap-1.5 text-[11px] opacity-65">
+          <Icon className="size-3.5" style={{ color: 'var(--p)' }} />
+          {text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** 收货地址条：整行点击 → 已绑定页面则跳页（onTap），否则 toast 选择地址 */
+function AddressBarInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  return (
+    <div
+      role="button"
+      aria-label="选择收货地址"
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else toast('选择收货地址（演示）', 'info');
+      }}
+      className="w-card flex cursor-pointer items-center gap-3 p-3.5 transition-opacity active:opacity-80"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <MapPin className="size-5 shrink-0" style={{ color: 'var(--p)' }} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-bold">
+          {props.name}
+          <span className="ml-2">{props.phone}</span>
+        </p>
+        <p className="mt-1 line-clamp-2 text-xs leading-4 opacity-55">{props.address}</p>
+      </div>
+      <ChevronRight className="size-4 shrink-0 opacity-35" />
+    </div>
+  );
+}
+
+/** 底部操作条：加购 busy→成功 toast；购买跳页/结算提示；购物车/客服图标独立 toast */
+function AddCartBarInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast, busy, done, run } = useAction();
+  return (
+    <div
+      className="w-card flex h-14 items-center gap-3.5 border-t w-line px-4"
+      style={{ borderRadius: 'calc(var(--pr) + 2px) calc(var(--pr) + 2px) 0 0' }}
+    >
+      {/* 左侧竖排小图标钮 */}
+      <button
+        type="button"
+        aria-label="购物车"
+        onClick={(e) => { stopAct(e); toast('购物车（演示）', 'info'); }}
+        className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 opacity-70 transition-opacity active:opacity-50"
+      >
+        <ShoppingCart className="size-[18px]" />
+        <span className="text-[9px] leading-none">购物车</span>
+      </button>
+      <button
+        type="button"
+        aria-label="联系客服"
+        onClick={(e) => { stopAct(e); toast('联系客服（演示）', 'info'); }}
+        className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 opacity-70 transition-opacity active:opacity-50"
+      >
+        <MessageCircle className="size-[18px]" />
+        <span className="text-[9px] leading-none">客服</span>
+      </button>
+      {/* 右侧大按钮 */}
+      <div className="ml-auto flex flex-1 items-center gap-2">
+        <button
+          type="button"
+          aria-label={String(props.cartText || '加入购物车')}
+          onClick={(e) => { stopAct(e); run(() => toast('已加入购物车 🛒', 'success')); }}
+          className="flex h-10 flex-1 cursor-pointer items-center justify-center gap-1.5 text-[13px] font-bold active:scale-[0.98]"
+          style={{
+            borderRadius: 'calc(var(--pr) + 4px)',
+            background: 'color-mix(in srgb, var(--p) 14%, transparent)',
+            color: 'var(--p)',
+          }}
+        >
+          <ActStatusIcon busy={busy} done={done} />
+          {props.cartText}
+        </button>
+        <button
+          type="button"
+          aria-label={String(props.buyText || '立即购买')}
+          onClick={(e) => {
+            stopAct(e);
+            if (onTap) onTap();
+            else toast('跳转结算（演示）', 'info');
+          }}
+          className="h-10 flex-1 cursor-pointer text-[13px] font-bold shadow-md active:scale-[0.98]"
+          style={{ borderRadius: 'calc(var(--pr) + 4px)', background: 'var(--p)', color: 'var(--pf)' }}
+        >
+          {props.buyText}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'shop.detail-hero',
@@ -29,6 +198,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'fav', label: '显示收藏按钮', type: 'switch' },
     ],
+    Interactive: DetailHeroInteractive,
     render: (p) => (
       <div className="relative h-[260px] w-full">
         {/* 渐变图片占位 */}
@@ -182,6 +352,7 @@ export const widgets: WidgetDef[] = [
       { key: 's2', label: '第二项文案', type: 'text' },
       { key: 's3', label: '第三项文案', type: 'text' },
     ],
+    Interactive: ServiceRowInteractive,
     render: (p) => (
       <div className="flex items-center justify-between border-y w-line px-1 py-3">
         {[
@@ -257,6 +428,7 @@ export const widgets: WidgetDef[] = [
       { key: 'phone', label: '电话', type: 'text' },
       { key: 'address', label: '地址', type: 'textarea' },
     ],
+    Interactive: AddressBarInteractive,
     render: (p) => (
       <div className="w-card flex items-center gap-3 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
         <MapPin className="size-5 shrink-0" style={{ color: 'var(--p)' }} />
@@ -283,6 +455,7 @@ export const widgets: WidgetDef[] = [
       { key: 'cartText', label: '加购按钮文案', type: 'text' },
       { key: 'buyText', label: '购买按钮文案', type: 'text' },
     ],
+    Interactive: AddCartBarInteractive,
     render: (p) => (
       <div
         className="w-card flex h-14 items-center gap-3.5 border-t w-line px-4"

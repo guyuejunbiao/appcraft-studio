@@ -1,9 +1,14 @@
+'use client';
+
 import {
   Lock, Smartphone, ShieldCheck, Eye, EyeOff, UserRound, ChevronRight,
   MessageCircle, Apple, Chrome, Mail, KeyRound, LogIn, UserPlus,
   RectangleHorizontal, Square, BadgeCheck,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { useBusScope } from '@/lib/interaction-bus';
+import { fireToast } from '@/lib/widget-toast';
+import { stopAct } from './action-kit';
 import {
   LoginTabsInteractive, PhoneInputInteractive, PasswordInputInteractive,
   SmsInputInteractive, PrimaryBtnInteractive, AgreementCheckInteractive,
@@ -16,6 +21,54 @@ import {
  * 表面类：w-card(卡片) w-input(输入底) w-chip(浅色块) w-line(分割线颜色)
  * 主文字继承画布颜色，次要文字用 opacity-*，保证暗色模式自适应。
  */
+
+/* ------------------------------------------------------------------ */
+/* 交互实现（action-kit 规范）：视觉复制 render，仅替换可交互元素          */
+/* ------------------------------------------------------------------ */
+
+/** login.register-btn 交互：绑定跳页（注册页）优先，否则演示 toast */
+function RegisterBtnInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  return (
+    <button
+      type="button"
+      aria-label={String(props.text || '注册新账号')}
+      onClick={(e) => {
+        stopAct(e);
+        if (onTap) onTap();
+        else fireToast(scope, '注册（演示）', 'info');
+      }}
+      className="flex h-11 w-full cursor-pointer items-center justify-center gap-1.5 text-sm font-semibold w-line border transition-transform active:scale-[0.98]"
+      style={{ borderRadius: 'var(--pr)' }}
+    >
+      <UserPlus className="size-4 opacity-60" /> {props.text}
+    </button>
+  );
+}
+
+/** login.forgot-link 交互：绑定跳页优先，否则找回密码演示 toast */
+function ForgotLinkInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  return (
+    <div className="flex items-center justify-between px-0.5">
+      <span className="text-xs opacity-50">{props.tip}</span>
+      <button
+        type="button"
+        aria-label="找回密码"
+        onClick={(e) => {
+          stopAct(e);
+          if (onTap) onTap();
+          else fireToast(scope, '找回密码（演示）', 'info');
+        }}
+        className="flex cursor-pointer items-center text-xs font-semibold transition-opacity active:opacity-60"
+        style={{ color: 'var(--p)' }}
+      >
+        {props.text} <ChevronRight className="size-3" />
+      </button>
+    </div>
+  );
+}
+
 export const widgets: WidgetDef[] = [
   {
     type: 'login.logo',
@@ -165,6 +218,7 @@ export const widgets: WidgetDef[] = [
     icon: UserPlus,
     defaultProps: { text: '注册新账号' },
     fields: [{ key: 'text', label: '按钮文案', type: 'text' }],
+    Interactive: RegisterBtnInteractive,
     render: (p) => (
       <button
         className="flex h-11 w-full items-center justify-center gap-1.5 text-sm font-semibold w-line border active:scale-[0.98]"
@@ -185,6 +239,7 @@ export const widgets: WidgetDef[] = [
       { key: 'text', label: '左侧文案', type: 'text' },
       { key: 'tip', label: '右侧文案', type: 'text' },
     ],
+    Interactive: ForgotLinkInteractive,
     render: (p) => (
       <div className="flex items-center justify-between px-0.5">
         <span className="text-xs opacity-50">{p.tip}</span>

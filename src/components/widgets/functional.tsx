@@ -8,7 +8,7 @@ import {
   Image as ImageIcon, Settings2, CircleCheck, List, TextCursorInput,
   ChartColumn, CloudSun, Sun, Moon, Droplets, Wind, Target, PanelBottom,
   Home, LayoutGrid, Compass, UserRound, Settings, Bell, PackageOpen,
-  Play, Plus, Pencil, Camera, MessageCircle, Crown, ChevronRight,
+  Play, Pause, Plus, Pencil, Camera, MessageCircle, Crown, ChevronRight,
   Volume2, Palette, Shield, Info, Globe, CircleUserRound,
   CircleHelp, ChevronDown, Timer, Trophy, QrCode, Share2, CalendarDays, MoveVertical,
   LogOut,
@@ -18,6 +18,7 @@ import { useBusScope, useUserValue, useScene } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 import { FnTabbarInteractive, InputFieldInteractive, BigButtonInteractive } from './interactive';
 import { normalizeCells, iconByNameSafe, type GridCell } from './grid-kit';
+import { stopAct, useAction, ActStatusIcon } from './action-kit';
 
 /**
  * 功能通用 组件库（目录：functional）
@@ -327,7 +328,7 @@ function EmptyStateInteractive({ props }: InteractiveCtx) {
 /* 个人中心头部共享视图：name/uid 可被会话身份覆盖                       */
 /* 正常 App 行为：登录后首页/个人中心显示「当前登录用户」而非写死的假数据 */
 /* ------------------------------------------------------------------ */
-function AvatarProfileBody({ name, uid, vip }: { name: string; uid: string; vip: boolean }) {
+function AvatarProfileBody({ name, uid, vip, onHome }: { name: string; uid: string; vip: boolean; onHome?: () => void }) {
   return (
     <div
       className="flex items-center gap-3 p-4"
@@ -357,7 +358,10 @@ function AvatarProfileBody({ name, uid, vip }: { name: string; uid: string; vip:
         <div className="mt-0.5 truncate text-[11px] opacity-70">{uid}</div>
       </div>
       <span
-        className="flex shrink-0 items-center gap-0.5 rounded-full px-2.5 py-1 text-xs"
+        onClick={onHome ? (e) => { e.stopPropagation(); onHome(); } : undefined}
+        role={onHome ? 'button' : undefined}
+        aria-label={onHome ? '进入个人主页' : undefined}
+        className={`flex shrink-0 items-center gap-0.5 rounded-full px-2.5 py-1 text-xs ${onHome ? 'cursor-pointer transition-opacity active:opacity-70' : ''}`}
         style={{ background: 'color-mix(in srgb, #fff 20%, transparent)' }}
       >
         个人主页 <ChevronRight className="size-3.5" />
@@ -369,8 +373,9 @@ function AvatarProfileBody({ name, uid, vip }: { name: string; uid: string; vip:
 /** 手机号脱敏：13812345678 → 138****5678 */
 const maskPhone = (v: string) => v.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2');
 
-/** 预览交互：绑定登录会话身份（手机号 → 脱敏展示；第三方 → 品牌身份） */
-function AvatarProfileInteractive({ props }: InteractiveCtx) {
+/** 预览交互：绑定登录会话身份（手机号 → 脱敏展示；第三方 → 品牌身份）；主页胶囊可点 */
+function AvatarProfileInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
   const phone = useUserValue('phone');
   const social = useUserValue('social');
   const name = phone
@@ -383,7 +388,216 @@ function AvatarProfileInteractive({ props }: InteractiveCtx) {
     : social
       ? `${social}授权 · 本次登录有效`
       : String(props.uid ?? '');
-  return <AvatarProfileBody name={name} uid={uid} vip={props.vip !== false} />;
+  return (
+    <AvatarProfileBody
+      name={name}
+      uid={uid}
+      vip={props.vip !== false}
+      onHome={() => {
+        if (onTap) onTap();
+        else fireToast(scope, '进入个人主页', 'info');
+      }}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 视频卡：中央播放圆钮切换播放态（Play ⇄ Pause 原地翻转）               */
+/* ------------------------------------------------------------------ */
+function VideoCardInteractive({ props }: InteractiveCtx) {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div>
+      <div
+        className="relative flex aspect-video items-center justify-center overflow-hidden"
+        style={{
+          borderRadius: 'var(--pr)',
+          background: 'linear-gradient(135deg, var(--p), color-mix(in srgb, var(--p) 55%, #fff))',
+        }}
+      >
+        <button
+          type="button"
+          aria-label={playing ? '暂停' : '播放'}
+          onClick={(e) => { stopAct(e); setPlaying((v) => !v); }}
+          className="flex size-12 cursor-pointer items-center justify-center rounded-full bg-black/30 transition-transform active:scale-95"
+          style={{ color: '#fff' }}
+        >
+          {playing ? <Pause className="size-5" fill="currentColor" /> : <Play className="size-5" fill="currentColor" />}
+        </button>
+        <span className="absolute bottom-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+          {props.duration}
+        </span>
+      </div>
+      <div className="mt-2 truncate text-sm font-semibold">{props.title}</div>
+      <div className="mt-1 text-[11px] opacity-50">{props.views}</div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 悬浮按钮：主色圆钮 → 快捷操作 toast / 绑定跳页                        */
+/* ------------------------------------------------------------------ */
+function FabInteractive({ props, onTap }: InteractiveCtx) {
+  const scope = useBusScope();
+  const Icon = FAB_ICONS[props.icon] || Plus;
+  return (
+    <div className="flex justify-end p-1">
+      <button
+        type="button"
+        aria-label="快捷操作"
+        onClick={(e) => {
+          stopAct(e);
+          if (onTap) onTap();
+          else fireToast(scope, '快捷操作（演示）', 'info');
+        }}
+        className="flex size-14 cursor-pointer items-center justify-center shadow-lg transition-transform active:scale-90"
+        style={{ borderRadius: '999px', background: 'var(--p)', color: 'var(--pf)' }}
+      >
+        <Icon className="size-6" />
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* FAQ：手风琴原地展开/收起（点击任意行切换该项，再点收起）               */
+/* ------------------------------------------------------------------ */
+function FaqInteractive({ props }: InteractiveCtx) {
+  const items = String(props.items ?? '').split(/\n/).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const [open, setOpen] = useState<number | null>(0);
+  return (
+    <div className="w-card overflow-hidden" style={{ borderRadius: 'var(--pr)' }}>
+      {items.map((q, i) => {
+        const expanded = open === i;
+        return (
+          <div
+            key={i}
+            role="button"
+            aria-expanded={expanded}
+            aria-label={q}
+            onClick={(e) => { stopAct(e); setOpen(expanded ? null : i); }}
+            className={`cursor-pointer px-3 py-2.5 transition-opacity active:opacity-70 ${i > 0 ? 'border-t w-line' : ''}`}
+          >
+            <div className="flex items-center gap-2">
+              <CircleHelp className="size-3.5 shrink-0" style={{ color: 'var(--p)' }} />
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold">{q}</span>
+              <ChevronDown className={`size-3.5 shrink-0 opacity-40 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </div>
+            {expanded && (
+              <p className="mt-1.5 pl-6 text-[11px] leading-4 opacity-55">{props.answer}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 二维码卡：「立即分享」busy → 已生成分享海报 toast / 绑定跳页           */
+/* ------------------------------------------------------------------ */
+function QrcodeInteractive({ props, onTap }: InteractiveCtx) {
+  const act = useAction();
+  const n = 11;
+  const cells = Array.from({ length: n * n }, (_, i) => {
+    const x = i % n;
+    const y = Math.floor(i / n);
+    const corner = (x < 3 && y < 3) || (x > n - 4 && y < 3) || (x < 3 && y > n - 4);
+    if (corner) return x % 3 !== 1 || y % 3 !== 1 ? 1 : 0;
+    return (i * 73 + Number(props.seed || 7) * 131) % 97 > 47 ? 1 : 0;
+  });
+  return (
+    <div className="w-card p-4 text-center" style={{ borderRadius: 'var(--pr)' }}>
+      <p className="text-sm font-bold">{props.title}</p>
+      <p className="mt-1 text-[11px] opacity-55">{props.sub}</p>
+      <div className="mx-auto mt-3 w-fit rounded-xl border-2 p-2" style={{ borderColor: 'var(--p)' }}>
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${n}, 7px)` }}>
+          {cells.map((c, i) => (
+            <span key={i} className="size-[7px]" style={{ background: c ? '#18181b' : 'transparent' }} />
+          ))}
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-label="立即分享"
+        onClick={(e) => {
+          stopAct(e);
+          act.run(() => {
+            if (onTap) onTap();
+            else act.toast('已生成分享海报（演示）', 'success');
+          });
+        }}
+        className="mt-3 inline-flex h-8 cursor-pointer items-center gap-1.5 px-4 text-xs font-bold transition-transform active:scale-[0.97]"
+        style={{ background: 'var(--p)', color: 'var(--pf)', borderRadius: '999px' }}
+      >
+        {act.busy ? <ActStatusIcon busy done={false} className="size-3.5" /> : <Share2 className="size-3.5" />} 立即分享
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 日历卡：左右箭头原地切换月份（标题月份文字跟随变化）                   */
+/* ------------------------------------------------------------------ */
+function CalendarInteractive({ props }: InteractiveCtx) {
+  const start = Math.min(6, Math.max(0, Number(props.start) || 0));
+  const today = Number(props.today);
+  const [offset, setOffset] = useState(0);
+  /* 从「2026年9月」解析基准年月；解析失败回退当前日期 */
+  const m = /(\d{4})\s*年\s*(\d{1,2})\s*月/.exec(String(props.month ?? ''));
+  const now = new Date();
+  const baseY = m ? Number(m[1]) : now.getFullYear();
+  const baseM = m ? Number(m[2]) : now.getMonth() + 1;
+  const dt = new Date(baseY, baseM - 1 + offset, 1);
+  const title = `${dt.getFullYear()}年${dt.getMonth() + 1}月`;
+  const cells = [...Array(start).fill(0), ...Array.from({ length: 28 }, (_, i) => i + 1)];
+  return (
+    <div className="w-card p-3" style={{ borderRadius: 'var(--pr)' }}>
+      <div className="flex items-center justify-between px-1">
+        <button
+          type="button"
+          aria-label="上个月"
+          onClick={(e) => { stopAct(e); setOffset((v) => v - 1); }}
+          className="cursor-pointer rounded-md p-1 transition-opacity active:opacity-40"
+        >
+          <ChevronDown className="size-3.5 -rotate-90 opacity-40" />
+        </button>
+        <span className="text-xs font-bold">{title}</span>
+        <button
+          type="button"
+          aria-label="下个月"
+          onClick={(e) => { stopAct(e); setOffset((v) => v + 1); }}
+          className="cursor-pointer rounded-md p-1 transition-opacity active:opacity-40"
+        >
+          <ChevronDown className="size-3.5 rotate-90 opacity-40" />
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-y-1 text-center text-[10px] opacity-40">
+        {['日', '一', '二', '三', '四', '五', '六'].map((d) => (
+          <span key={d}>{d}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-y-0.5 text-center">
+        {cells.map((d, i) =>
+          d === 0 ? (
+            <span key={i} />
+          ) : (
+            <span
+              key={i}
+              className="mx-auto flex size-6 items-center justify-center rounded-full text-[11px] tabular-nums"
+              style={
+                offset === 0 && d === today
+                  ? { background: 'var(--p)', color: 'var(--pf)', fontWeight: 700 }
+                  : { opacity: i % 7 === 0 || i % 7 === 6 ? 0.4 : 0.85 }
+              }
+            >
+              {d}
+            </span>
+          )
+        )}
+      </div>
+    </div>
+  );
 }
 
 export const widgets: WidgetDef[] = [
@@ -708,6 +922,7 @@ export const widgets: WidgetDef[] = [
       { key: 'duration', label: '时长', type: 'text' },
       { key: 'views', label: '播放量', type: 'text' },
     ],
+    Interactive: VideoCardInteractive,
     render: (p) => (
       <div>
         <div
@@ -742,6 +957,7 @@ export const widgets: WidgetDef[] = [
     fields: [
       { key: 'icon', label: '图标', type: 'select', options: [{ label: '加号', value: 'plus' }, { label: '编辑', value: 'edit' }, { label: '相机', value: 'camera' }, { label: '消息', value: 'message' }] },
     ],
+    Interactive: FabInteractive,
     render: (p) => {
       const Icon = FAB_ICONS[p.icon] || Plus;
       return (
@@ -792,6 +1008,7 @@ export const widgets: WidgetDef[] = [
       { key: 'items', label: '问题列表（每行一个）', type: 'textarea' },
       { key: 'answer', label: '展开的答案示例', type: 'textarea' },
     ],
+    Interactive: FaqInteractive,
     render: (p) => {
       const items = String(p.items ?? '').split(/\n/).map((s) => s.trim()).filter(Boolean).slice(0, 6);
       return (
@@ -906,6 +1123,7 @@ export const widgets: WidgetDef[] = [
       { key: 'sub', label: '副文案', type: 'text' },
       { key: 'seed', label: '码样变化', type: 'number', min: 1, max: 99 },
     ],
+    Interactive: QrcodeInteractive,
     render: (p) => {
       const n = 11;
       const cells = Array.from({ length: n * n }, (_, i) => {
@@ -948,6 +1166,7 @@ export const widgets: WidgetDef[] = [
       { key: 'today', label: '今日日期', type: 'number', min: 1, max: 28 },
       { key: 'start', label: '首日星期偏移', type: 'number', min: 0, max: 6 },
     ],
+    Interactive: CalendarInteractive,
     render: (p) => {
       const start = Math.min(6, Math.max(0, Number(p.start) || 0));
       const cells = [...Array(start).fill(0), ...Array.from({ length: 28 }, (_, i) => i + 1)];

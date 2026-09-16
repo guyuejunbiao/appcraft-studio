@@ -808,3 +808,102 @@ Stage Summary:
 - 关键决策：①昼夜=App 级全局状态而非页面级（真实 App 深色模式语义），总线单字段+SceneProvider 上下文避免逐层透传 ②格跳页压栈、tabbar 换根——两种导航语义显式区分 ③旧数据(labels/onCount/badges)渲染路径完全保留，首次在属性面板编辑时才无损升级为 cells
 - 已知边界：themeOverride 是内存态不落库（刷新/重置回项目主题，符合预览会话语义）；聊天回归测试项目与个人中心昼夜测试项目保留作演示
 - 建议下一阶段：①shopping/food/social 目录其余列表类组件同样接入 cells 体系 ②格动作扩展「打开弹窗/复制」等 ③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+
+---
+Task ID: 2-d
+Agent: food-chat-interactive
+Task: food.tsx + chat.tsx 全部可点击组件 Interactive 落地
+
+Work Log:
+- 通读 action-kit 交互基建（stopAct/useAction/useLocalToggle）与 functional/mall 既有 Interactive 范式（navBack 回退、stopAct 分流、busy→work→done 时序）
+- food.tsx 在 widgets 数组前新增 7 个 Interactive（复制 render 视觉结构，仅替换可交互元素），逐个挂到 WidgetDef：
+  - CouponRowInteractive：券 chips 点击 toast「已领取优惠券：xxx」(success)；右侧箭头「更多优惠券（演示）」
+  - CategorySidebarInteractive：左侧分类行 useState 原地切换选中（主色高亮+左竖条跟随点击项）；右侧「+」钮 stopAct 分流 toast「已加入购物车：{分类}·招牌菜/人气菜」(success)
+  - DishCardInteractive：「+」圆钮 run(250,700) → 转圈→✓→回位 + toast「已加入购物车：菜名」(success)；整卡 stopAct 分流 onTap 优先否则 toast「查看菜品详情：菜名」
+  - DishRowInteractive：3 张迷你卡整卡点击 → onTap 优先否则「查看菜品详情：菜名」
+  - CartBarInteractive：去结算 useAction().run busy 转圈→toast「去结算（演示）」或 onTap；购物车图标钮 toast「购物车（演示）」
+  - OrderStatusInteractive：电话圆钮「正在呼叫骑手…」、「联系商家」chip「正在联系商家…」，各自 stopAct
+  - RateTagsInteractive：全部/好评/有图/差评 chips useState 原地切换（激活 chip 主色底、其余 w-chip 淡显，样式完全跟随点击项）——消灭典型死 chips
+- chat.tsx 新增 5 个 Interactive 并挂载：
+  - ChatHeaderInteractive：返回箭头 navBack?.() 回退页面栈（无 navBack toast「已在首页」）；电话「正在呼叫…」、更多「更多操作（演示）」
+  - ContactItemInteractive：整行 onTap 优先否则 toast「打开会话：昵称」
+  - MsgImageInteractive：图片点击 toast「查看大图（演示）」
+  - MsgVoiceInteractive：语音条点击 toast「▶ 播放语音 N''」+ 波形/麦克风 animate-pulse 播放态动画，定时自动停止（unmount 清理 timer）
+  - InputBarInteractive：受控 input 真实输入（Enter 也可发送）；发送钮有文字 toast「已发送：内容」(success)+清空、无文字 toast「请输入消息」；⊕「更多功能（演示）」、麦克风「按住说话（演示）」
+- 规范落实：每个可点元素 onClick={stopAct→业务}、cursor-pointer、active:scale/opacity 反馈、语义化 aria-label/role=button；内部按钮全部阻断冒泡，整卡类内部分流；未改 render/defaultProps/fields，未加 canvasInteractive；lucide 图标无新增需求（全部已 import）
+- 自检：bunx tsc --noEmit 过滤 food.tsx/chat.tsx = 0 错；git diff 确认 2 文件 590 插入/2 删除（删除仅为 import 行升级为 WidgetDef+InteractiveCtx）
+
+Stage Summary:
+- food 7 组件（coupon-row/category-sidebar/dish-card/dish-row/cart-bar/order-status/rate-tags）+ chat 5 组件（header/contact-item/msg-image/msg-voice/input-bar）Interactive 全部落地，共 12 个组件预览模式原地可交互
+- 交互语义覆盖三类：①开关/筛选类原地切换（分类侧栏、评价 chips）②动作类 loading/✓ 反馈+toast（加购、去结算、领券、呼叫）③导航类（navBack 回退、onTap 优先、演示 toast 兜底）——零死按钮、零跳页糊弄
+---
+Task ID: 2-a
+Agent: social-interactive
+Task: social.tsx 全部可点击组件 Interactive 落地
+
+Work Log:
+- 通读 worklog 现状、action-kit.tsx（stopAct/useAction/useLocalToggle/useLikeCount）、grid-kit useCellAct 既有模式、social.tsx 全文 14 个组件的 render 视觉与 props 字段
+- 文件顶部补 'use client'（原缺失，与 mall/functional 等兄弟文件对齐）+ useState import + InteractiveCtx 类型 + action-kit 导入；新增 parseCnCount/fmtCnCount 计数解析辅助（'2.4万'→24000，展示保持「万」风格与 render 文案一致，不可解析文案原样展示）+ likeToastOnToggle 点赞语义 toast 复用
+- widgets 数组前定义 12 个 Interactive（复制对应 render 的 JSX 结构保视觉 100% 一致，仅把静态元素换成 button/onClick），逐个挂到 WidgetDef：开关类双态初始值一律取 props（liked===true / followed===true / followBack===true）
+- 规范落地：每个可点击元素 stopAct(e) 阻断冒泡 + cursor-pointer + active:scale-[0.97]/active:opacity-80 过渡 + 语义化 aria-label；toast kind 按语义 success/info；内部按钮均阻断冒泡防误触整卡；整卡跳页类 onTap 优先、无连接才 toast
+- 未改 render/defaultProps/fields，未加 canvasInteractive，未动其他文件；bunx tsc --noEmit 过滤 social.tsx 0 错
+
+Stage Summary:
+- 开关/双态原地翻转（6 个）：social.action-bar 点赞格红心填充+计数±1（useLikeCount，'2.4万' 风格保留）+评论「评论功能演示」+分享「已复制链接」toast；social.comment-item 右侧心形翻转+计数±1；social.feed-card「+ 关注」⇄「已关注」翻转（已关注 xxx/已取消关注 toast）；social.profile-head 关注大按钮同款翻转；social.fan-row「回关」⇄「已关注」翻转（已回关 xxx）；social.user-suggest 3 卡关注钮独立 useState 数组翻转
+- 按钮/动作原地响应（6 个）：social.video-grid 播放钮 toast「▶ 播放：视频 N」+ 封面点赞角标实心⇄描边翻转±1；social.topic-wall chip toast「#话题#」；social.rank-list 整行点击 onTap 优先否则「查看：xxx」；social.topic-card / story-row / live-card 整卡点击 onTap 优先否则 toast「进入话题」「查看动态」「进入直播间」（story-row 内部好友头像独立分流 toast，不误触整卡）
+- grid-images（纯图片墙）与 danmaku（纯展示弹幕）无按钮语义，按任务清单不加 Interactive
+
+---
+Task ID: 2-b
+Agent: media-news-interactive
+Task: media.tsx + news.tsx 全部可点击组件 Interactive 落地
+
+Work Log:
+- 通读 worklog 现状、action-kit.tsx 交互基建、media.tsx/news.tsx 全文与 InteractiveCtx 类型定义
+- media.tsx：文件头补 'use client' + useState + InteractiveCtx 类型 + 从 './action-kit' 导入 stopAct/useAction/useLocalToggle/ActStatusIcon；widgets 数组前新增 PlayKnobLive（交互版圆形播放钮，Play⇄Pause 原地翻转）与 14 个 Interactive；render/defaultProps/fields 零改动
+- news.tsx：同样补 'use client' + 基建导入；widgets 数组前新增 9 个 Interactive 并逐个挂到 WidgetDef（date-header 纯静态未动）
+- 全部可点击元素按规范：stopAct 阻断冒泡 + cursor-pointer + active:scale-[0.97]/active:opacity-80 + role/aria-label；双态初始值取 props（playing/subscribed/current/activeIndex/weekday）；toast 用 success/info 语义化文案
+- 自检：bunx tsc --noEmit 过滤 media.tsx|news.tsx = 0 错（其余 5 行报错均为并行任务文件：examples/skills/mall.tsx，未触碰）
+
+Stage Summary:
+- media 14 个组件全部落地：player-large（播放⇄暂停原地翻转+上下首 toast 歌名）、mini-player（Pause⇄Play 翻转+下一首 toast）、radio-card/podcast-row/audio-card（圆形播放钮各自独立播放态翻转）、video-hero（中央大钮播放/暂停+返回箭头 navBack 缺失时 toast「已在首页」）、read-progress（继续阅读 busy 转圈→《书名》toast 或 onTap）、episode-chips（选集 chip 原地切换当前集+toast）、playlist-item（整行点击切换播放态高亮+正在播放/已暂停 toast）、schedule-row（星期徽标列点击切换选中+toast）、album-slide/book-grid/chapter-list/lyric-card（整卡/整行 onTap 优先，否则「打开专辑/打开书籍/打开章节/解锁章节需 VIP/查看完整歌词」语义 toast）
+- news 9 个组件落地：channel-tabs（最高优先级死 tab 修复：useState active index 原地切换，激活样式跟随）、subscribe-card（「+ 订阅」⇄「已订阅」原地翻转+已订阅/已取消订阅 toast）、video-news（缩略图播放钮 toast「▶ 播放视频」，整行 onTap 分流「打开视频：标题」）、headline/list-item/flash-bar/hot-board/special-topic/pic-news（整卡/整行 onTap 优先，否则「打开文章：标题/查看快讯/查看榜单/进入专题/浏览图集」语义 toast）
+- 交互语义：开关类一律原地翻转（严禁跳页糊弄），导航类 onTap 优先、无连接时 toast 兜底，视觉结构与 render 完全一致
+---
+Task ID: 2-c
+Agent: shopping-mall-interactive
+Task: shopping.tsx + mall.tsx 全部可点击组件 Interactive 落地
+
+Work Log:
+- 通读 worklog 现状、action-kit.tsx（stopAct/useAction/useLocalToggle/ActStatusIcon）、shopping.tsx、mall.tsx 全文，并核对 WidgetRenderer 的 onTap 挂载方式（外层包装 onClick={onTap}）→ 整卡类 Interactive 根节点统一 stopPropagation 后自行调 onTap，避免与外层包装双重触发；内部按钮一律 stopAct(e) 阻断冒泡
+- shopping.tsx 新增 4 个 Interactive 并挂载：DetailHeroInteractive（收藏心形 useLocalToggle 白描边⇄红填充 + toast 已收藏/已取消收藏）、AddCartBarInteractive（加购钮 useAction().run busy 转圈→toast「已加入购物车 🛒」+ ActStatusIcon；购买钮 onTap 优先否则 toast 跳转结算；购物车/客服图标钮各自 toast）、AddressBarInteractive / ServiceRowInteractive（整行 onTap 优先否则语义 toast）；补 'use client' 与 InteractiveCtx/action-kit 导入
+- mall.tsx 新增 10 个 Interactive 并挂载：MallSearchInteractive（本地补强版搜索栏：输入+清空+搜索钮 toast「搜索：xxx」/「请输入搜索内容」，回车可搜）、BannerInteractive（整卡→查看活动详情）、NoticeBarInteractive（整条→查看公告详情）、SectionHeaderInteractive（查看全部钮→onTap 优先否则 toast）、ProductCardInteractive（整卡→查看商品；圆形加购钮即时 toast + 900ms 变 ✓）、ProductGridInteractive（逐卡→查看商品）、FlashSaleInteractive（整卡→查看秒杀）、CouponCardInteractive（立即领取→原地变「已领取」灰态 opacity-45+w-line 灰边，重复点 toast「已领取过啦」）、CouponRowInteractive（boolean[] 三张券独立领取态）、BrandRowInteractive（逐卡→进入品牌馆）
+- 决策记录：任务第 7 条要求补强 mall.search 的 SearchInputInteractive，但该实现位于 interactive.tsx（任务限定只改 shopping/mall 两文件）→ 在 mall.tsx 内落地 MallSearchInteractive 并切换挂载点，interactive.tsx 未动；banner 经读 render 判断为带标题/副标题的活动位（非纯图），按整卡点击语义补了 Interactive（toast「查看活动详情」）
+- 全部 Interactive 复制 render 的 JSX 结构保视觉一致（w-card/w-chip/w-line/CSS 变量原样），仅把静态 span 换成 button/可点击元素；未改任何 render/defaultProps/fields/canvasInteractive，未动其他文件；可点元素均带 cursor-pointer、active 缩放/透明度反馈与 aria-label
+- 自检：bunx tsc --noEmit 过滤 shopping.tsx / mall.tsx 均 0 错（全仓仅剩 examples/、skills/ 目录 4 个与本任务无关的既有报错）
+
+Stage Summary:
+- shopping.tsx 4 组件 + mall.tsx 10 组件 Interactive 落地（mall 11 个组件全部具备交互，含既有金刚区）：收藏⇄取消原地翻转、加购 busy→成功 toast、券领取原地灰态、✓ 闪示反馈、整卡 onTap 优先未绑定语义 toast——无死按钮、无跳页糊弄开关类交互
+- 关键实现约定：①整卡点击根节点 stopPropagation 后自行调 onTap（防 WidgetRenderer 外层包装双重跳页）②内部按钮 stopAct 阻断冒泡分流 ③双态初始值取 props/初始未选态 ④纯静态组件（price-row/review-item/order-summary 等）未动
+---
+Task ID: 2-e
+Agent: profile-fitness-fn-login-interactive
+Task: profile/fitness/functional/login 全部可点击组件 Interactive 落地
+
+Work Log:
+- 通读 worklog 现状 + action-kit.tsx 交互基建 + 4 个目标文件全文；确认 InteractiveCtx（onTap/onLogout/navBack/slotPush）由 WidgetRenderer 以展开 props 注入、整卡 onTap 由外层包装层 onClick 承接
+- profile.tsx：widgets 数组前新增 8 个 Interactive（Member/Wallet/SignIn/PointsMall/Version/VipBanner/AchievementBadge/LogoutBtn），复用 render 的 JSX 结构保证视觉一致；新增 react-dom/framer-motion/action-kit 导入
+- fitness.tsx：新增 'use client' 与 react/interaction-bus/widget-toast/action-kit 导入，新增 7 个 Interactive（WaterTracker/CommunityPost/PlanCard/CoachCard/WorkoutItem/MarathonItem/StatsWeekly）
+- functional.tsx：AvatarProfileBody 增加可选 onHome 参数（render 调用点零改动、静态视觉不变），AvatarProfileInteractive 注入胶囊点击；新增 5 个 Interactive（VideoCard/Fab/Faq/Qrcode/Calendar），lucide 补 Pause 图标
+- login.tsx：新增 'use client' 与依赖导入，新增 RegisterBtnInteractive / ForgotLinkInteractive
+- 交互规范落实：所有可点击元素 stopAct(e) 阻断冒泡 + cursor-pointer + active:scale/opacity + aria-label；动作按钮统一 useAction().run(busy→toast/onTap→回位)，双态用 useLocalToggle/useLikeCount；toast kind 语义化（success=动作完成，info=查看/取消/演示导航）
+- 分流策略：内部按钮一律 stopAct 防误触整卡跳页；marathon-item/stats-weekly 整行自带 onClick（onTap 优先，否则演示 toast）并 stopProp 防外层重复触发；points-mall/workout-item 整卡跳页交由外层包装层，内部按钮独立动作
+- logout-btn 复用 functional.tsx ListItemInteractive 的微信式确认弹窗（portal 到 #phone-screen + spring 动画），确认后真实调 onLogout 清会话；无 onLogout 时 toast「演示环境无会话」
+- 自检：bunx tsc --noEmit 过滤 4 个文件 0 错误；未改 render/defaultProps/fields、未加 canvasInteractive、未动其他文件
+
+Stage Summary:
+- profile(8)：签到卡「签到⇄已签到」原地翻转+当日圆点点亮+连续天数联动+「签到成功 +5 积分」toast（再点可撤销）；会员卡立即续费 busy→「已续费会员（演示）」或跳页；钱包卡提现/充值各自 busy→演示 toast；积分卡去兑换 busy→「兑换成功（演示）」整卡分流；版本卡检查更新 busy 1.2s→「已是最新版本」；会员横幅立即开通 busy→「开通成功（演示）」或跳页；成就墙徽章圆钮 toast 成就详情/未解锁提示；退出登录确认弹窗→真实 onLogout 清会话
+- fitness(7)：喝水打卡每杯点击原地填充/取消+计数与毫升进度联动+「已打卡/已取消第 N 杯」；社区动态红心原地翻转+计数±1（useLikeCount）；训练计划开始训练 busy→「开始训练：计划名」或跳页；教练卡立即预约 busy→「预约成功（演示）」或跳页；训练动作视频圆钮 toast「▶ 播放教学视频」整卡分流；赛事条目/周运动统计整行点击「查看赛事详情」「查看周报」或跳页
+- functional(6)：FAQ 手风琴原地展开/收起（单开互斥、再点收起、Chevron 旋转跟随）；悬浮圆钮「快捷操作（演示）」或跳页；二维码立即分享 busy→「已生成分享海报（演示）」或跳页；视频卡播放圆钮 Play⇄Pause 原地翻转；日历左右箭头原地切换月份、标题文字跟随（今日高亮仅基准月）；个人中心头部「个人主页>」胶囊 onTap 优先否则 toast「进入个人主页」
+- login(2)：注册入口 onTap 优先（模板绑定注册页）否则 toast「注册（演示）」，按钮视觉与 render 一致；忘记密码链接 onTap 优先否则 toast「找回密码（演示）」
+- tsc 本 4 文件 0 错；遗留：死按钮清零后建议下一轮 agent-browser 预览实测各交互（签到翻转/水杯填充/手风琴/日历翻月为高风险点）

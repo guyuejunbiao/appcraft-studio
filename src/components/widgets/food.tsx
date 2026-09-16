@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import {
   Store, Ticket, ListTree, UtensilsCrossed, Soup, Fish, Beef, Plus,
   ShoppingCart, Megaphone, ChevronRight, Check, LoaderCircle, Circle,
   Bike, Phone, Hash, Tags,
 } from 'lucide-react';
-import type { WidgetDef } from '@/lib/widget-types';
+import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { stopAct, useAction } from './action-kit';
 
 /**
  * 外卖点餐 组件库（目录：food）
@@ -21,6 +23,353 @@ const DISH_ICONS = [Soup, Fish, Beef];
 /** 逗号 / 中文逗号分隔 → 干净的字符串数组 */
 const splitList = (v: unknown): string[] =>
   String(v ?? '').split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+
+/* ------------------------------------------------------------------ */
+/* 预览交互实现（Interactive）：复制对应 render 的视觉结构（保视觉一致），  */
+/* 把静态元素替换为可交互元素。所有内部按钮 stopAct 阻断冒泡。             */
+/* ------------------------------------------------------------------ */
+
+/** 领券行交互：券 chips 点击领取 → toast；右侧箭头查看更多 */
+function CouponRowInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const list = splitList(props.coupons);
+  return (
+    <div className="w-card flex items-center gap-2.5 p-3">
+      <span className="shrink-0 text-sm font-bold">领券</span>
+      <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
+        {list.map((c, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`领取优惠券：${c}`}
+            onClick={(e) => { stopAct(e); toast(`已领取优惠券：${c}`, 'success'); }}
+            className={`shrink-0 cursor-pointer border border-dashed px-2 py-1 text-[11px] font-semibold transition-transform active:scale-[0.97] ${i % 2 === 1 ? '' : 'border-rose-500/45 bg-rose-500/10 text-rose-500'}`}
+            style={{
+              borderRadius: 'calc(var(--pr) - 3px)',
+              ...(i % 2 === 1
+                ? { borderColor: 'color-mix(in srgb, var(--p) 45%, transparent)', background: 'color-mix(in srgb, var(--p) 12%, transparent)', color: 'var(--p)' }
+                : {}),
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        aria-label="查看更多优惠券"
+        onClick={(e) => { stopAct(e); toast('更多优惠券（演示）', 'info'); }}
+        className="cursor-pointer transition-opacity active:opacity-60"
+      >
+        <ChevronRight className="size-4 shrink-0 opacity-35" />
+      </button>
+    </div>
+  );
+}
+
+/** 分类侧栏交互：左侧行原地切换选中高亮（useState）；右侧「+」加购 toast（分流） */
+function CategorySidebarInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const raw = splitList(props.cats);
+  const cats = raw.length ? raw : ['热销'];
+  const [active, setActive] = useState(() =>
+    Math.min(Math.max(0, Math.floor(Number(props.active) || 0)), cats.length - 1)
+  );
+  const dishNames = ['招牌菜', '人气菜'];
+  return (
+    <div className="w-card flex overflow-hidden">
+      <div className="w-chip w-[76px] shrink-0 py-1">
+        {cats.map((c, i) => (
+          <div
+            key={i}
+            role="button"
+            aria-label={`切换分类：${c}`}
+            className="relative cursor-pointer py-2.5 text-center text-xs transition-transform active:scale-[0.97]"
+            style={i === active ? { color: 'var(--p)', fontWeight: 700 } : { opacity: 0.5 }}
+            onClick={(e) => { stopAct(e); setActive(i); }}
+          >
+            {i === active && (
+              <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full" style={{ background: 'var(--p)' }} />
+            )}
+            {c}
+          </div>
+        ))}
+      </div>
+      <div className="min-w-0 flex-1 space-y-3 p-3">
+        {[0, 1].map((i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            <div
+              className="flex size-12 shrink-0 items-center justify-center"
+              style={{ borderRadius: 'calc(var(--pr) - 2px)', background: DISH_GRAD }}
+            >
+              <UtensilsCrossed className="size-5 text-white/85" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <span className="block h-2 w-3/4 rounded-full bg-current opacity-15" />
+              <span className="block h-2 w-1/2 rounded-full bg-current opacity-10" />
+            </div>
+            <button
+              type="button"
+              aria-label="加入购物车"
+              onClick={(e) => { stopAct(e); toast(`已加入购物车：${cats[active]}·${dishNames[i]}`, 'success'); }}
+              className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-90"
+              style={{ background: 'var(--p)', color: 'var(--pf)' }}
+            >
+              <Plus className="size-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 菜品卡交互：「+」加购（✓ 短反馈，分流阻断）；整卡 → onTap 或查看详情 */
+function DishCardInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast, busy, done, run } = useAction();
+  const name = String(props.name || '菜品');
+  return (
+    <div
+      role="button"
+      aria-label={`查看菜品：${name}`}
+      className="w-card flex cursor-pointer gap-3 p-3 transition-transform active:scale-[0.99]"
+      onClick={(e) => { stopAct(e); if (onTap) onTap(); else toast(`查看菜品详情：${name}`, 'info'); }}
+    >
+      <div
+        className="flex h-[88px] w-[88px] shrink-0 items-center justify-center"
+        style={{ borderRadius: 'calc(var(--pr) - 2px)', background: DISH_GRAD }}
+      >
+        <UtensilsCrossed className="size-8 text-white/85" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="truncate text-[15px] font-bold">{name}</div>
+        <div className="mt-0.5 text-[11px] opacity-45">月售 {props.sales} · 好评率 98%</div>
+        <div className="mt-0.5 truncate text-xs opacity-45">{props.desc}</div>
+        <div className="mt-auto flex items-end justify-between pt-1.5">
+          <span className="font-extrabold leading-none" style={{ color: 'var(--p)' }}>
+            <span className="text-xs">¥</span>
+            <span className="text-lg">{props.price}</span>
+          </span>
+          <button
+            type="button"
+            aria-label={`加入购物车：${name}`}
+            onClick={(e) => { stopAct(e); run(() => toast(`已加入购物车：${name}`, 'success'), 250, 700); }}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-full shadow-md transition-transform active:scale-90"
+            style={{ background: 'var(--p)', color: 'var(--pf)' }}
+          >
+            {busy ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : done ? (
+              <Check className="size-4" strokeWidth={3} />
+            ) : (
+              <Plus className="size-4" />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 推荐横滑交互：每张迷你卡整卡可点 → onTap 或查看详情 */
+function DishRowInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast } = useAction();
+  const raw = splitList(props.items);
+  const names = (raw.length ? raw : ['推荐菜']).slice(0, 3);
+  const prices = splitList(props.prices);
+  return (
+    <div className="flex gap-2 overflow-hidden">
+      {names.map((n, i) => {
+        const Icon = DISH_ICONS[i % DISH_ICONS.length];
+        return (
+          <div
+            key={i}
+            role="button"
+            aria-label={`查看菜品：${n}`}
+            className="w-chip min-w-0 flex-1 cursor-pointer p-1.5 transition-transform active:scale-[0.97]"
+            style={{ borderRadius: 'var(--pr)' }}
+            onClick={(e) => { stopAct(e); if (onTap) onTap(); else toast(`查看菜品详情：${n}`, 'info'); }}
+          >
+            <div
+              className="flex h-14 items-center justify-center"
+              style={{ borderRadius: 'calc(var(--pr) - 4px)', background: DISH_GRAD }}
+            >
+              <Icon className="size-6 text-white/85" />
+            </div>
+            <div className="mt-1.5 truncate px-0.5 text-xs font-medium">{n}</div>
+            <div className="px-0.5 pb-0.5 text-[13px] font-bold" style={{ color: 'var(--p)' }}>
+              ¥{prices[i] ?? '--'}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 购物车条交互：去结算 busy 转圈 → toast/跳页；购物车图标 toast（分流） */
+function CartBarInteractive({ props, onTap }: InteractiveCtx) {
+  const { toast, busy, done, run } = useAction();
+  return (
+    <div className="px-3 py-1">
+      <div
+        className="flex h-14 items-center gap-3 border border-white/10 bg-zinc-900 pl-4 pr-1.5 shadow-xl"
+        style={{ borderRadius: 'calc(var(--pr) + 10px)' }}
+      >
+        <button
+          type="button"
+          aria-label="查看购物车"
+          onClick={(e) => { stopAct(e); toast('购物车（演示）', 'info'); }}
+          className="relative shrink-0 cursor-pointer transition-transform active:scale-90"
+        >
+          <span className="flex size-9 items-center justify-center rounded-full bg-white/10">
+            <ShoppingCart className="size-[18px] text-white" />
+          </span>
+          {Number(props.count) > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+              {props.count}
+            </span>
+          )}
+        </button>
+        <div className="min-w-0 flex-1 leading-tight text-white">
+          <div className="truncate text-[13px] font-bold">
+            合计 <span className="text-lg">¥{props.total}</span>
+          </div>
+          <div className="text-[10px] text-white/45">另需配送费 ¥{props.fee}</div>
+        </div>
+        <button
+          type="button"
+          aria-label="去结算"
+          onClick={(e) => { stopAct(e); run(() => { if (onTap) onTap(); else toast('去结算（演示）', 'info'); }); }}
+          className="flex h-[46px] shrink-0 cursor-pointer items-center gap-1.5 px-5 text-[15px] font-bold transition-transform active:scale-[0.98]"
+          style={{ borderRadius: 'calc(var(--pr) + 6px)', background: 'var(--p)', color: 'var(--pf)' }}
+        >
+          {busy ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : done ? (
+            <Check className="size-4" strokeWidth={3} />
+          ) : (
+            '去结算'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** 订单状态交互：联系骑手 / 联系商家各自 toast（分流） */
+function OrderStatusInteractive({ props }: InteractiveCtx) {
+  const { toast } = useAction();
+  const STEPS = ['商家接单', '配送中', '已送达'];
+  const delivered = props.status === '已送达';
+  const idx = props.status === '商家接单中' ? 0 : props.status === '配送中' ? 1 : 2;
+  return (
+    <div className="w-card p-4">
+      <div className="text-lg font-extrabold">{props.status}</div>
+      <div className="mt-3 flex items-center gap-2">
+        <span className="w-chip flex shrink-0 items-center gap-1.5 py-1 pl-1.5 pr-2.5" style={{ borderRadius: '999px' }}>
+          <span
+            className="flex size-5 items-center justify-center rounded-full"
+            style={{ background: 'var(--p)', color: 'var(--pf)' }}
+          >
+            <Bike className="size-3" />
+          </span>
+          <span className="text-[11px]">{props.rider}</span>
+        </span>
+        <button
+          type="button"
+          aria-label="联系骑手"
+          onClick={(e) => { stopAct(e); toast('正在呼叫骑手…', 'info'); }}
+          className="w-chip flex size-7 shrink-0 cursor-pointer items-center justify-center border w-line transition-transform active:scale-90"
+          style={{ borderRadius: '999px' }}
+        >
+          <Phone className="size-3.5 opacity-55" />
+        </button>
+        <button
+          type="button"
+          aria-label="联系商家"
+          onClick={(e) => { stopAct(e); toast('正在联系商家…', 'info'); }}
+          className="w-chip ml-auto flex shrink-0 cursor-pointer items-center gap-1 px-2.5 py-1.5 transition-transform active:scale-[0.97]"
+          style={{ borderRadius: '999px' }}
+        >
+          <Store className="size-3.5 shrink-0 opacity-55" />
+          <span className="text-[11px] opacity-60">联系商家</span>
+        </button>
+      </div>
+      <div className="mt-4 px-1">
+        <div className="flex items-center">
+          {STEPS.map((label, i) => {
+            const stepDone = delivered || i < idx;
+            const current = !delivered && i === idx;
+            return (
+              <div key={label} className={`flex items-center ${i < STEPS.length - 1 ? 'flex-1' : ''}`}>
+                {stepDone ? (
+                  <span
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: 'var(--p)', color: 'var(--pf)' }}
+                  >
+                    <Check className="size-3.5" strokeWidth={3} />
+                  </span>
+                ) : current ? (
+                  <LoaderCircle className="size-6 shrink-0 animate-spin" style={{ color: 'var(--p)' }} />
+                ) : (
+                  <Circle className="size-6 shrink-0 opacity-30" />
+                )}
+                {i < STEPS.length - 1 && (
+                  <span
+                    className={`mx-1.5 h-0.5 flex-1 rounded-full ${stepDone ? '' : 'bg-current opacity-15'}`}
+                    style={stepDone ? { background: 'var(--p)' } : undefined}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="relative mt-1.5 h-4 text-[10px] leading-4">
+          <span className="absolute left-0 top-0">{STEPS[0]}</span>
+          <span
+            className="absolute left-1/2 top-0 -translate-x-1/2"
+            style={!delivered && idx === 1 ? { color: 'var(--p)', fontWeight: 600 } : undefined}
+          >
+            {STEPS[1]}
+          </span>
+          <span
+            className="absolute right-0 top-0"
+            style={!delivered && idx === 2 ? { color: 'var(--p)', fontWeight: 600 } : undefined}
+          >
+            {STEPS[2]}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 评分标签行交互：全部/好评/有图/差评 chips 原地切换选中（激活样式跟随点击项） */
+function RateTagsInteractive({ props }: InteractiveCtx) {
+  const total = Number(props.total) || 0;
+  const label = total >= 10000 ? `${(total / 10000).toFixed(1)}万` : String(total);
+  const tabs = [`全部 ${label}`, '好评', '有图', '差评'];
+  const [active, setActive] = useState(0);
+  return (
+    <div className="flex items-center gap-2 overflow-hidden">
+      {tabs.map((t, i) => (
+        <button
+          key={t}
+          type="button"
+          aria-label={`筛选评价：${t}`}
+          onClick={(e) => { stopAct(e); setActive(i); }}
+          className={`shrink-0 cursor-pointer px-3.5 py-1.5 text-xs transition-transform active:scale-[0.97] ${
+            i === active ? 'font-semibold' : 'w-chip opacity-65'
+          }`}
+          style={{ borderRadius: '999px', ...(i === active ? { background: 'var(--p)', color: 'var(--pf)' } : {}) }}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export const widgets: WidgetDef[] = [
   {
@@ -74,6 +423,7 @@ export const widgets: WidgetDef[] = [
     icon: Ticket,
     defaultProps: { coupons: '满30减8,满50减15,新客立减8' },
     fields: [{ key: 'coupons', label: '优惠券（逗号分隔）', type: 'text' }],
+    Interactive: CouponRowInteractive,
     render: (p) => {
       const list = splitList(p.coupons);
       return (
@@ -111,6 +461,7 @@ export const widgets: WidgetDef[] = [
       { key: 'cats', label: '分类（逗号分隔）', type: 'text' },
       { key: 'active', label: '激活分类序号', type: 'number', min: 0, max: 8, step: 1 },
     ],
+    Interactive: CategorySidebarInteractive,
     render: (p) => {
       const raw = splitList(p.cats);
       const cats = raw.length ? raw : ['热销'];
@@ -170,6 +521,7 @@ export const widgets: WidgetDef[] = [
       { key: 'price', label: '价格（元）', type: 'number', min: 0, max: 999, step: 0.5 },
       { key: 'sales', label: '月售', type: 'text' },
     ],
+    Interactive: DishCardInteractive,
     render: (p) => (
       <div className="w-card flex gap-3 p-3">
         <div
@@ -209,6 +561,7 @@ export const widgets: WidgetDef[] = [
       { key: 'items', label: '菜名（逗号分隔）', type: 'textarea' },
       { key: 'prices', label: '价格（逗号分隔）', type: 'text' },
     ],
+    Interactive: DishRowInteractive,
     render: (p) => {
       const raw = splitList(p.items);
       const names = (raw.length ? raw : ['推荐菜']).slice(0, 3);
@@ -249,6 +602,7 @@ export const widgets: WidgetDef[] = [
       { key: 'fee', label: '配送费（元）', type: 'number', min: 0, max: 20, step: 0.5 },
       { key: 'count', label: '商品数量', type: 'number', min: 0, max: 99, step: 1 },
     ],
+    Interactive: CartBarInteractive,
     render: (p) => (
       <div className="px-3 py-1">
         <div
@@ -299,6 +653,7 @@ export const widgets: WidgetDef[] = [
       },
       { key: 'rider', label: '骑手名称', type: 'text' },
     ],
+    Interactive: OrderStatusInteractive,
     render: (p) => {
       const STEPS = ['商家接单', '配送中', '已送达'];
       const delivered = p.status === '已送达';
@@ -400,6 +755,7 @@ export const widgets: WidgetDef[] = [
     icon: Tags,
     defaultProps: { total: 23000 },
     fields: [{ key: 'total', label: '评价总数', type: 'number', min: 0, max: 99990000, step: 1000 }],
+    Interactive: RateTagsInteractive,
     render: (p) => {
       const total = Number(p.total) || 0;
       const label = total >= 10000 ? `${(total / 10000).toFixed(1)}万` : String(total);
