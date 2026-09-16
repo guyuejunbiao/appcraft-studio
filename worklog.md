@@ -1055,3 +1055,25 @@ Stage Summary:
 - 用户报告的"弹窗一闪而过"闭环修复：根因是 pointerdown 默认聚焦 → focusin 弹层外 → Radix focusOutside 自动 dismiss；双保险修复（preventDefault 焦点保护 + onFocusOutside 豁免）并附带修复弹窗内 Select 下拉误关场景
 - 交互语义保持完整：点其他组件切换选中并关弹窗、点空白清除选中、Esc/完成按钮关闭——全部回归通过；就地编辑弹窗现在"点得开、留得住、用得了"
 - 建议下一阶段：①同类排查其他 Radix 弹层（WidgetPickerPopover/PageManagerDialog 等）是否有程序化 open + 焦点外移的误关隐患 ②git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+---
+Task ID: 37
+Agent: main (Z.ai Code)
+Task: 用户核心诉求——"单个编辑"+"每个商品独立跳转不同界面"（双列商品网格逐商品能力落地）
+
+Work Log:
+- 用户截图箭头指金刚区与商品网格，明确要求：商品必须能单独编辑，主图可作为独立入口，每个商品跳转不同界面，必须独立
+- 现状分析：金刚区已有 cells 逐格编辑 + slots 逐格绑页（无需改动）；双列商品网格（mall.product-grid）是 count 数量 + 骨架线占位 + 硬编码价格——商品名都不可编辑，点击整卡统一 onTap（所有商品跳同一页），正是用户痛点
+- 数据升级（grid-kit.tsx）：ProductItem {name,price,original?,sales?} + normalizeProducts（items 数组优先，旧 count/name/price 模式无损合成：首格继承旧值，其余默认占位）+ productsToSlots（每商品一槽位，cols:2）
+- widget-types.ts：PropFieldType 新增 'products'；WidgetSlot 新增可选 cols（静态导出网格均分用）；slotPush 签名 (slot)=>boolean（返回是否已跳转）
+- mall.tsx：ProductGridView 共用视图（真实商品名两行截断/售价/划线原价/已售 + 渐变图占位，静态/交互同构）；ProductGridInteractive 逐商品 slotPush(i) 压栈跳页；def.defaultProps 给 4 个真实商品 items、fields 换 products 编辑器、slots 逐商品
+- 编辑双入口：新建 builder/ProductsEditor.tsx（每商品一卡片：序号+名称输入+售价/原价/已售三列+上下移+删除（保底 2 个）+添加+绑定提示，max-h-96 滚动）；InspectorPanel FieldControl 接 products 分支 + productsFieldValue 兼容合成；InfiniteCanvas QuickEditor 同步接入——画布点两下商品网格即可逐商品改名改价（就地编辑）
+- 未绑定反馈修复（顺带发现）：同组件部分槽位绑定后，点击未绑定格子此前静默无反馈——PreviewPlayer slotPush 改返回 boolean，金刚区/订单宫格/服务九宫格/商品网格 4 处 Interactive 对 false 给「尚未绑定页面，选中组件后在「交互」页绑定」语义 toast
+- export-html.ts：槽位点击分区支持 cols 网格均分（双列商品网格逐格覆盖与卡片一一对应，此前竖向均分条会错位）
+- presets/mall.ts：爆款双列商品墙预设更新为 items 逐商品数据
+- agent-browser 全链路实测：旧项目（count:4）自动升级渲染真实商品名价格 ✓ 画布就地编辑弹窗改商品 1 名称实时生效 ✓ 编辑器属性面板 ProductsEditor 显示 4 商品可编辑 ✓ 交互面板「绑定目标」下拉出现全部商品槽位 ✓ 商品 1→商品详情、商品 2→页面 3（新建）两条独立连接添加成功 ✓ 预览点击商品 1 跳商品详情、返回后点击商品 2 跳页面 3（不同商品不同界面）✓ 未绑定商品 3 点击出现语义化提示 toast ✓
+- tsc 0 错（修复 WidgetRenderer slotPush 类型联动）、lint 0 错、console 0 error；提交（11 文件 +356/-87，新增 ProductsEditor.tsx）
+
+Stage Summary:
+- 用户诉求闭环：商品网格的每个商品现在都是独立个体——单独编辑（名称/价格/原价/已售）+ 单独绑定跳转页面（每个商品可跳不同界面），预览/导出 HTML/画布就地编辑三端一致；金刚区、订单宫格、服务九宫格本就支持逐格绑页，与商品网格形成统一的"逐单元编辑+绑定"心智
+- 关键架构沉淀：slots 机制（def.slots + Connection.slot + slotPush 压栈导航）证明可承载任意"组件内子单元"的独立跳页需求，后续 flash-sale 秒杀位/food.dish-row 横滑菜品等可低成本复制该模式
+- 建议下一阶段：①flash-sale 的 3 个秒杀商品位 items 化（同模式）②商品图支持选图标/ emoji 自定义（当前渐变占位）③git push 仍需用户新 token
