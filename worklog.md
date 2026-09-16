@@ -698,3 +698,26 @@ Stage Summary:
 - 用户新体验：编辑器画板内直接点登录方式切换 tab 即可预览两种形态；预览切「短信登录」验证码框紧贴手机号框
 - 遗留观察：用户浏览器若仍开着旧编辑会话，自动保存可能用旧数据（sms y=448）覆盖 DB 修复——重新打开项目即恢复正确数据（store 已有 slot-sharing 兜底）
 - 建议下一阶段：①QuickEditor/属性面板对配置了 channel+showValue 的组件显示「联动显示」徽标+搭档提示 ②画板中互斥槽位组件加虚线叠加指示 ③「重置」按钮语义扩展到画布
+
+---
+Task ID: 30
+Agent: main (Z.ai Code)
+Task: 按正常登录流程彻底重构登录界面预览交互逻辑（用户愤怒反馈"这一个界面你都弄不好！！！！逻辑呢？？？"）
+
+Work Log:
+- 全量走查登录链路：widgets/login.tsx（12 组件定义）、interactive.tsx（Interactive 实现）、interaction-bus.ts（联动总线）、WidgetRenderer（渲染/显隐）、PreviewPlayer（预览/跳转/重置）、templates.ts（登录模板）
+- 穷举 10 项逻辑缺陷：①登录按钮零校验（空表单直接"登录成功"）②组件状态孤岛（输入值各自 useState，按钮无法读取）③发码不校验手机号 ④收码无提示 ⑤未勾协议无拦截 ⑥注册按钮显示"登录成功"文案 ⑦密码框右侧多余•••• ⑧登录成功无去向（模板登录按钮未绑连接）⑨切页手机号丢失 ⑩手机号不校验 1[3-9] 号段
+- 架构重构——输入值以总线为唯一数据源，一石三鸟（状态孤岛/tab 切换丢输入/跨页带号）：
+  - interaction-bus.ts 新增 user:: 前缀用户数据频道（useUserValue/useUserSetter/userGet，全局共享跨页保留）+ resetUiValues
+  - Phone/Password/SmsInput 改总线受控；挂载时 useChannelDefault 上报 hasPhone/hasPassword/hasSms/hasAgreement 页面级标记
+  - PrimaryBtnInteractive 校验引擎：手机号(1[3-9]\d{9})→验证码(6位)→密码(≥6位)→协议；校验顺序跟随表单视觉顺序；模式自动判定（loginMode tabs 优先；无 tabs 时 hasPassword&&hasSms=注册场景）
+  - 微信式协议确认底部弹窗（同意并继续=写 agreed 后重入登录/不同意=关闭），portal 到 #phone-screen
+  - SmsInput 发码前置校验 + toast 三连（已发送/收到验证码 284616 已回填）
+  - 新增 src/lib/widget-toast.tsx：屏内 toast store + WidgetToast sticky 吸顶组件（error红/success绿/info蓝 图标），PreviewPlayer/Canvas/InfiniteCanvas 三处 BusScopeProvider 内挂载
+- 登录模板闭环：新增第 4 页「首页」（navbar/欢迎标题/avatar-profile/settings-group/list-item），连接补全至 6 条（登录按钮/注册按钮/短信登录按钮/微信授权行→首页，注册入口→注册页，忘记密码→短信登录）
+- 关键 bug 定位与修复（agent-browser + 总线快照确诊）：预览切页 resetBus 的父 effect 时序竞态——子组件写入标记的 effect 先于父 effect 执行，父清空后依赖值(undefined→undefined)未变化导致 useChannelDefault 自愈失效、hasXxx 标记永久丢失、手机号校验被跳过。修复：删除切页清总线（scope 前缀天然跨页隔离），重置按钮保留全清（事件回调时序可靠）
+- agent-browser 全流程实测 14 项全过：空表单/无效号段/空密码/短密码 逐项拦截 → 协议弹窗 → 登录成功跳首页；tab 联动显隐；发码拦截+自动回填；短信登录闭环；注册全链路（手机号带过/请输入验证码/请设置登录密码/注册成功文案）；微信授权链路；重置全清+标记自愈；弹窗不同意分支
+
+Stage Summary:
+- 登录界面从"无脑成功动画"升级为完整校验引擎，14 项浏览器实测全过，tsc/lint 0 错，提交 6721f66
+- 核心教训：①预览交互组件的状态必须共享（总线驱动），孤岛 useState 是登录逻辑 bug 的根源 ②父 effect 清状态会与子 effect 写状态产生时序竞态且依赖值不变时无法自愈——scope 前缀隔离优于清除 ③校验顺序要跟随表单视觉顺序 ④演示性校验必须向后兼容（无输入组件时跳过校验，旧项目零破坏）
