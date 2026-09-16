@@ -907,3 +907,27 @@ Stage Summary:
 - functional(6)：FAQ 手风琴原地展开/收起（单开互斥、再点收起、Chevron 旋转跟随）；悬浮圆钮「快捷操作（演示）」或跳页；二维码立即分享 busy→「已生成分享海报（演示）」或跳页；视频卡播放圆钮 Play⇄Pause 原地翻转；日历左右箭头原地切换月份、标题文字跟随（今日高亮仅基准月）；个人中心头部「个人主页>」胶囊 onTap 优先否则 toast「进入个人主页」
 - login(2)：注册入口 onTap 优先（模板绑定注册页）否则 toast「注册（演示）」，按钮视觉与 render 一致；忘记密码链接 onTap 优先否则 toast「找回密码（演示）」
 - tsc 本 4 文件 0 错；遗留：死按钮清零后建议下一轮 agent-browser 预览实测各交互（签到翻转/水杯填充/手风琴/日历翻月为高风险点）
+---
+Task ID: 34
+Agent: main (Z.ai Code)
+Task: 用户愤怒指令「给你说深色浅色更换你就做一个深色浅色更换——那些带按钮的不都得实现吗？？难道带按钮的还需要跳转界面？？功能开关都要跳转界面吗？？？」——全站所有带按钮/开关组件 Interactive 全面落地（原地生效，严禁死按钮）
+
+Work Log:
+- 子代理全量盘点 12 文件 144 组件：23 个有 Interactive、121 个无，其中约 45 个带按钮/开关/tab/可点行的「死组件」清单按 P0开关>P1按钮>P2tab>P3行点击 分级
+- 新建 src/components/widgets/action-kit.tsx 通用交互基建：useAction（busy/done/toast 状态机，防重复提交）、useLocalToggle（双态翻转）、useLikeCount（点赞计数±1）、stopAct（阻断冒泡防误触画布/整卡跳页）、ActStatusIcon、fmtCount
+- 5 个并行子代理按文件分工批量落地 68 个 Interactive（全部复制 render 视觉结构保 100% 一致）：
+  2-a social 12：action-bar 点赞翻转+计数、comment-item、feed-card/profile-head/fan-row/user-suggest 关注⇄已关注、video-grid 播放+点赞、topic-wall、rank-list、topic-card/story-row/live-card
+  2-b media 14 + news 9：player-large/mini-player/radio-card/podcast-row/audio-card/video-hero 播放暂停翻转、episode-chips 选集、read-progress 继续、playlist-item/schedule-row、channel-tabs 频道原地切换、subscribe-card 订阅翻转、video-news、headline/list-item/flash-bar/hot-board/special-topic/pic-news
+  2-c shopping 4 + mall 10：detail-hero 收藏心形翻转、add-cart-bar 加购✓/立即购买/图标钮、address-bar/service-row、product-card 加购✓+整卡分流、coupon-card/coupon-row 已领取态、search 搜索钮、notice-bar/section-header/banner/brand-row/product-grid/flash-sale
+  2-d food 7 + chat 5：category-sidebar 分类切换+加购、dish-card/dish-row、cart-bar 去结算、rate-tags 筛选原地切换、coupon-row、order-status 呼叫、input-bar 真实输入+发送+清空、header 返回/呼叫、contact-item、msg-voice 播放动画、msg-image
+  2-e profile 8 + fitness 7 + functional 6 + login 2：sign-in-card 签到翻转+圆点联动+天数、member/wallet/points/vip/version、logout-btn 确认弹窗复用+真实 onLogout、achievement-badge、water-tracker 逐杯打卡、community-post 点赞、plan/coach、workout/marathon/stats、faq 手风琴互斥展开、fab、qrcode、video-card 播放翻转、calendar 翻月、avatar-profile 胶囊、register-btn、forgot-link
+- 交互设计原则（响应用户核心诉求）：开关/双态类一律原地翻转绝不跳页（关注/订阅/收藏/领券/签到/点赞/打卡/播放态/筛选/选集）；动作按钮类原地 busy→toast→done 反馈；绑定连接的组件 onTap 优先真实跳页，未绑定给语义化 toast；全部 stopAct 防冒泡、cursor-pointer、active 反馈、aria-label
+- agent-browser 实测（商城回归测试项目 + API 新建「全站交互验收」30 组件项目 + 登录新版测试项目）：搜索「搜索：卫衣」✓、banner/公告/金刚区未绑页提示 ✓、商品卡绑页跳转详情 ✓、收藏翻转+toast ✓、SKU/数量 ✓、加购「已加入购物车🛒」+按钮✓态 ✓、关注/取消点赞/订阅/选集/去结算/水杯打卡/FAB/分享/注册/领券×2/签到全部 ✓、退出登录确认弹窗+onLogout ✓、登录空表单拦截/协议弹窗/同意跳首页/会话身份/设置分组开关/深色模式昼夜切换全部回归 ✓
+- 排障：console 报 Canvas.tsx 解析错误为子代理并行编辑期间 Fast Refresh 缓存的瞬时中间态（源文件 tsc/lint 全过、重启+清 console 后 0 error）；测试脚本 id 重复导致 React key 警告已修数据
+- tsc 0 错（仅 examples/skills 既有 4 项与 src 无关）、lint 0 错、console 0 error；提交 dd45048（13 文件 +4002）
+
+Stage Summary:
+- 用户诉求完整闭环：全站 91/144 组件具备真实交互（原有 23 + 本轮 68），所有带按钮/开关的组件原地生效——开关翻转、按钮 toast/状态反馈、tab/选集/筛选原地切换，无一处死按钮；绑定页面连接的组件仍优先真实跳页（两种语义共存：导航跳页 + 原地交互）
+- 关键基建：action-kit.tsx 统一交互模式（useAction/useLocalToggle/useLikeCount/stopAct），后续新组件照此接入即可；Interactive=render 的带 hooks 重写版（视觉一致）范式固化
+- 已知边界：canvasInteractive 本轮未扩展（画板内点击保持选中/拖拽语义，预览内全部生效）；P3 弱交互行已给 onTap/toast 兜底
+- 建议下一阶段：①把「全站交互验收」项目保留为演示模板（含 30 组件全交互样例）②交互组件的属性面板「交互提示」徽标（说明点击行为）③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
