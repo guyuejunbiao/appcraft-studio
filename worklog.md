@@ -1306,3 +1306,25 @@ Stage Summary:
 - GitHub 全量同步完成：c08e759 → 8f0ff0c，7 提交上线——fb52e31 功能按钮组件库 11 件套、f7b108f Task44 worklog、fbc4796 侧栏商品可编辑+resize 自适应体系、c8c4487 Task45 worklog、9bbbb13 SKU 逐选项效果图导入+主图原地联动+fullBleed 双向弹性链、77f0ed0 双击 SKU 弹窗编辑器（多图上传/主图滑动/大图原位查看）、8f0ff0c Task47 worklog
 - 推送惯例复核：token 仅命令行一次性传入，.git/config 与凭据存储均无残留
 - 本次同步后本地=远程=8f0ff0c（本节 docs 提交随下次同步上线）
+
+---
+Task ID: 49
+Agent: main (Z.ai Code)
+Task: 用户提问「创建好的 app 怎么发布？怎么保存到本地进行安装测试？」——补齐 PWA 真机安装能力
+
+Work Log:
+- 摸排现有发布能力：①上架 PublishDialog（图标/名称/简介→版本快照，首页「已上架应用」可开）②导出 HTML App（export-html.ts 单文件，双击离线可开）③导出项目 JSON
+- 识别缺口：file:// 直开无法触发浏览器「安装到桌面」（PWA 安装需独立 manifest + SW + PNG 图标 + http(s) 环境）；单文件模式 manifest 为 data URL 仅 iOS 部分可用
+- 安装 fflate@0.8.3（浏览器端 zip，约 8KB gzip）
+- 重构 export-html.ts：抽取 buildExportHtml 核心（manifestHref/iconHref/registerSw 三参数化）+ buildManifestObj（start_url/scope './' 支持子路径托管）+ downloadBlob/safeName（非法文件名过滤）；exportHtmlApp 行为保持兼容
+- 新增 exportPwaZip：index.html（外部 manifest+SW 注册）+ manifest.json + sw.js（cache-first 离线缓存）+ icon-192/512.png（SVG→canvas 光栅化）+ README.txt（中文三方式安装指南：双击直开/局域网真机/公网托管）→ zipSync 打包下载
+- Toolbar「更多」菜单新增「下载 PWA 安装包（可安装）」，导出前自动保存，toast 附三步指引
+- agent-browser 端到端实测（临时项目「巡检临时-PWA导出测试」mall-demo）：菜单项渲染 ✓ download 命令捕获 ZIP ✓ unzip 六文件齐全（index 267KB/manifest 539B/sw 1KB/PNG 41KB+264KB/README 2.2KB）✓ PNG 192/512 RGBA 有效 ✓ manifest 字段正确 ✓ index.html 引用外部 manifest+SW 注册 ✓
+- 起真实静态服务器（python http.server 8080）模拟本地安装环境：浏览器打开导出 App——手机壳+商城首页完整渲染（截图验证）、navigator.serviceWorker.getRegistration() 返回真注册（scope localhost:8080）、55 个跳转热区、点击 [data-goto] 页面真实切换 ✓
+- 清理：杀服务器、浏览器回首页、DELETE 测试项目 200、项目列表仅剩用户「1」零残留；dev.log 无新错误
+- tsc 0 错、lint 0 错；提交 581f062（未推 GitHub，需用户 token）
+
+Stage Summary:
+- 发布/安装体系补全为三条通路：①上架（站内版本快照）②导出单文件 HTML（双击离线原型）③PWA 安装包 ZIP（真机安装测试/公网发布）
+- 「保存到本地安装测试」完整闭环：ZIP 解压→python -m http.server→手机同 Wi-Fi 访问→添加到主屏幕→全屏独立 App；包内 README.txt 自带全流程中文指南，无需回看文档
+- 待办不变：交互运行时打包进导出 HTML（SKU 切图等富交互目前仅点击跳转）、商品图 emoji 自定义、编辑器交互对齐、热榜逐条绑页、登录页重设计、全站 QA
