@@ -862,7 +862,7 @@ export const widgets: WidgetDef[] = [
       { key: 'channel', label: '联动频道（高级）', type: 'text', placeholder: '其他组件订阅后可随标签切换显隐' },
     ],
     Interactive: FnTabbarInteractive,
-    slots: (p) => toList(p.items).map((label, i) => ({ key: String(i), label: `「${label}」标签` })),
+    slots: (p) => toList(p.items).map((label, i) => ({ key: String(i), label: label || `标签 ${i + 1}` })),
     render: (p) => {
       const tabs = toList(p.items);
       const active = Math.max(0, Math.min(tabs.length - 1, Math.round(Number(p.active) || 0)));

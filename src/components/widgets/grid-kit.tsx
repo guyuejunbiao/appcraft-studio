@@ -97,9 +97,9 @@ export function parseCells(
   }));
 }
 
-/** 槽位定义（交互面板逐格绑定页面用）：宫格通用 */
+/** 槽位定义（交互面板逐格绑定页面用）：宫格通用；label = 纯条目名（如 女装） */
 export const cellsToSlots = (cells: { label: string }[]) =>
-  cells.map((c, i) => ({ key: String(i), label: `「${c.label || `格 ${i + 1}`}」格` }));
+  cells.map((c, i) => ({ key: String(i), label: c.label || `格 ${i + 1}` }));
 
 /* ------------------------------------------------------------------ */
 /* 商品单元（双列商品网格等）：逐商品编辑内容 + 逐商品绑定跳转页面      */
@@ -147,11 +147,11 @@ export function normalizeProducts(
   }));
 }
 
-/** 商品槽位（交互面板逐商品绑定页面用）；cols 让静态导出的点击分区按网格均分（双列 2 / 秒杀横排 3） */
+/** 商品槽位（交互面板逐商品绑定页面用）；label = 纯商品名；cols 让静态导出的点击分区按网格均分（双列 2 / 秒杀横排 3） */
 export const productsToSlots = (items: ProductItem[], cols = 2) =>
   items.map((it, i) => ({
     key: String(i),
-    label: it.name ? `「${it.name.slice(0, 10)}」` : `商品 ${i + 1}`,
+    label: it.name ? it.name.slice(0, 10) : `商品 ${i + 1}`,
     cols,
   }));
 

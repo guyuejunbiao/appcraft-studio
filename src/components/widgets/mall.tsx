@@ -933,7 +933,7 @@ export const widgets: WidgetDef[] = [
       { key: 'brands', label: '品牌名', type: 'textarea', placeholder: '逗号分隔，最多 3 个' },
     ],
     slots: (p) =>
-      splitList(p.brands).slice(0, 3).map((b, i) => ({ key: String(i), label: `「${b}」品牌卡` })),
+      splitList(p.brands).slice(0, 3).map((b, i) => ({ key: String(i), label: b || `品牌卡 ${i + 1}` })),
     Interactive: BrandRowInteractive,
     render: (p) => (
       <div className="flex gap-2 overflow-hidden">

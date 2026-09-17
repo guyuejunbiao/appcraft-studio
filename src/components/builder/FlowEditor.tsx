@@ -13,8 +13,9 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import type { WidgetSlot } from '@/lib/widget-types';
 import type { PageData, AnimKind, ConnectionData } from '@/lib/types';
 import { ANIM_OPTS } from '@/lib/types';
 import { toast } from 'sonner';
@@ -41,10 +42,10 @@ export function ConnectionDialog({
 
   const fromPageId = editConn?.fromPageId ?? prefill?.fromPageId ?? '';
   const [fromWidget, setFromWidget] = useState('');
+  /** 槽位绑定：'' = 整个组件（点击任意位置）；'0'/'1'… = 仅点击该条目（分类/商品/格子） */
+  const [fromSlot, setFromSlot] = useState('');
   const [toPage, setToPage] = useState('');
   const [anim, setAnim] = useState('slide');
-  /** 编辑时是否改了触发组件（组件变了，槽位绑定随之失效需清除） */
-  const widgetChanged = editConn ? fromWidget !== editConn.fromWidgetId : false;
 
   const isEdit = !!editConn;
   /* 每次打开时用 editConn / prefill 重置表单（key 由父组件保证重挂载，此 effect 兜底） */
@@ -53,6 +54,7 @@ export function ConnectionDialog({
   if (open && openKey !== lastKey) {
     setLastKey(openKey);
     setFromWidget(editConn?.fromWidgetId ?? '');
+    setFromSlot(editConn?.slot ?? '');
     setToPage(editConn?.toPageId ?? prefill?.toPageId ?? '');
     setAnim(editConn?.animation ?? 'slide');
   }
@@ -62,6 +64,32 @@ export function ConnectionDialog({
   const widgets = fromPage?.components ?? [];
   const targets = pages.filter((p) => p.id !== fromPageId);
   const valid = fromPageId && fromWidget && toPage;
+
+  /* 每个组件的可绑定槽位（分类/商品/格子条目），用于把下拉从「模块名」细化到「条目名」。
+   * CompositeWidget 逐条目绑定后，预览里仅点击该条目才跳转（slotPush 压栈）。 */
+  const widgetSlotMap = useMemo(() => {
+    const map = new Map<string, WidgetSlot[]>();
+    widgets.forEach((w) => {
+      const def = getWidget(w.type);
+      if (!def) return;
+      const sl = def.slots?.({ ...def.defaultProps, ...w.props }) ?? [];
+      if (sl.length > 0) map.set(w.id, sl);
+    });
+    return map;
+  }, [widgets]);
+
+  /** 下拉复合值：'widgetId' = 整个组件；'widgetId|slotKey' = 具体条目 */
+  const triggerValue = fromSlot ? `${fromWidget}|${fromSlot}` : fromWidget;
+  const onTriggerChange = (v: string) => {
+    const i = v.indexOf('|');
+    if (i >= 0) {
+      setFromWidget(v.slice(0, i));
+      setFromSlot(v.slice(i + 1));
+    } else {
+      setFromWidget(v);
+      setFromSlot('');
+    }
+  };
 
   const close = (b: boolean) => {
     onOpenChange(b);
@@ -98,17 +126,39 @@ export function ConnectionDialog({
           </div>
           <div>
             <p className="mb-1.5 text-xs font-semibold text-zinc-500">触发组件（点击后跳转）</p>
-            <Select value={fromWidget} onValueChange={setFromWidget}>
-              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={fromPageId ? '选择组件' : '先选择页面'} /></SelectTrigger>
-              <SelectContent>
+            <Select value={triggerValue} onValueChange={onTriggerChange}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={fromPageId ? '选择组件或里面的条目' : '先选择页面'} /></SelectTrigger>
+              <SelectContent className="max-h-72">
                 {widgets.map((w) => {
                   const def = getWidget(w.type);
+                  const name = def?.name ?? w.type;
+                  const slots = widgetSlotMap.get(w.id) ?? [];
+                  /* 复合组件：分组列出每个条目（分类/商品/格子名），仅点击该条目才跳转；
+                     模块名只作为分组标题，不再作为可选项置顶 */
+                  if (slots.length > 0) {
+                    return (
+                      <SelectGroup key={w.id}>
+                        <SelectLabel className="text-[10px] font-bold text-zinc-400">{name} · 逐条目绑定</SelectLabel>
+                        {slots.map((s) => (
+                          <SelectItem key={`${w.id}|${s.key}`} value={`${w.id}|${s.key}`} className="text-xs">
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={w.id} className="text-xs text-zinc-400">
+                          整个{name}（点击任意位置）
+                        </SelectItem>
+                      </SelectGroup>
+                    );
+                  }
                   return (
-                    <SelectItem key={w.id} value={w.id}>{def?.name ?? w.type}</SelectItem>
+                    <SelectItem key={w.id} value={w.id}>{name}</SelectItem>
                   );
                 })}
               </SelectContent>
             </Select>
+            <p className="mt-1 text-[10px] text-zinc-400">
+              带条目的组件（金刚区 / 商品网格 / 秒杀位等）可逐条目绑定：只有点中那个分类才跳转；选「整个组件」= 点任意位置都跳
+            </p>
           </div>
           <div>
             <p className="mb-1.5 text-xs font-semibold text-zinc-500">目标页面</p>
@@ -149,8 +199,8 @@ export function ConnectionDialog({
                   fromWidgetId: fromWidget,
                   toPageId: toPage,
                   animation: anim as AnimKind,
-                  /* 触发组件变了，槽位绑定（tabbar 标签 N）不再成立 */
-                  ...(widgetChanged ? { slot: undefined } : {}),
+                  /* 条目级绑定存槽位 key；整个组件则清空（换组件/换条目都以此为准） */
+                  slot: fromSlot || undefined,
                 });
                 toast.success('连接已更新');
               } else {
@@ -159,6 +209,7 @@ export function ConnectionDialog({
                   fromWidgetId: fromWidget,
                   toPageId: toPage,
                   animation: anim as AnimKind,
+                  slot: fromSlot || undefined,
                 });
                 toast.success('连接已建立');
               }

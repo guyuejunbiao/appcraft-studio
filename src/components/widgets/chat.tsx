@@ -535,7 +535,7 @@ export const widgets: WidgetDef[] = [
       { key: 'channel', label: '联动频道（高级）', type: 'text', placeholder: '其他组件订阅后可随标签切换显隐' },
     ],
     Interactive: ChatTabbarInteractive,
-    slots: () => CHAT_TABS.map((t) => ({ key: t.key, label: `「${t.label}」标签` })),
+    slots: () => CHAT_TABS.map((t) => ({ key: t.key, label: t.label })),
     render: (p) => (
       <div className="w-card flex border-t w-line">
         {CHAT_TABS.map(({ key, label, icon: Icon }) => {

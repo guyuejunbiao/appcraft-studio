@@ -1013,7 +1013,7 @@ function ConnectionEditor({
             </Select>
             {slot !== 'widget' && (
               <p className="mt-1 text-[10px] leading-3.5 text-zinc-400">
-                预览中点击该标签即跳转，适合底部导航切换页面
+                预览中点击该条目才跳转（其余位置不触发）
               </p>
             )}
           </div>

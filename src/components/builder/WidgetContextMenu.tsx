@@ -58,7 +58,7 @@ export function WidgetContextMenu({ widget, layout, children }: WidgetContextMen
 
   const pageName = (id: string) => pages.find((p) => p.id === id)?.name ?? '未知页面';
   const slotLabel = (key?: string) =>
-    key ? (slots.find((s) => s.key === key)?.label ?? `标签 ${key}`) : null;
+    key ? (slots.find((s) => s.key === key)?.label ?? `槽位 ${key}`) : null;
 
   /** 添加跳转：同组件同槽位替换旧绑定（一个按钮只有一个跳转行为） */
   const addLink = (toPageId: string, slot?: string) => {
@@ -79,11 +79,11 @@ export function WidgetContextMenu({ widget, layout, children }: WidgetContextMen
     const sLabel = slotLabel(slot);
     if (existing) {
       toast.success('跳转路径已更新', {
-        description: `「${def.name}」${sLabel ? `的「${sLabel}」标签` : ''}现在跳转到「${targetName}」`,
+        description: `「${def.name}」${sLabel ? `的「${sLabel}」条目` : ''}现在跳转到「${targetName}」`,
       });
     } else {
       toast.success('跳转路径已添加', {
-        description: `「${def.name}」${sLabel ? `的「${sLabel}」标签` : ''} → 「${targetName}」，预览中点击即可跳转`,
+        description: `「${def.name}」${sLabel ? `的「${sLabel}」条目` : ''} → 「${targetName}」，预览中点击即可跳转`,
       });
     }
   };
@@ -146,7 +146,7 @@ export function WidgetContextMenu({ widget, layout, children }: WidgetContextMen
                 onClick={() =>
                   removeLink(
                     c.id,
-                    `「${def.name}」${sLabel ? `「${sLabel}」标签` : ''} → 「${pageName(c.toPageId)}」`
+                    `「${def.name}」${sLabel ? `「${sLabel}」条目` : ''} → 「${pageName(c.toPageId)}」`
                   )
                 }
               >
@@ -186,7 +186,7 @@ export function WidgetContextMenu({ widget, layout, children }: WidgetContextMen
                   ))}
                   <ContextMenuSeparator />
                   <ContextMenuLabel className="text-[10px] uppercase tracking-wider text-zinc-400">
-                    按标签绑定（槽位）
+                    按条目绑定（分类 / 商品 / 格子）
                   </ContextMenuLabel>
                   {slots.map((s) => (
                     <ContextMenuSub key={s.key}>

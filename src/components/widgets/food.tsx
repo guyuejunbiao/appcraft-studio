@@ -584,7 +584,7 @@ export const widgets: WidgetDef[] = [
     slots: (p) => {
       const raw = splitList(p.items);
       const names = (raw.length ? raw : ['推荐菜']).slice(0, 3);
-      return names.map((n, i) => ({ key: String(i), label: `「${n}」菜品卡` }));
+      return names.map((n, i) => ({ key: String(i), label: n || `菜品卡 ${i + 1}` }));
     },
     Interactive: DishRowInteractive,
     render: (p) => {
