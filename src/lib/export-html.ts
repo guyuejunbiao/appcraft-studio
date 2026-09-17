@@ -269,8 +269,155 @@ export interface ExportHtmlPayload {
   connections: ConnectionData[];
 }
 
-/** 生成并下载独立 HTML App（返回文件名；失败抛错） */
-export async function exportHtmlApp(payload: ExportHtmlPayload): Promise<string> {
+/* ---------------------------------- 通用工具 ---------------------------------- */
+
+/** 文件名安全化（过滤路径非法字符） */
+const safeName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'appcraft-app';
+
+/** 触发浏览器下载 */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** SVG 字符串 → data URL */
+const svgToDataUrl = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
+
+/** SVG 字符串 → PNG（浏览器 canvas 光栅化，供 PWA manifest / apple-touch-icon 使用） */
+function svgToPngBytes(svg: string, size: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('canvas 2d 不可用');
+        ctx.drawImage(img, 0, 0, size, size);
+        const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
+        if (!blob) throw new Error('PNG 编码失败');
+        resolve(new Uint8Array(await blob.arrayBuffer()));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('图标渲染失败'));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+}
+
+/** PWA manifest 对象（icons 由调用方按模式传入：单文件=SVG data URL / 安装包=PNG 文件） */
+function buildManifestObj(
+  payload: ExportHtmlPayload,
+  icons: { src: string; sizes: string; type: string; purpose: string }[]
+) {
+  const { theme, name } = payload;
+  const home = payload.pages.find((p) => p.isHome) ?? payload.pages[0];
+  const bg = theme.dark && home?.background === '#f6f7fb' ? '#101014' : home?.background ?? '#f6f7fb';
+  return {
+    name: name || 'AppCraft App',
+    short_name: name || 'App',
+    description: payload.description || '',
+    start_url: './',
+    scope: './',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: bg,
+    theme_color: theme.primary,
+    icons,
+  };
+}
+
+/* --------------------------------- PWA 安装包资源 --------------------------------- */
+
+/** Service Worker：cache-first 离线缓存（安装后无网可用） */
+const SW_JS = `/* AppCraft Studio 生成 —— 离线缓存 */
+var CACHE = 'appcraft-app-v1';
+var ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () { return self.skipWaiting(); }));
+});
+self.addEventListener('activate', function (e) {
+  e.waitUntil(caches.keys().then(function (keys) {
+    return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
+  }).then(function () { return self.clients.claim(); }));
+});
+self.addEventListener('fetch', function (e) {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
+    if (hit) return hit;
+    return fetch(e.request).then(function (res) {
+      try { caches.open(CACHE).then(function (c) { c.put(e.request, res.clone()); }); } catch (_) {}
+      return res;
+    }).catch(function () { return caches.match('./index.html'); });
+  }));
+});
+`;
+
+const SW_REGISTER_HTML = `<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(function(){})})}</script>`;
+
+/** PWA 安装包内 README（中文安装测试指南） */
+function buildReadme(name: string): string {
+  return `《${name || '我的 App'}》PWA 安装包 —— 来自 AppCraft Studio
+====================================================
+
+【包内容】
+  index.html        App 主体（双击即可在浏览器打开体验，离线可用）
+  manifest.json     应用信息（名称 / 图标 / 主题色，安装到桌面时使用）
+  sw.js             离线缓存脚本（安装后无网也能用）
+  icon-192.png      应用图标（Android / 桌面快捷方式）
+  icon-512.png      应用图标（高清启动屏 / 应用商店粒度）
+  README.txt        本说明
+
+【方式一 · 电脑本地体验（最简单）】
+  直接双击 index.html，任何现代浏览器都能打开，无需联网。
+
+【方式二 · 手机真机安装测试（推荐）】
+  前提：手机与电脑连同一个 Wi-Fi。
+  1. 电脑在本文件夹打开终端，任选一条命令启动静态服务器：
+       Python:  python -m http.server 8080
+       Node.js: npx serve -l 8080 .
+  2. 查看电脑局域网 IP：
+       Windows: ipconfig    macOS: ifconfig    Linux: hostname -I
+  3. 手机浏览器访问  http://电脑IP:8080
+  4. 安装到桌面：
+       Android (Chrome)  →  右上角菜单 →「添加到主屏幕」/「安装应用」
+       iPhone  (Safari)  →  底部分享按钮 →「添加到主屏幕」
+  5. 桌面出现 App 图标，打开即为全屏独立应用（无浏览器地址栏）。
+
+【方式三 · 公网发布（可发给朋友安装，体验最完整）】
+  把整个文件夹上传到任意静态托管，即可获得 https 链接：
+  · GitHub Pages：建仓库上传 → Settings → Pages → 选择分支
+  · Vercel / Netlify：官网拖拽上传本文件夹
+  得到 https:// 链接后，手机打开 → 按方式二第 4 步安装。
+  Android Chrome 在 https 下会显示完整的「安装应用」弹窗。
+
+【小贴士】
+  · 「安装到桌面」需要 http(s) 环境：直接双击 index.html（file:// 协议）
+    能正常浏览，但浏览器不会出现「安装」选项，属于正常现象。
+  · 所有页面跳转、切换动画、主题配色已内置，无需任何后端服务。
+  · 由 AppCraft Studio 生成。
+`;
+}
+
+/* --------------------------------- HTML 生成核心 --------------------------------- */
+
+interface ExportHtmlOptions {
+  /** manifest 引用：data URL（单文件模式）或 './manifest.json'（PWA 安装包模式） */
+  manifestHref: string;
+  /** 图标引用（favicon + apple-touch-icon） */
+  iconHref: string;
+  /** 是否注册 sw.js（PWA 安装包模式） */
+  registerSw: boolean;
+}
+
+/** 生成导出 HTML 字符串（单文件导出与 PWA 安装包共用） */
+async function buildExportHtml(payload: ExportHtmlPayload, opts: ExportHtmlOptions): Promise<string> {
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { pages, connections, theme, name } = payload;
 
@@ -291,20 +438,6 @@ export async function exportHtmlApp(payload: ExportHtmlPayload): Promise<string>
 
   const css = await collectCss();
 
-  /* PWA：应用图标（SVG→data URL）+ manifest（单文件离线可用，安装后具备原生 App 外观） */
-  const iconDataUrl = `data:image/svg+xml,${encodeURIComponent(appIconSvg(theme, name))}`;
-  const manifest = {
-    name: name || 'AppCraft App',
-    short_name: name || 'App',
-    description: payload.description || '',
-    start_url: '.',
-    display: 'standalone',
-    background_color: bg,
-    theme_color: theme.primary,
-    icons: [{ src: iconDataUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }],
-  };
-  const manifestUrl = `data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest))}`;
-
   const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -317,9 +450,9 @@ ${payload.description ? `<meta name="description" content="${esc(payload.descrip
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="${dark ? 'black-translucent' : 'default'}" />
 <meta name="apple-mobile-web-app-title" content="${esc(name)}" />
-<link rel="icon" href="${iconDataUrl}" />
-<link rel="apple-touch-icon" href="${iconDataUrl}" />
-<link rel="manifest" href="${manifestUrl}" />
+<link rel="icon" href="${opts.iconHref}" />
+<link rel="apple-touch-icon" href="${opts.iconHref}" />
+<link rel="manifest" href="${opts.manifestHref}" />
 <style>${css}</style>
 <style>${RUNTIME_CSS}</style>
 </head>
@@ -342,15 +475,56 @@ ${payload.description ? `<meta name="description" content="${esc(payload.descrip
 </div>
 <p class="ac-credit">由 <b>AppCraft Studio</b> 导出 · ${esc(name)} · ${pages.length} 个页面 · ${connections.length} 条跳转</p>
 <script>${RUNTIME_JS}</script>
+${opts.registerSw ? SW_REGISTER_HTML : ''}
 </body>
 </html>`;
 
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${name || 'appcraft-app'}.html`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  return a.download;
+  return html;
+}
+
+/* --------------------------------- 两个导出入口 --------------------------------- */
+
+/** 导出单文件 HTML App（双击即开；manifest 内联 data URL，离线可用；返回文件名；失败抛错） */
+export async function exportHtmlApp(payload: ExportHtmlPayload): Promise<string> {
+  const { theme, name } = payload;
+  const iconSvg = appIconSvg(theme, name);
+  const iconDataUrl = svgToDataUrl(iconSvg);
+  const manifest = buildManifestObj(payload, [
+    { src: iconDataUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' },
+  ]);
+  const html = await buildExportHtml(payload, {
+    manifestHref: `data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest))}`,
+    iconHref: iconDataUrl,
+    registerSw: false,
+  });
+  const filename = `${safeName(name)}.html`;
+  downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), filename);
+  return filename;
+}
+
+/** 导出 PWA 安装包 ZIP：解压后经 http(s) 访问即可「安装到手机桌面」（返回文件名；失败抛错） */
+export async function exportPwaZip(payload: ExportHtmlPayload): Promise<string> {
+  const { zipSync, strToU8 } = await import('fflate');
+  const { theme, name } = payload;
+
+  const iconSvg = appIconSvg(theme, name);
+  const [icon192, icon512] = await Promise.all([svgToPngBytes(iconSvg, 192), svgToPngBytes(iconSvg, 512)]);
+  const manifest = buildManifestObj(payload, [
+    { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+    { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+  ]);
+  const html = await buildExportHtml(payload, { manifestHref: './manifest.json', iconHref: 'icon-192.png', registerSw: true });
+
+  const zip = zipSync({
+    'index.html': strToU8(html),
+    'manifest.json': strToU8(JSON.stringify(manifest, null, 2)),
+    'sw.js': strToU8(SW_JS),
+    'icon-192.png': icon192,
+    'icon-512.png': icon512,
+    'README.txt': strToU8(buildReadme(name)),
+  });
+
+  const filename = `${safeName(name)}-PWA.zip`;
+  downloadBlob(new Blob([zip], { type: 'application/zip' }), filename);
+  return filename;
 }

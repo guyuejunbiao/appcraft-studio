@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Plus, Undo2, Redo2, Home, Crown, GitBranch, Play, Save, Loader2, Network,
-  Pencil, Copy, Trash2, Download, Upload, Keyboard, Ellipsis, FileCode2,
+  Pencil, Copy, Trash2, Download, Upload, Keyboard, Ellipsis, FileCode2, Smartphone,
   LayoutTemplate, FilePlus2, GripVertical, FolderTree, PanelBottom, X,
 } from 'lucide-react';
 import { useBuilder } from '@/lib/store';
-import { exportHtmlApp } from '@/lib/export-html';
+import { exportHtmlApp, exportPwaZip } from '@/lib/export-html';
 import { PageTemplateDialog, SavePagePresetDialog } from '@/components/builder/PresetMarket';
 import { PageManagerDialog } from '@/components/builder/PageManager';
 import { TabManagerDialog } from '@/components/builder/TabManager';
@@ -77,6 +77,7 @@ export function Toolbar() {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingPwa, setExportingPwa] = useState(false);
   /** 从模板新建页面对话框 */
   const [templateOpen, setTemplateOpen] = useState(false);
   /** 存为页面模板对话框（key 重挂载重置表单） */
@@ -120,20 +121,27 @@ export function Toolbar() {
     }
   };
 
+  /** 导出前先保存（共用：单文件 HTML 与 PWA 安装包） */
+  const exportPayload = () => {
+    const s = useBuilder.getState();
+    if (!s.project) return null;
+    return {
+      name: s.project.name,
+      description: s.project.description,
+      theme: s.project.theme,
+      pages: s.pages,
+      connections: s.connections,
+    };
+  };
+
   /** 导出独立 HTML App：先保存，再生成双击即可打开的原型文件 */
   const handleExportHtml = async () => {
-    const s = useBuilder.getState();
-    if (!s.project) return;
+    const payload = exportPayload();
+    if (!payload) return;
     if (dirty) await save();
     setExporting(true);
     try {
-      const fileName = await exportHtmlApp({
-        name: s.project.name,
-        description: s.project.description,
-        theme: s.project.theme,
-        pages: s.pages,
-        connections: s.connections,
-      });
+      const fileName = await exportHtmlApp(payload);
       toast.success('HTML App 已导出', {
         description: `${fileName} · 双击即可在浏览器打开，包含页面跳转与切换动画`,
       });
@@ -141,6 +149,25 @@ export function Toolbar() {
       toast.error('导出失败', { description: '请重试，或使用「导出项目 JSON」' });
     } finally {
       setExporting(false);
+    }
+  };
+
+  /** 导出 PWA 安装包 ZIP：解压后经 http(s) 访问即可安装到手机桌面 */
+  const handleExportPwa = async () => {
+    const payload = exportPayload();
+    if (!payload) return;
+    if (dirty) await save();
+    setExportingPwa(true);
+    try {
+      const fileName = await exportPwaZip(payload);
+      toast.success('PWA 安装包已下载', {
+        description: `${fileName} · 解压后按 README.txt 操作：本地服务器 → 手机浏览器打开 → 添加到主屏幕`,
+        duration: 8000,
+      });
+    } catch {
+      toast.error('PWA 打包失败', { description: '请重试，或使用「导出 HTML App」' });
+    } finally {
+      setExportingPwa(false);
     }
   };
 
@@ -332,6 +359,11 @@ export function Toolbar() {
               {exporting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <FileCode2 className="mr-1.5 size-3.5" />}
               导出 HTML App
               <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold text-emerald-600">推荐</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={exportingPwa} onClick={() => { void handleExportPwa(); }}>
+              {exportingPwa ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Smartphone className="mr-1.5 size-3.5" />}
+              下载 PWA 安装包
+              <span className="ml-1 rounded bg-teal-100 px-1 py-0.5 text-[9px] font-bold text-teal-700">可安装</span>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => { exportProject(); toast.success('已导出 JSON 文件'); }}>
               <Download className="mr-1.5 size-3.5" /> 导出项目 JSON
