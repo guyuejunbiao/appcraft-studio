@@ -65,6 +65,7 @@ export type CategoryId =
   | 'chat'
   | 'food'
   | 'functional'
+  | 'buttons'
   | 'social'
   | 'media'
   | 'news'

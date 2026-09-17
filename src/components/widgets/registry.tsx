@@ -1,5 +1,5 @@
 import { LockKeyhole, ShoppingBag, ShoppingCart, MessageCircle, UtensilsCrossed, LayoutGrid,
-  Users, PlayCircle, Newspaper, ChartColumn, CircleUserRound, Dumbbell } from 'lucide-react';
+  Users, PlayCircle, Newspaper, ChartColumn, CircleUserRound, Dumbbell, Pointer } from 'lucide-react';
 import type { WidgetDef, CategoryMeta } from '@/lib/widget-types';
 import { widgets as loginWidgets } from './login';
 import { widgets as mallWidgets } from './mall';
@@ -7,6 +7,7 @@ import { widgets as shoppingWidgets } from './shopping';
 import { widgets as chatWidgets } from './chat';
 import { widgets as foodWidgets } from './food';
 import { widgets as functionalWidgets } from './functional';
+import { widgets as buttonWidgets } from './buttons';
 import { widgets as socialWidgets } from './social';
 import { widgets as mediaWidgets } from './media';
 import { widgets as newsWidgets } from './news';
@@ -27,6 +28,7 @@ export const categories: CategoryMeta[] = [
   { id: 'profile', name: '个人中心', desc: '会员、钱包、订单宫格、签到、设置…', icon: CircleUserRound },
   { id: 'fitness', name: '健康运动', desc: '运动圆环、步数、喝水打卡、训练计划…', icon: Dumbbell },
   { id: 'functional', name: '功能通用', desc: '导航、按钮、表单、卡片、底部栏…', icon: LayoutGrid },
+  { id: 'buttons', name: '功能按钮', desc: '返回、确认取消、点赞、分享、关闭、危险操作…', icon: Pointer },
 ];
 
 export const allWidgets: WidgetDef[] = [
@@ -42,6 +44,7 @@ export const allWidgets: WidgetDef[] = [
   ...profileWidgets,
   ...fitnessWidgets,
   ...functionalWidgets,
+  ...buttonWidgets,
 ];
 
 export function getWidget(type: string): WidgetDef | undefined {

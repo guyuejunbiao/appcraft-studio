@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, Blocks, Sparkles, Blocks as BlocksIcon } from 'lucide-react';
-import { categories, widgetsByCategory, getWidget } from '@/components/widgets/registry';
+import { categories, widgetsByCategory, getWidget, allWidgets } from '@/components/widgets/registry';
 import type { CategoryId, WidgetDef } from '@/lib/widget-types';
 import { useBuilder } from '@/lib/store';
 import { useDnd } from '@/lib/dnd-store';
@@ -23,6 +23,7 @@ export const CATEGORY_COLOR: Record<CategoryId, string> = {
   profile: '#f59e0b',
   fitness: '#84cc16',
   functional: '#8b5cf6',
+  buttons: '#0d9488',
 };
 
 type LibraryTab = 'presets' | 'widgets';
@@ -211,7 +212,7 @@ export function WidgetLibrary() {
           >
             <BlocksIcon className="size-3.5" />
             基础组件
-            <span className="rounded-full bg-zinc-200 px-1 text-[10px] font-bold text-zinc-600">144</span>
+            <span className="rounded-full bg-zinc-200 px-1 text-[10px] font-bold text-zinc-600">{allWidgets.length}</span>
           </button>
         </div>
 
