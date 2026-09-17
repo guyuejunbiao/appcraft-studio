@@ -24,6 +24,7 @@ import { WidgetContextMenu } from './WidgetContextMenu';
 import { CanvasBlankMenu } from './CanvasBlankMenu';
 import { SavePresetDialog } from './PresetMarket';
 import { CanvasStarterGuide } from './StarterKits';
+import { SkuOptionDialog, type SkuEditTarget } from './SkuOptionDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
@@ -108,6 +109,8 @@ export function Canvas() {
   useEffect(() => { hydrateCanvasCfg(); }, [hydrateCanvasCfg]);
   /** 批量透明度弹层 */
   const [opacityOpen, setOpacityOpen] = useState(false);
+  /** SKU 选项效果图编辑弹窗（双击颜色/版本选项触发） */
+  const [skuEdit, setSkuEdit] = useState<SkuEditTarget | null>(null);
   const [opacityVal, setOpacityVal] = useState(100);
   /** 批量阴影弹层（初值 = 主选中组件的阴影） */
   const [shadowOpen, setShadowOpen] = useState(false);
@@ -1086,6 +1089,24 @@ export function Canvas() {
                           if (suppressClickRef.current || useDnd.getState().suppressNextClick) return;
                           if (!e.shiftKey) selectGroupAware(w.id);
                         }}
+                        /* 双击 SKU 选项（颜色/版本 chip）→ 打开该选项的效果图编辑弹窗 */
+                        onDoubleClick={(e) => {
+                          if (w.type !== 'shop.sku-select') return;
+                          const skuEl = (e.target as HTMLElement).closest?.('[data-sku-row]') as HTMLElement | null;
+                          if (!skuEl) return;
+                          const rowKey = skuEl.dataset.skuRow as SkuEditTarget['rowKey'] | undefined;
+                          if (rowKey !== 'colorImages' && rowKey !== 'versionImages') return;
+                          e.stopPropagation();
+                          select(w.id);
+                          setSkuEdit({
+                            widgetId: w.id,
+                            rowKey,
+                            nameKey: rowKey === 'colorImages' ? 'colors' : 'versions',
+                            priceKey: rowKey === 'colorImages' ? 'colorPrices' : 'versionPrices',
+                            rowLabel: rowKey === 'colorImages' ? '颜色' : '版本',
+                            index: Number(skuEl.dataset.skuIndex ?? 0) || 0,
+                          });
+                        }}
                         className={`group absolute rounded-xl${
                           typeof w.h === 'number' ? ' flex flex-col' : ''
                         } ${
@@ -1813,6 +1834,15 @@ export function Canvas() {
 
       {/* 存为组件组合对话框 */}
       <SavePresetDialog open={presetOpen} onOpenChange={setPresetOpen} ids={selectedIds} />
+
+      {/* SKU 选项效果图编辑弹窗（双击颜色/版本选项） */}
+      {skuEdit && (
+        <SkuOptionDialog
+          key={`${skuEdit.widgetId}-${skuEdit.rowKey}-${skuEdit.index}`}
+          target={skuEdit}
+          onClose={() => setSkuEdit(null)}
+        />
+      )}
     </div>
   );
 }

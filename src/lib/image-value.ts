@@ -53,3 +53,47 @@ export async function fileToDataUrl(file: File): Promise<string> {
   ctx.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL('image/jpeg', 0.82);
 }
+
+/* ------------------------------------------------------------------ */
+/* 图组（Gallery）：一个选项/商品多张效果图（主图 + 细节图），支持左右滑动 */
+/* 存储形态：string[][]（每个选项一个图组）；旧数据 string[]（每选项一图）自动兼容 */
+/* ------------------------------------------------------------------ */
+
+/** 任意值 → 字符串数组（数组逐项转字符串；其他返回空） */
+export function toStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((s) => String(s ?? '').trim());
+}
+
+/** 归一化图组：兼容旧单图 string[] 与新 string[][]；空位剔除 */
+export function toGalleryList(raw: unknown): string[][] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((it) => {
+    if (Array.isArray(it)) return it.map((s) => String(s ?? '').trim()).filter(Boolean);
+    const s = String(it ?? '').trim();
+    return s ? [s] : [];
+  });
+}
+
+/** 图组中第 i 个选项的主图（第一张）；无图返回空 */
+export const galleryMainOf = (g: string[][] | null | undefined, i: number): string =>
+  (g && g[i] && g[i][0]) || '';
+
+/** 总线传输值 → 图组（兼容 JSON 数组串与旧单值串） */
+export function parseGalleryValue(v: unknown): string[] {
+  if (typeof v !== 'string' || !v.trim()) return [];
+  const t = v.trim();
+  if (t.startsWith('[')) {
+    try {
+      const arr = JSON.parse(t);
+      if (Array.isArray(arr)) return arr.map((s) => String(s ?? '').trim()).filter(Boolean);
+    } catch {
+      /* 非合法 JSON → 按单值处理 */
+    }
+  }
+  return [t];
+}
+
+/** 图组 → 总线传输值（统一 JSON 串；读取端 parseGalleryValue 兼容两种形态） */
+export const serializeGalleryValue = (imgs: string[]): string =>
+  JSON.stringify((imgs ?? []).map((s) => String(s ?? '').trim()).filter(Boolean));

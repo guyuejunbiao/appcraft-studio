@@ -11,7 +11,9 @@ import {
   Minus, Plus, Search, X,
 } from 'lucide-react';
 import { useChannelDefault, useChannelSetter, useChannelValue, useBusScope, useUserValue, useUserSetter, userGet, busGet, useInteractionBus, busKeyOf } from '@/lib/interaction-bus';
-import { imageSrcOf, isInlineEmoji } from '@/lib/image-value';
+import {
+  galleryMainOf, imageSrcOf, isInlineEmoji, serializeGalleryValue, toGalleryList, toStringList,
+} from '@/lib/image-value';
 import { fireToast } from '@/lib/widget-toast';
 import type { InteractiveCtx } from '@/lib/widget-types';
 
@@ -1077,26 +1079,27 @@ function SkuThumbMini({ value }: { value: unknown }) {
 export function SkuSelectInteractive({ props }: InteractiveCtx) {
   const setBus = useChannelSetter();
   const channel = String(props.channel || 'sku');
-  /* 效果图子频道：主图组件订阅 `${channel}:img` 实现点击选项原地切换效果图（不跳页） */
+  /* 效果图子频道：主图组件订阅 `${channel}:img` 实现点击选项原地切换效果图（不跳页）。
+   * 值为图组 JSON 串（serializeGalleryValue）——支持每选项多张效果图，主图内可左右滑动观看 */
   const imgChannel = `${channel}:img`;
   const colors = useMemo(() => splitListI(props.colors), [props.colors]);
   const versions = useMemo(() => splitListI(props.versions), [props.versions]);
-  const colorImages = useMemo(
-    () => (Array.isArray(props.colorImages) ? props.colorImages.map((s: unknown) => String(s ?? '')) : []),
-    [props.colorImages]
-  );
-  const versionImages = useMemo(
-    () => (Array.isArray(props.versionImages) ? props.versionImages.map((s: unknown) => String(s ?? '')) : []),
-    [props.versionImages]
-  );
+  const colorGalleries = useMemo(() => toGalleryList(props.colorImages), [props.colorImages]);
+  const versionGalleries = useMemo(() => toGalleryList(props.versionImages), [props.versionImages]);
+  const colorPrices = useMemo(() => toStringList(props.colorPrices), [props.colorPrices]);
+  const versionPrices = useMemo(() => toStringList(props.versionPrices), [props.versionPrices]);
   const [ciLocal, setCiLocal] = useState(0);
   const [viLocal, setViLocal] = useState(0);
-  /* 某组合的生效效果图：本行自己的图优先，否则用另一行当前选中的图（都无图 = 空字符串） */
-  const imgAt = (row: 'c' | 'v', i: number, otherIdx: number): string =>
-    String((row === 'c' ? colorImages[i] || versionImages[otherIdx] : versionImages[i] || colorImages[otherIdx]) ?? '') || '';
-  /* 频道默认值：初始选中 SKU + 第一张效果图同步到总线（格式与 pick 一致） */
+  /* 某组合的生效效果图组：本行自己的图组优先，否则用另一行当前选中的主图（都无图 = 空组） */
+  const galleryAt = (row: 'c' | 'v', i: number, otherIdx: number): string[] => {
+    const own = row === 'c' ? colorGalleries[i] : versionGalleries[i];
+    if (own && own.length > 0) return own;
+    const otherMain = row === 'c' ? galleryMainOf(versionGalleries, otherIdx) : galleryMainOf(colorGalleries, otherIdx);
+    return otherMain ? [otherMain] : [];
+  };
+  /* 频道默认值：初始选中 SKU + 第一组效果图同步到总线（格式与 pick 一致） */
   useChannelDefault(channel, [colors[0] ?? '', versions[0] ?? ''].filter(Boolean).join(' · '));
-  useChannelDefault(imgChannel, imgAt('c', 0, 0));
+  useChannelDefault(imgChannel, serializeGalleryValue(galleryAt('c', 0, 0)));
   /* 回读总线：页面重挂载后选中态以总线为准（与 LoginTabs 同款修复） */
   const busVal = useChannelValue(channel);
   const { ci, vi } = useMemo(() => {
@@ -1118,13 +1121,13 @@ export function SkuSelectInteractive({ props }: InteractiveCtx) {
     const c = colors[nextCi] ?? '';
     const v = versions[nextVi] ?? '';
     setBus(channel, [c, v].filter(Boolean).join(' · '));
-    /* 同步效果图：主图收到后 crossfade 切换（本次点中的行优先取自己的图） */
-    setBus(imgChannel, imgAt(row, i, row === 'c' ? nextVi : nextCi));
+    /* 同步效果图组：主图收到后原位切换（组内可左右滑动观看，不跳页） */
+    setBus(imgChannel, serializeGalleryValue(galleryAt(row, i, row === 'c' ? nextVi : nextCi)));
   };
 
   const rows = [
-    { label: '颜色', items: colors, imgs: colorImages, active: ci, pick: (i: number) => pick('c', i) },
-    { label: '版本', items: versions, imgs: versionImages, active: vi, pick: (i: number) => pick('v', i) },
+    { label: '颜色', items: colors, gals: colorGalleries, prices: colorPrices, active: ci, pick: (i: number) => pick('c', i) },
+    { label: '版本', items: versions, gals: versionGalleries, prices: versionPrices, active: vi, pick: (i: number) => pick('v', i) },
   ].filter((r) => r.items.length > 0);
 
   return (
@@ -1135,6 +1138,7 @@ export function SkuSelectInteractive({ props }: InteractiveCtx) {
           <div className="flex flex-wrap gap-1.5">
             {row.items.map((item, i) => {
               const on = i === row.active;
+              const price = (row.prices[i] ?? '').trim();
               return (
                 <motion.button
                   key={`${item}-${i}`}
@@ -1153,8 +1157,9 @@ export function SkuSelectInteractive({ props }: InteractiveCtx) {
                       }
                     : { borderRadius: 'calc(var(--pr) - 6px)' }}
                 >
-                  <SkuThumbMini value={row.imgs[i] ?? ''} />
+                  <SkuThumbMini value={galleryMainOf(row.gals, i)} />
                   {item}
+                  {price && <span className="text-[9px] font-bold opacity-55">¥{price}</span>}
                 </motion.button>
               );
             })}

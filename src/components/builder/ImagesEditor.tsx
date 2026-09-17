@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ImagePicker } from './ImagePicker';
+import { galleryMainOf, toGalleryList } from '@/lib/image-value';
 
 /**
  * 图片列表编辑器（字段类型 images），两种模式：
@@ -13,7 +14,8 @@ import { ImagePicker } from './ImagePicker';
  *    行数随对齐字段的选项数自动对齐，行首展示选项名，不可增删行
  *    （增删选项请直接编辑「颜色/版本」文字字段，效果图按序号自动跟随）。
  *
- * 值为字符串数组（dataURL / http 链接 / 表情占位 / 空字符串），空位 = 无图。
+ * 值为字符串数组（dataURL / http 链接 / 表情占位 / 空字符串），空位 = 无图；
+ * 对齐模式下值为图组 string[][]（每选项多张效果图，旧单图 string[] 自动兼容）。
  */
 export function ImagesEditor({
   value,
@@ -21,17 +23,21 @@ export function ImagesEditor({
   max = 6,
   alignNames,
 }: {
-  value: string[];
-  onChange: (v: string[]) => void;
+  /** 字符串数组（轮播模式）或图组 string[][]（对齐模式：每选项多图，旧单图自动兼容） */
+  value: unknown;
+  onChange: (v: string[] | string[][]) => void;
   max?: number;
   /** 对齐模式的选项名列表（如 ['月光白','曜石黑','晨曦粉']） */
   alignNames?: string[];
 }) {
-  const list = Array.isArray(value) ? value : [];
+  const list: string[] = Array.isArray(value) && !Array.isArray(value[0]) ? (value as string[]) : [];
 
   /* ---------- 对齐模式（SKU 效果图） ---------- */
   if (alignNames) {
-    const rows = Math.max(alignNames.length, list.length);
+    /* 值为图组 string[][]（每选项多图）或旧单图 string[]（自动兼容）；行内编辑主图（第一张），
+     * 多图上传/滑动观看走画布双击选项的编辑弹窗 */
+    const gal = toGalleryList(value);
+    const rows = Math.max(alignNames.length, gal.length);
     if (rows === 0) {
       return (
         <p className="rounded-lg bg-zinc-50 px-2.5 py-2 text-[10px] leading-4 text-zinc-400">
@@ -40,9 +46,10 @@ export function ImagesEditor({
       );
     }
     const set = (i: number, v: string) => {
-      const next = [...list];
-      while (next.length < rows) next.push('');
-      next[i] = v;
+      const next = toGalleryList(value);
+      while (next.length < rows) next.push([]);
+      const rest = (next[i] ?? []).slice(1);
+      next[i] = v ? [v, ...rest] : rest; /* 替换/清除主图，其余效果图保留 */
       onChange(next);
     };
     return (
@@ -57,12 +64,18 @@ export function ImagesEditor({
               <span className="w-14 shrink-0 truncate text-[10px] font-semibold text-zinc-500" title={alignNames[i] ?? `第 ${i + 1} 项`}>
                 {alignNames[i] ?? `第 ${i + 1} 项`}
               </span>
-              <ImagePicker compact value={list[i] ?? ''} onChange={(v) => set(i, v)} label={alignNames[i] ?? `第 ${i + 1} 项`} />
+              <ImagePicker compact value={galleryMainOf(gal, i)} onChange={(v) => set(i, v)} label={alignNames[i] ?? `第 ${i + 1} 项`} />
+              {(gal[i]?.length ?? 0) > 1 && (
+                <span className="shrink-0 rounded bg-violet-50 px-1 text-[9px] font-bold text-violet-500" title="该选项有多张效果图">
+                  +{gal[i].length - 1}
+                </span>
+              )}
             </div>
           ))}
         </div>
         <p className="mt-1.5 rounded-lg bg-violet-50 px-2 py-1.5 text-[10px] leading-4 text-violet-600">
-          💡 选中该选项时，商品主图自动切换成对应效果图（预览中生效，不跳页）
+          💡 选中该选项时，商品主图自动切换成对应效果图（预览中生效，不跳页）；
+          在画布上<span className="font-bold">双击选项</span>可为单个选项上传多张效果图并左右滑动观看
         </p>
       </div>
     );

@@ -18,6 +18,7 @@ import { PageManagerDialog } from './PageManager';
 import { TabManagerDialog } from './TabManager';
 import { ProductsEditor } from './ProductsEditor';
 import { CellsEditor, cellsFieldValue, productsFieldValue } from './InspectorPanel';
+import { SkuOptionDialog, type SkuEditTarget } from './SkuOptionDialog';
 import {
   resolveHitAt, markerInfo, commitTextHit, textLeafOf, listSegments, joinSegments, primaryListField,
   type TextHit,
@@ -678,6 +679,9 @@ export function InfiniteCanvas() {
   const [linkDrag, setLinkDrag] = useState<{ fromPageId: string; x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<{ prefill?: { fromPageId: string; toPageId?: string }; edit?: ConnectionData } | null>(null);
 
+  /* SKU 选项效果图编辑弹窗（双击颜色/版本选项触发） */
+  const [skuEdit, setSkuEdit] = useState<SkuEditTarget | null>(null);
+
   /* TabBar 点击聚焦的画板（临时高亮 + 平移可见） */
   const [focusPageId, setFocusPageId] = useState<string | null>(null);
 
@@ -808,12 +812,37 @@ export function InfiniteCanvas() {
     setSel({ pageId, widgetId });
   }, [setCurrentPage, commitInline, applyFocusFromHit]);
 
-  /* 双击：文字 → 画布原位改字（零弹窗）；条目非文字区（图片/图标）→ 打开该件的单件编辑面板 */
+  /* 双击：SKU 选项 → 效果图编辑弹窗（名称/价格/多图上传）；文字 → 画布原位改字（零弹窗）；
+     条目非文字区（图片/图标）→ 打开该件的单件编辑面板 */
   const handleWidgetDoubleClick = useCallback((pageId: string, widgetId: string, e: React.MouseEvent) => {
     if (inlineRef.current) commitInline();
     const ctx = widgetContextOf(pageId, widgetId);
     if (!ctx) return;
     const el = e.target as HTMLElement;
+    /* SKU 选项（颜色/版本 chip）双击 → 打开该选项的效果图编辑弹窗（优先于内联改字） */
+    const skuEl = el.closest?.('[data-sku-row]') as HTMLElement | null;
+    if (skuEl && ctx.widget.type === 'shop.sku-select') {
+      const rowKey = skuEl.dataset.skuRow as SkuEditTarget['rowKey'] | undefined;
+      if (rowKey === 'colorImages' || rowKey === 'versionImages') {
+        e.preventDefault();
+        setCurrentPage(pageId);
+        useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
+        selRef.current = { pageId, widgetId };
+        setSel({ pageId, widgetId });
+        setEditing(false);
+        setFocus(null);
+        setFocusField(null);
+        setSkuEdit({
+          widgetId,
+          rowKey,
+          nameKey: rowKey === 'colorImages' ? 'colors' : 'versions',
+          priceKey: rowKey === 'colorImages' ? 'colorPrices' : 'versionPrices',
+          rowLabel: rowKey === 'colorImages' ? '颜色' : '版本',
+          index: Number(skuEl.dataset.skuIndex ?? 0) || 0,
+        });
+        return;
+      }
+    }
     if (textLeafOf(el)) {
       const { hit } = resolveHitAt(ctx.def, ctx.widget, el);
       if (hit) {
@@ -847,7 +876,7 @@ export function InfiniteCanvas() {
       }
       setEditing(true);
     }
-  }, [setCurrentPage, commitInline, widgetContextOf, openInline, setFocus]);
+  }, [setCurrentPage, commitInline, widgetContextOf, openInline, setFocus, setSkuEdit, setFocusField]);
 
   /* 右键：命中条目 → 单件编辑面板（只显示那一件）；否则 → 组件整体编辑面板 */
   const handleWidgetContextMenu = useCallback((pageId: string, widgetId: string, e: React.MouseEvent) => {
@@ -1389,6 +1418,15 @@ export function InfiniteCanvas() {
 
       <PageManagerDialog open={managerOpen} onOpenChange={setManagerOpen} />
       <TabManagerDialog open={tabOpen} onOpenChange={setTabOpen} />
+
+      {/* SKU 选项效果图编辑弹窗（双击颜色/版本选项） */}
+      {skuEdit && (
+        <SkuOptionDialog
+          key={`${skuEdit.widgetId}-${skuEdit.rowKey}-${skuEdit.index}`}
+          target={skuEdit}
+          onClose={() => setSkuEdit(null)}
+        />
+      )}
     </div>
   );
 }

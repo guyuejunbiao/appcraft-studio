@@ -1,16 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Image as ImageIcon, Heart, JapaneseYen, Palette, Minus, Plus, ShieldCheck, Truck,
-  RotateCcw, Star, MapPin, ChevronRight, ShoppingCart, MessageCircle, ReceiptText,
+  RotateCcw, Star, MapPin, ChevronRight, ShoppingCart, MessageCircle, ReceiptText, X,
 } from 'lucide-react';
 import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
 import { useChannelSetter, useChannelValue } from '@/lib/interaction-bus';
-import { imageSrcOf, isInlineEmoji } from '@/lib/image-value';
+import {
+  galleryMainOf, imageSrcOf, isInlineEmoji, parseGalleryValue, serializeGalleryValue,
+  toGalleryList, toStringList,
+} from '@/lib/image-value';
 import { QtyStepperInteractive, SkuSelectInteractive } from './interactive';
 import { stopAct, useAction, useLocalToggle, ActStatusIcon } from './action-kit';
+import { SwipeDeck } from './swipe-deck';
 
 /**
  * 购物 / 商品详情 组件库（目录：shopping）
@@ -41,58 +46,188 @@ export function SkuThumb({ value }: { value: unknown }) {
   );
 }
 
-/** 主图媒体层：dataURL/链接 → 真实图片（object-cover 自适应任意尺寸）；
- *  表情 → 渐变底大表情；空 → 主题色渐变占位。值切换时 crossfade 丝滑过渡 */
-function HeroMediaLayer({ value }: { value: string }) {
+/** 主图渐变底（主题色随主题） */
+const HERO_GRAD =
+  'linear-gradient(160deg, color-mix(in srgb, var(--p) 22%, transparent), color-mix(in srgb, var(--p) 52%, transparent))';
+
+/** 单页媒体：dataURL/链接 → 真实图片（cover 填满 / contain 完整展示），
+ *  表情 → 大表情，空 → 渐变占位。bare=true 透明底（大图查看的黑底场景） */
+function MediaSlide({ value, contain = false, bare = false }: { value: string; contain?: boolean; bare?: boolean }) {
   const src = imageSrcOf(value);
   const emoji = !src && isInlineEmoji(value) ? value.trim() : '';
   return (
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      style={{ background: bare ? 'transparent' : HERO_GRAD }}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt="商品图片"
+          draggable={false}
+          className={`size-full ${contain ? 'object-contain' : 'object-cover'}`}
+        />
+      ) : emoji ? (
+        <span className={`leading-none drop-shadow-sm ${contain ? 'text-8xl' : 'text-6xl'}`}>{emoji}</span>
+      ) : (
+        <ImageIcon className={`size-14 ${bare ? 'text-white/35' : 'opacity-30'}`} />
+      )}
+    </div>
+  );
+}
+
+/** 静态主图媒体层（编辑器画布用）：值变化时 crossfade 丝滑过渡 */
+function HeroMediaLayer({ value }: { value: string }) {
+  return (
     <AnimatePresence initial={false}>
       <motion.div
-        key={src || emoji || 'ph'}
+        key={value || 'ph'}
         initial={{ opacity: 0, scale: 1.04 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.32, ease: 'easeOut' }}
-        className="absolute inset-0 flex items-center justify-center"
-        style={{ background: 'linear-gradient(160deg, color-mix(in srgb, var(--p) 22%, transparent), color-mix(in srgb, var(--p) 52%, transparent))' }}
+        className="absolute inset-0"
       >
-        {src ? (
-           
-          <img src={src} alt="商品图片" draggable={false} className="size-full object-cover" />
-        ) : emoji ? (
-          <span className="text-6xl leading-none drop-shadow-sm">{emoji}</span>
-        ) : (
-          <ImageIcon className="size-14 opacity-30" />
-        )}
+        <MediaSlide value={value} />
       </motion.div>
     </AnimatePresence>
   );
+}
+
+/** 大图查看弹层：手机屏内原位全屏（portal 到 #phone-screen），
+ *  左右滑动切换 + 弹簧跟手，不产生新页面 */
+function HeroLightbox({
+  deck, index, label, onIndexChange, onClose,
+}: {
+  deck: string[];
+  index: number;
+  label: string | null;
+  onIndexChange: (i: number) => void;
+  onClose: () => void;
+}) {
+  const target = typeof document !== 'undefined' ? document.getElementById('phone-screen') : null;
+  const node = (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="absolute inset-0 z-[70] flex flex-col bg-black/90 backdrop-blur-[2px]"
+      onClick={onClose}
+      role="dialog"
+      aria-label="商品大图查看"
+    >
+      {/* 顶栏：计数 + 关闭 */}
+      <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-3" onClick={(e) => e.stopPropagation()}>
+        <span className="text-xs font-semibold tabular-nums text-white/85">
+          {index + 1} / {deck.length}
+        </span>
+        <button
+          type="button"
+          aria-label="关闭大图"
+          onClick={onClose}
+          className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white transition-transform active:scale-90"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      {/* 大图：左右滑动 + 弹簧，完整展示不裁切 */}
+      <div className="min-h-0 flex-1" onClick={(e) => e.stopPropagation()}>
+        <SwipeDeck
+          className="size-full"
+          count={deck.length}
+          index={index}
+          onIndexChange={onIndexChange}
+          showArrows={false}
+          renderItem={(i) => (
+            <motion.div
+              key={`${i}-${deck[i] ?? 'ph'}`}
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="size-full"
+            >
+              <MediaSlide value={deck[i] ?? ''} contain bare />
+            </motion.div>
+          )}
+        />
+      </div>
+      {/* 底部：圆点直达 + 已选标签 */}
+      <div className="flex shrink-0 flex-col items-center gap-2 pb-4 pt-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-1.5">
+          {deck.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`查看第 ${i + 1} 张图`}
+              onClick={() => onIndexChange(i)}
+              className="h-1.5 cursor-pointer rounded-full transition-all duration-300"
+              style={{ width: i === index ? 14 : 6, background: i === index ? '#fff' : 'rgba(255,255,255,0.4)' }}
+            />
+          ))}
+        </div>
+        {label && (
+          <span className="max-w-[80%] truncate rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-semibold text-white/90">
+            {label}
+          </span>
+        )}
+      </div>
+    </motion.div>
+  );
+  return target ? createPortal(node, target) : node;
 }
 
 /** 图片列表属性 → 干净的字符串数组（过滤空项；兼容旧存档非数组值） */
 const toImageList = (raw: unknown): string[] =>
   (Array.isArray(raw) ? raw : []).map((s) => String(s ?? '')).filter(Boolean);
 
-/** 商品主图：轮播图片（可上传）+ 收藏心形原地翻转 + SKU 选中自动切换效果图 */
+/** 商品主图：轮播图片（可上传）+ 收藏心形原地翻转 + SKU 选中自动切换效果图组。
+ *  主图支持左右滑动（弹簧跟手）；干净点击 → 大图查看弹层（原位，不跳页） */
 function DetailHeroInteractive({ props }: InteractiveCtx) {
   const [fav, toggleFav] = useLocalToggle(false);
   const { toast } = useAction();
   const setBus = useChannelSetter();
   const images = useMemo(() => toImageList(props.images), [props.images]);
   const linkChannel = String(props.linkChannel || 'sku');
-  /* 订阅 SKU 选择器写入的频道：:img = 当前效果图，:主频道 = 已选规格文案 */
-  const skuImg = useChannelValue(`${linkChannel}:img`);
+  /* 订阅 SKU 选择器写入的频道：:img = 当前效果图组（JSON 图组），:主频道 = 已选规格文案 */
+  const skuImgRaw = useChannelValue(`${linkChannel}:img`);
   const skuLabel = useChannelValue(linkChannel);
-  const [idx, setIdx] = useState(0);
-  const safeIdx = Math.min(idx, Math.max(0, images.length - 1));
-  const showingSku = !!skuImg;
-  const cur = showingSku ? skuImg! : images[safeIdx] ?? '';
+  const skuGallery = useMemo(() => parseGalleryValue(skuImgRaw), [skuImgRaw]);
+  const [zoom, setZoom] = useState(false);
+
+  const showingSku = skuGallery.length > 0;
+  const deck = showingSku ? skuGallery : images;
+  /* 图组位置（纯派生）：deckKey 变化（点另一选项/退出效果图）自动归零回第一张，无需 effect */
+  const deckKey = deck.join('\u0000');
+  const [pos, setPos] = useState({ key: deckKey, idx: 0 });
+  const safeIdx = pos.key === deckKey ? Math.min(pos.idx, Math.max(0, deck.length - 1)) : 0;
+  const setIdx = (i: number) => setPos({ key: deckKey, idx: i });
 
   return (
     <div className="relative h-[260px] w-full">
-      {/* 媒体层：SKU 效果图 / 自身轮播 / 渐变占位，crossfade 切换 */}
-      <HeroMediaLayer value={cur} />
+      {/* 媒体层：SKU 效果图组 / 自身轮播，左右滑动 + 点击查看大图（原位弹层不跳页） */}
+      {deck.length > 0 ? (
+        <SwipeDeck
+          className="size-full"
+          count={deck.length}
+          index={safeIdx}
+          onIndexChange={setIdx}
+          onTap={() => setZoom(true)}
+          renderItem={(i) => (
+            <motion.div
+              key={`${i}-${deck[i] ?? 'ph'}`}
+              initial={{ opacity: 0, scale: 1.03 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="size-full"
+            >
+              <MediaSlide value={deck[i] ?? ''} />
+            </motion.div>
+          )}
+        />
+      ) : (
+        <MediaSlide value="" />
+      )}
       {/* 右上角收藏心形：点击原地翻转 */}
       {props.fav !== false && (
         <button
@@ -111,7 +246,7 @@ function DetailHeroInteractive({ props }: InteractiveCtx) {
           />
         </button>
       )}
-      {/* 已选规格浮层：SKU 触发效果图切换时滑入提示（不跳页、原地联动） */}
+      {/* 已选规格浮层：SKU 触发效果图切换时滑入提示；带 × 可退出效果图回轮播（不跳页、原地联动） */}
       <AnimatePresence>
         {showingSku && skuLabel && (
           <motion.div
@@ -123,26 +258,30 @@ function DetailHeroInteractive({ props }: InteractiveCtx) {
           >
             <span className="size-1.5 shrink-0 rounded-full" style={{ background: 'var(--p)' }} />
             <span className="truncate text-[10px] font-semibold text-white">已选 · {skuLabel}</span>
+            <button
+              type="button"
+              aria-label="退出效果图，回到轮播"
+              onClick={(e) => { stopAct(e); setBus(`${linkChannel}:img`, ''); }}
+              className="ml-0.5 flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/25 text-white transition-transform active:scale-90"
+            >
+              <X className="size-2.5" />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
-      {/* 底部指示点：配置了轮播图 → 真实可点按钮（点击退出 SKU 效果图回到轮播）；未配置 → 装饰点 */}
+      {/* 底部指示点：导航当前图组（SKU 效果图组 / 自身轮播组）；无图 → 装饰点 */}
       <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
-        {images.length > 0
-          ? images.map((_, i) => (
+        {deck.length > 0
+          ? deck.map((_, i) => (
               <button
                 key={i}
                 type="button"
-                aria-label={`切换到第 ${i + 1} 张图`}
-                onClick={(e) => {
-                  stopAct(e);
-                  setIdx(i);
-                  if (showingSku) setBus(`${linkChannel}:img`, '');
-                }}
+                aria-label={`查看第 ${i + 1} 张图`}
+                onClick={(e) => { stopAct(e); setIdx(i); }}
                 className="h-1.5 cursor-pointer rounded-full transition-all duration-300"
                 style={{
-                  width: !showingSku && i === safeIdx ? 12 : 6,
-                  background: !showingSku && i === safeIdx ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)',
+                  width: i === safeIdx ? 12 : 6,
+                  background: i === safeIdx ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)',
                 }}
               />
             ))
@@ -154,6 +293,18 @@ function DetailHeroInteractive({ props }: InteractiveCtx) {
               />
             ))}
       </div>
+      {/* 大图查看：原位全屏弹层（手机屏内），左右滑动观看，不产生新页面 */}
+      <AnimatePresence>
+        {zoom && deck.length > 0 && (
+          <HeroLightbox
+            deck={deck}
+            index={safeIdx}
+            label={showingSku && skuLabel ? `已选 · ${skuLabel}` : null}
+            onIndexChange={setIdx}
+            onClose={() => setZoom(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -362,7 +513,7 @@ export const widgets: WidgetDef[] = [
     type: 'shop.sku-select',
     category: 'shopping',
     name: 'SKU 选择',
-    desc: '颜色/版本 chips（可配效果图，选中联动主图）',
+    desc: '颜色/版本 chips，双击选项传多图/改价，选中联动主图',
     icon: Palette,
     defaultProps: {
       colors: '月光白,曜石黑,晨曦粉',
@@ -370,6 +521,8 @@ export const widgets: WidgetDef[] = [
       channel: 'sku',
       colorImages: [],
       versionImages: [],
+      colorPrices: [],
+      versionPrices: [],
     },
     fields: [
       { key: 'colors', label: '颜色', type: 'textarea', placeholder: '逗号分隔' },
@@ -380,25 +533,38 @@ export const widgets: WidgetDef[] = [
     ],
     Interactive: SkuSelectInteractive,
     render: (p) => {
-      const colorImages = toImageList(p.colorImages);
-      const versionImages = toImageList(p.versionImages);
+      const colorGals = toGalleryList(p.colorImages);
+      const versionGals = toGalleryList(p.versionImages);
+      const colorPrices = toStringList(p.colorPrices);
+      const versionPrices = toStringList(p.versionPrices);
       return (
         <div className="w-card space-y-3.5 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
           {[
-            { label: '颜色', items: splitList(p.colors), imgs: colorImages },
-            { label: '版本', items: splitList(p.versions), imgs: versionImages },
+            { label: '颜色', items: splitList(p.colors), gals: colorGals, prices: colorPrices, imgKey: 'colorImages' as const },
+            { label: '版本', items: splitList(p.versions), gals: versionGals, prices: versionPrices, imgKey: 'versionImages' as const },
           ].filter((row) => row.items.length > 0).map((row) => (
             <div key={row.label} className="flex items-start gap-3">
               <span className="w-7 shrink-0 pt-0.5 text-xs opacity-50">{row.label}</span>
               <div className="flex flex-wrap gap-1.5">
                 {row.items.map((item, i) => {
                   const active = i === 0; // 默认选中第一项
-                  const img = row.imgs[i] ?? '';
+                  const img = galleryMainOf(row.gals, i);
                   const hasThumb = !!imageSrcOf(img) || !!isInlineEmoji(img);
+                  const price = (row.prices[i] ?? '').trim();
+                  /* 编辑器双击标记：双击 chip → 打开该选项的效果图编辑弹窗（名称/价格/多图上传） */
+                  const marker = { 'data-sku-row': row.imgKey, 'data-sku-index': i, 'data-sku-name': item };
+                  const chip = (
+                    <>
+                      {hasThumb && <SkuThumb value={img} />}
+                      {item}
+                      {price && <span className="text-[9px] font-bold opacity-55">¥{price}</span>}
+                    </>
+                  );
                   return active ? (
                     <span
-                      key={item}
-                      className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold"
+                      key={`${item}-${i}`}
+                      {...marker}
+                      className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs font-semibold"
                       style={{
                         borderRadius: 'calc(var(--pr) - 6px)',
                         border: '1px solid var(--p)',
@@ -406,13 +572,16 @@ export const widgets: WidgetDef[] = [
                         color: 'var(--p)',
                       }}
                     >
-                      <SkuThumb value={img} />
-                      {item}
+                      {chip}
                     </span>
                   ) : (
-                    <span key={item} className="w-chip flex items-center gap-1.5 px-2 py-1 text-xs opacity-65" style={{ borderRadius: 'calc(var(--pr) - 6px)' }}>
-                      {hasThumb && <SkuThumb value={img} />}
-                      {item}
+                    <span
+                      key={`${item}-${i}`}
+                      {...marker}
+                      className="w-chip flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs opacity-65"
+                      style={{ borderRadius: 'calc(var(--pr) - 6px)' }}
+                    >
+                      {chip}
                     </span>
                   );
                 })}
