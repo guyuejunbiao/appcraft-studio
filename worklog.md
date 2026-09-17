@@ -1206,3 +1206,20 @@ Work Log:
 Stage Summary:
 - github.com/guyuejunbiao/appcraft-studio main = 本地 7948c7a，包含全部 36 提交（1114 组件模块库、无限画布、双击就地改字、右键单件编辑、条目级连接触发、Turso 就绪）
 - 安全提醒已发：对话中出现的两个 token 均建议用户到 GitHub Settings → Developer settings 删除
+---
+Task ID: 44
+Agent: main (Z.ai Code)
+Task: 用户需求——功能按钮类组件库（例如返回按钮等）
+
+Work Log:
+- 新建 src/components/widgets/buttons.tsx（'use client'，自包含 Interactive），新增 CategoryId 'buttons' + registry 分类「功能按钮」（Pointer 图标，teal 点缀色 #0d9488，置于功能通用之后）
+- 11 个组件（btn.*）：①返回按钮（3 皮肤；预览调 navBack 真实页面栈回退，栈底 toast）②确认·取消双按钮（useAction 时序：确认=转圈 600ms→已完成闪示→toast+onTap 跳转，取消=toast）③点赞收藏钮（useLikeCount 原地翻转 ±1，心/赞/星三图标）④返回顶部（toast）⑤关闭按钮（3 皮肤）⑥更多按钮（横/竖三点）⑦分享按钮组（图标池循环，逐入口 toast）⑧危险操作按钮（rose-500 语义色 3 皮肤+处理时序）⑨胶囊切换组（单选激活原地切换）⑩文字链接（onTap 跳页/未绑 toast）⑪快捷功能钮条（slots 逐条目绑定页面：slotPush 命中跳转、未命中 toast 提示可绑定）
+- 全部按钮预览原地有反应（action-kit 基建 stopAct/useAction/useLikeCount/fmtCount），样式遵循 var(--p)/var(--pf)/var(--pr)+w-chip，禁蓝靛色
+- 配套修正：WidgetLibrary 基础组件 tab 计数 144 硬编码→allWidgets.length 动态（现显 155）；CATEGORY_COLOR 补 buttons 键（tsc 暴露 Record 全量约束）；README 数字同步（144→155 基础组件、22→13 功能目录）
+- agent-browser 实测：组件库目录+11 卡片渲染 ✓；4 钮加入商城首页+1 钮加入商品详情 ✓；预览点赞 3286→3287 激活态 ✓；确认钮 提交中…→已完成→回位 ✓；真实回退链路（数码压栈→详情页点返回钮→pop 回商城首页，顶部返回键变灰证实）✓；快捷钮条/分享渲染 ✓；tsc 0 错 lint 0 错
+- 测试副作用清理：撤销×5 移除加入用户项目的 5 个测试钮（商城首页 13→9、商品详情 10→9），等 autosave「已保存 03:23」落盘确认
+
+Stage Summary:
+- 「功能按钮」成为第 13 个组件目录：返回/确认取消/点赞/分享/关闭/更多/危险操作/胶囊/文字链接/快捷钮条 11 件套，全部带真实预览交互；快捷钮条接入 slots 体系（可逐条目绑页，配合 Task 43 的条目级触发下拉）
+- 用户项目数据零残留；提交 fb52e31（未推送，需用户 token）
+- 建议下一阶段：①给登录/聊天等目录也补独立 Interactive 的 toast 反馈对齐 ②商品图 emoji 自定义 ③编辑器（非画布）交互对齐 ④推送 GitHub
