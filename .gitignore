@@ -71,3 +71,6 @@ mini-services/*/node_modules
 # 聊天粘贴的临时图片等
 upload/
 tool-results/
+
+# 数据库备份快照（本地保险，不入库）
+/db/backups/

@@ -1,79 +1,151 @@
-# 🎨 AppCraft Studio · 拖拽式 DIY App 制作工坊
+<div align="center">
 
-一个运行在浏览器里的**可视化 App 搭建平台**：像搭积木一样拖拽组件、创建页面、连线跳转，几分钟拼出一款属于自己的 App 原型。
+# 🛠️ AppCraft Studio
 
-## ✨ 核心功能
+**像搭积木一样，拖拽出你的专属 App —— 零代码 · 所见即所得**
 
-- **📱 手机画布编辑器** —— 从组件库拖拽 130+ 精选组件（社交 / 电商 / 媒体 / 工具等 13 个分类）到手机页面中自由排版
-- **🗺️ 无限画布（流程视图）** —— 以画板形式俯瞰全部页面，页面间拖拽连线表达跳转关系，支持缩放 / 平移 / 组件直接投放到任意画板
-- **🔗 页面管理** —— 新建 / 重命名 / 排序 / 复制页面，配置页面间跳转连接
-- **👁️ 实时预览** —— 手机壳内即时预览交互效果，明暗主题自适应
-- **💾 项目持久化** —— Prisma + SQLite 存储，多项目管理
+拖组件 → 改文案 → 连页面 → 一键预览上架。小白也能 10 分钟搓出一个能用的 App。
 
-## 🛠️ 技术栈
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Prisma](https://img.shields.io/badge/Prisma-ORM-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
+[![Turso Ready](https://img.shields.io/badge/Storage-SQLite%20%2F%20Turso-FFDB00)](https://turso.tech)
+[![Modules](https://img.shields.io/badge/成品模块-1114+-F97316)](#-功能特性)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10B981)](#-license)
 
-| 领域 | 技术 |
-| --- | --- |
-| 框架 | Next.js 16（App Router）+ TypeScript 5 |
-| UI | Tailwind CSS 4 + shadcn/ui + Lucide Icons |
-| 状态 | Zustand |
-| 拖拽 | 自研 Pointer Events 拖拽引擎 + @dnd-kit |
-| 数据库 | Prisma ORM + SQLite |
+![AppCraft Studio 编辑器](docs/screenshots/editor.png)
+
+*↑ 组件仓库 1114 个成品模块 · 自由布局画布 · 手机壳实时预览 · 属性面板逐件编辑*
+
+</div>
+
+---
+
+## ✨ 功能特性
+
+### 🧩 1114+ 成品模块，开箱即用
+- **144 个基础组件** × 22 个功能目录（商城、外卖点餐、社区动态、经营看板、健身打卡、新闻资讯……）
+- **970 个精选预设**：调好真实文案的组件成品，拖进画布改几个字就是你的页面
+- 金刚区、商品网格、限时秒杀、直播间、KPI 看板、课程表、日程……覆盖主流 App 形态
+
+### 🖱️ 点谁编谁 —— 每个条目都是独立个体
+- 画布上**点击商品网格里的任意一件商品** → 弹窗里只有那一件（名称/售价/原价/已售），独立编辑、独立绑定跳转页面
+- 金刚区格子、秒杀位、订单宫格、设置行同理：**点谁编谁，无缝切换**
+- 同一个页面可以被**多个触发组件指向**（多对一）：商品 A 的主图和首页 Banner 都能跳同一个详情页
+
+### 🕸️ 无限画布 · 流程图式页面编排
+- 俯瞰全部页面，右侧圆点拖拽连线即完成页面跳转绑定
+- 多条连线自动扇形展开，槽位徽章标注触发条目（如「夏日限定碎花连衣裙」）
+- 画板内点选组件直接就地编辑，不离开画布改完文字
+
+### 📱 预览即真机
+- 手机壳内实时预览，点击交互、页面转场动画（滑入/淡入/展开）与真实 App 一致
+- 底部 TabBar、昼夜主题切换、点赞收藏等本地动作全部可用
+- 一键**导出 HTML**，随手分享
+
+### 🚀 小白三步上手
+1. 选模板 / 一键铺满套装（商城首页、社区动态、经营看板示例套装）
+2. 拖组件、改文案
+3. 点预览，上架分享
+
+## 🖼️ 界面速览
+
+| 首页 | 无限画布 |
+|:---:|:---:|
+| ![首页](docs/screenshots/home.png) | ![无限画布](docs/screenshots/canvas.png) |
+| **真机预览** | **流程图连接** |
+| ![预览](docs/screenshots/preview.png) | ![流程图](docs/screenshots/flow.png) |
+
+## 🧰 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 框架 | Next.js 16（App Router）+ React 19 + TypeScript 5 |
+| 样式 | Tailwind CSS 4 + shadcn/ui（New York）+ Lucide Icons |
+| 状态 | Zustand（编辑器状态）+ TanStack Query |
+| 数据库 | Prisma ORM —— 本地 SQLite / 线上 [Turso](https://turso.tech)（libSQL）双模式 |
+| 运行时 | Node.js ≥ 20 / Bun |
 
 ## 🚀 本地开发
 
 ```bash
-# 1. 安装依赖（推荐 bun，也可用 npm/pnpm）
-bun install
+git clone https://github.com/guyuejunbiao/appcraft-studio.git
+cd appcraft-studio
+bun install                # 或 npm install
 
-# 2. 初始化数据库
-cp .env.example .env        # 配置 DATABASE_URL（见 .env.example）
-bun run db:push             # 按 schema 建库
+# 初始化数据库（SQLite，默认 file:./db/custom.db）
+bun run db:generate
+bun run db:push
 
-# 3. 启动开发服务器
-bun run dev                 # http://localhost:3000
-
-# 4. 代码检查 / 类型检查
-bun run lint
-bunx tsc --noEmit
+bun run dev                # http://localhost:3000
 ```
 
-## 📤 部署到 GitHub
+> 不装 Bun 也可以：把 `bun` 换成 `npx` / `npm run` 即可。
+
+## ☁️ 部署到 Vercel（Turso 托管数据库）
+
+Serverless 平台文件系统不持久，线上部署请用 Turso（libSQL，SQLite 兼容，免费额度足够跑起来）。代码已内置双模式：**配置了 `TURSO_DATABASE_URL` 就走 Turso，没配置就走本地 SQLite**，代码零改动。
+
+### 1️⃣ 创建 Turso 数据库
 
 ```bash
-# 1. 在 GitHub 网页上新建一个空仓库（不要勾选 README/.gitignore）
+# 安装 Turso CLI
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth login
 
-# 2. 关联远程仓库并推送（把 <你的用户名>/<仓库名> 换成自己的）
-git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-git push -u origin main
+turso db create appcraft-studio
+turso db show appcraft-studio --url      # → TURSO_DATABASE_URL（libsql://...）
+turso db tokens create appcraft-studio   # → TURSO_AUTH_TOKEN
 ```
 
-> 💡 首次推送时 GitHub 会要求登录：使用 **Personal Access Token**（Settings → Developer settings → Tokens）作为密码，或配置 SSH Key。
+### 2️⃣ 建表（把 Prisma Schema 推到 Turso）
 
-## ☁️ 上线部署（可选）
+Prisma CLI 不能直连 `libsql://`，用官方姿势「生成 SQL → turso shell 执行」：
 
-推荐 **Vercel**（Next.js 官方出品，对 GitHub 仓库一键部署）：
+```bash
+# 生成建表 SQL
+bunx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > schema.sql
 
-1. 访问 [vercel.com](https://vercel.com) → 用 GitHub 账号登录 → **Import Project** 选择刚推送的仓库
-2. 在 Environment Variables 中添加 `DATABASE_URL=file:/tmp/custom.db`
-3. Build Command 保持默认，点击 Deploy 即可获得公网地址，此后每次 `git push` 自动重新部署
+# 写入 Turso
+turso db shell appcraft-studio < schema.sql
+```
 
-> ⚠️ 注意：Vercel 服务器文件系统是临时的，SQLite 数据会在实例重启后清空，适合演示原型。
-> 若需要持久化正式数据，建议把 Prisma 数据源切换为 [Turso](https://turso.tech)（libSQL）或 Neon / Supabase 托管数据库。
+### 3️⃣ 部署 Vercel
 
-## 📂 目录结构
+1. 把本仓库推到你的 GitHub，[vercel.com/new](https://vercel.com/new) 导入仓库（Framework 自动识别 Next.js）
+2. 环境变量（Project → Settings → Environment Variables）：
+
+   | 变量 | 值 |
+   |---|---|
+   | `TURSO_DATABASE_URL` | `libsql://appcraft-studio-<你的org>.turso.io` |
+   | `TURSO_AUTH_TOKEN` | 第 1 步生成的 token |
+
+3. Deploy 🚀 —— 构建脚本已内置 `prisma generate`，无需额外配置
+
+### 本地连 Turso 调试（可选）
+
+```bash
+TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... bun run dev
+```
+
+## 📁 项目结构
 
 ```
 src/
-├── app/                 # Next.js App Router 页面
+├── app/                    # Next.js App Router（页面 + API 路由）
 ├── components/
-│   ├── builder/         # 编辑器：画布、无限画布、页面管理、连线编辑
-│   ├── widgets/         # 130+ 组件库（13 大分类）
-│   └── ui/              # shadcn/ui 基础组件
-├── lib/                 # store、工具函数
-prisma/schema.prisma     # 数据模型（Project / Page / Widget / Connection）
+│   ├── builder/            # 编辑器：画布/无限画布/属性面板/连线/页面管理
+│   ├── widgets/            # 144 个基础组件（按目录分文件）
+│   └── ui/                 # shadcn/ui 基础组件
+├── lib/
+│   ├── presets/            # 970 个精选预设（22 目录）
+│   ├── db.ts               # Prisma 客户端（SQLite / Turso 双模式）
+│   ├── types.ts            # 页面/组件/连接 数据模型
+│   └── store.ts            # Zustand 编辑器状态
+└── prisma/schema.prisma    # Project / Page / Connection / WidgetPreset
 ```
 
----
+## 📄 License
 
-Made with ❤️ by AppCraft Studio
+[MIT](LICENSE) © guyuejunbiao

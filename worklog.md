@@ -1135,3 +1135,24 @@ Stage Summary:
 - GitHub 部署完成：github.com/guyuejunbiao/appcraft-studio main 分支 = 本地 569080b（32 提交全量）
 - 安全惯例落定：token 使用"仅命令行一次性传入"模式，任何凭据不落盘不进仓库
 - 建议下一阶段：①可在 GitHub 仓库页添加 README 徽章/截图 ②如需在线可访问部署（Vercel 等）需注意 SQLite/Prisma 需换托管数据库 ③后续代码变更继续用新 token 或让用户生成更短有效期 token
+---
+Task ID: 41
+Agent: main (Z.ai Code)
+Task: ①数据库改造支持 Turso（Vercel 部署就绪）②README 仓库美化（徽章+截图+部署文档）③数据丢失事故处置×2 与巡检任务加固
+
+Work Log:
+- Turso 改造：安装 @prisma/adapter-libsql@6.19.2 + @libsql/client@0.18.0；db.ts 工厂化——TURSO_DATABASE_URL 存在时走 PrismaLibSQL adapter（工厂模式，传 {url, authToken} 配置对象而非 client 实例），无变量时零改动回退本地 SQLite；package.json build 前置 prisma generate（Vercel 构建要求）
+- libSQL 链路冒烟测试（file: URL 模拟远程协议）：SCHEMA APPLY/WRITE/READ(include relation)/FK+JSON 写入/CASCADE DELETE 全过——Turso 路径生产可用（同一 libsql client 协议）
+- 【事故一】发现用户项目「1」消失（custom.db 被重建为空库）：git 无备份（.gitignore 排除 /db/*.db）、dev.log 被 tee 截断。根因锁定：dev.log 内两次 EADDRINUSE（00:26/00:48）——15 分钟巡检任务反复尝试重启 dev server 且 tee 覆盖日志；处置：mall-demo 模板重建项目+补齐页面 3+两条逐商品连接，删旧巡检 job 389525 建 v2 铁律版 391313
+- 【事故二】重建的项目再次被 DELETE /api/projects/cmu4t7bqg... 删除（dev.log 实锤）：00:45 触发的旧巡检轮（启动于任务删除前）在清理时把同名的重建项目误认为自己的测试项目。根因链：巡检新建测试项目也叫「1」→ 名字冲突 → 按 id/名字清理误判
+- 最终防护（v3 全防护 391323，priority 10）：①开工即备份数据库到 db/backups/ ②开工项目清单白名单制（已存在的项目一律严禁 PUT/DELETE/清空）③测试项目必须命名「巡检临时-<HHMMSS>」严禁叫「1」④只允许清理自己本轮建的「巡检临时-」项目 ⑤严禁 db:reset/migrate reset/rm .db ⑥严禁 bun run dev/重启 server ⑦浏览器共享协调（开工归位首页、发现列表变化立即停止删除类操作）
+- 第三次重建项目「1」（cmu4tjbe2...，3 页面 3 连接）+ /tmp/user-project-guard.json 守护清单；新增 db/backups/ 惯例（.gitignore 忽略）并手动备份 custom-0917-0049.db
+- 仓库美化：README 全量重写（shields.io 徽章 7 枚：Next.js16/TS5/Tailwind4/Prisma/Turso Ready/1114 模块/MIT；功能特性四大块；界面速览 5 图表格；技术栈表；本地开发；Turso+Vercel 完整部署三步文档：建库→prisma migrate diff 生成 SQL→turso db shell 建表→Vercel 环境变量部署；项目结构图；MIT LICENSE 文件）
+- 产品截图 5 张（agent-browser 1440×900）：home（Hero+项目卡）/editor（三页面标签+商品连接徽章+1114 仓库）/canvas（无限画布 3 画板+槽位徽章连线）/flow（页面流程图 3 连接）/preview（手机壳真机预览）；期间巡检浏览器冲突两次（截图截到巡检工作区），清理了巡检遗留的 blank 测试项目（先 JSON 备份 /tmp/patrol-blank-backup.json）
+- 回归验证：预览中点击「云朵软糯牛奶卫衣」→ NAVIGATED TO DETAIL ✓（重建数据核心交互完好）；tsc 0 错、lint 0 错
+
+Stage Summary:
+- Vercel 部署链路全部打通：代码层（Turso 双模式+prisma generate）、文档层（README 三步部署）、验证层（libSQL 冒烟测试）；用户只需注册 Turso→建库→建表→Vercel 配两个环境变量即可上线
+- 仓库美化完成：README（徽章+5 实拍截图+完整部署文档）+ LICENSE
+- 两次数据丢失事故完整闭环：根因均为巡检任务行为（重启 dev server/同名项目误删），v3 铁律从「备份、白名单、唯一命名、清理范围、禁重启、共享协调」六面封堵；数据三次重建流程固化（POST mall-demo → PUT 补页面 3 与逐商品连接）
+- 待办：商品图 emoji 自定义、coupon-row 逐券绑定、登录页重设计、全站 QA、（可选）db/backups 定时轮转清理
