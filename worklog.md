@@ -1223,3 +1223,31 @@ Stage Summary:
 - 「功能按钮」成为第 13 个组件目录：返回/确认取消/点赞/分享/关闭/更多/危险操作/胶囊/文字链接/快捷钮条 11 件套，全部带真实预览交互；快捷钮条接入 slots 体系（可逐条目绑页，配合 Task 43 的条目级触发下拉）
 - 用户项目数据零残留；提交 fb52e31（未推送，需用户 token）
 - 建议下一阶段：①给登录/聊天等目录也补独立 Interactive 的 toast 反馈对齐 ②商品图 emoji 自定义 ③编辑器（非画布）交互对齐 ④推送 GitHub
+---
+Task ID: 45
+Agent: main (Z.ai Code)
+Task: 用户截图反馈两问题——①「人气爆款」点餐分类侧栏：分类文字能改但右侧商品没法编辑（编辑器画布）②预设模板及所有组件调节大小时要自适应
+
+Work Log:
+- 排查定位（编辑器 Canvas.tsx 自由布局，非无限画布）：
+  - food.category-sidebar 右侧商品行是硬编码 [0,1] 纯骨架灰条（无数据字段、无 data-item-index、属性面板无对应字段）→「商品没法编辑」根因
+  - 实测 resize：纯横向拖拽会把「自动高度」固化为固定 h（handleDragMove 无条件写 {x,y,w,h}，h 用 offsetHeight 快照）→ 之后内容增减即被 overflow 裁剪，「不自适应」主因
+  - 固定 h 内容不足时底部留白、超出时被裁且无提示
+  - 发现存量隐患：wrapper overflow-hidden 会把伸出边缘 6px 的 8 向缩放手柄一起裁掉 → h 固定组件的 s/n 手柄点不到、拖拽失效（elementFromPoint 证实）
+  - 发现存量 bug：全站大量 toast() 用 sonner，但 layout.tsx 只挂了 radix toaster，sonner Toaster 缺失 → 所有提示静默丢失
+- 修复：
+  - food.tsx：category-sidebar 新增 items（products 字段，defaultProps 2 菜品兜底，旧实例自动升级）；render/Interactive 右侧真实菜品行（菜名 truncate + 主色价格 + 加购），行加 data-item-index；fields 加「菜品（逐个编辑）」；slots 逐菜品绑定（label 纯菜名）；desc 更新
+  - presets/food.ts：14 个点餐分类侧栏预设补真实菜品（奶茶/火锅/日料/轻食等主题化菜名价格）
+  - Canvas.tsx handleDragMove：拖拽方向分流——纯东西向只写 {x,y,w}（autoH 绝不写 h；原固定 h 保持原值）；南北/对角才固化 h；badge 显示「N × 自动」；resizeRef 记录 autoH + baselineClipped（拖前基线裁剪量，measureClipped 遍历 DOM 含内部 overflow-hidden 层）
+  - Canvas.tsx handleUp：南北/对角拖拽结束后 rAF 测量，新增裁剪 >8px 才 toast 提示（基线对比防固有装饰性裁剪误报）
+  - WidgetRenderer.tsx：WidgetRenderer(free 分支)与 WidgetInner(编辑器入口)固定高度时启用弹性填充链——wrapper flex-col + 内容层 flex-1 min-h-0 overflow-hidden + 组件根 [&>div]:min-h-full（内容不足撑满不留白，超出本层裁剪）；自动高度/流式布局走原 block 结构零回归；fullBleed+固定高包独立裁剪层 [&>*]:shrink-0
+  - layout.tsx：补挂 sonner Toaster（bottom-center richColors closeButton），修复全站 toast 失效
+- 调试过程（教训沉淀）：agent-browser 两次合成 pointerdown 误触发移动拖拽/框选（组件被挪 x20 y1228，已从备份恢复原坐标 x10 y1056）；undo 对 transient 拖拽无效（不记历史），恢复走 InspectorPanel 布局面板 X/Y/W/H 数值输入；rAF 全局计数不能证明特定分支执行（页面其他 rAF 干扰），最终以临时 console.log 定位——发现 toast 条件其实满足、是 sonner Toaster 缺失
+- agent-browser 实测全过：①属性面板出现逐个菜品编辑器，改「招牌手打柠檬茶/12→芋泥波波奶茶/13」画布实时同步 ②横向拖宽 w 355→364 后 API 核对 h 仍 null（修复前会固化 228）③纵向拖高 352 卡片拉伸填满不留白（左分类栏同步拉伸）④拖矮后 toast「组件高度小于内容…」出现 ⑤固定高组件南手柄 probeIsHandle=true（修复前被裁点不到）⑥预览：真实菜品渲染 ✓ 加购 toast「已加入购物车：人气爆款·招牌手打柠檬茶」✓ ⑦无限画布：右键菜品行→单件编辑面板只显示那一件 ✓ 双击菜名→内联输入框原位覆盖改字实时生效 ✓
+- 测试数据全部还原：布局 diff 对比开工备份 0 处差异；items 显式化为与 defaultProps 等价的值（属性面板编辑的正常落盘，内容不变且已可编辑）
+- tsc 0 错（仅 examples/skills 历史遗留）、lint 0 错；提交 fbc4796
+
+Stage Summary:
+- 用户两大诉求闭环：①侧栏商品从「纯骨架不可编辑」变为真实菜品行——属性面板逐个编辑（名称/价格/原价/已售/增删/排序）、无限画布双击改字+右键单件、逐菜品绑定跳转页面、预览加购反馈，旧实例零操作自动升级 ②resize 自适应体系：横向拖拽保自动高度、固定高弹性填充不留白、手柄不再被裁、拖矮裁剪有提示
+- 两个存量 bug 顺带修复：固定高组件手柄被 wrapper 裁剪（拖拽失效）、sonner Toaster 缺失（全站 toast 静默丢失）
+- 编辑器画布（Canvas.tsx）的「点谁编谁」完整移植（双击内联+右键单件）仍是排队任务——本轮编辑侧靠属性面板 products 编辑器闭环；git 推送需用户新 token（本地领先 1 提交 fbc4796）
