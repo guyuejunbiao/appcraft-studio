@@ -87,7 +87,15 @@ export function WidgetRenderer({
     def.render(merged)
   );
 
-  const inner = def.fullBleed ? body : <div className="px-2.5">{body}</div>;
+  /* 固定高度（自由布局 h 已设）时启用弹性填充链：
+     内容不足时卡片根节点 min-h-full 撑满容器（不留白），超出时在本层被 overflow hidden 裁剪；
+     自动高度/流式布局保持原始 block 结构（零回归） */
+  const stretch = typeof w.h === 'number';
+  const inner = def.fullBleed ? (
+    stretch ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:shrink-0">{body}</div> : body
+  ) : (
+    <div className={`px-2.5${stretch ? ' flex min-h-0 flex-1 flex-col overflow-hidden [&>div]:min-h-full' : ''}`}>{body}</div>
+  );
   const hint =
     onTap && targetHint ? (
       <span className="pointer-events-none absolute -top-1.5 right-1.5 z-10 hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow group-hover/rel:flex">
@@ -96,20 +104,20 @@ export function WidgetRenderer({
     ) : null;
 
   if (free) {
+    const fixedH = typeof w.h === 'number';
     return (
       <div
-        className="group/rel relative"
+        className={`group/rel relative${fixedH ? ' flex flex-col overflow-hidden' : ''}`}
         style={{
           width: typeof w.w === 'number' ? w.w : '100%',
-          height: typeof w.h === 'number' ? w.h : undefined,
-          overflow: typeof w.h === 'number' ? 'hidden' : undefined,
+          height: fixedH ? w.h : undefined,
           opacity: w.opacity ?? 1,
           filter: w.shadow ? SHADOW_FILTER[w.shadow] : undefined,
         }}
       >
         <div
-          className={onTap ? 'cursor-pointer tap-target' : undefined}
-          style={onTap ? { width: '100%', height: '100%' } : undefined}
+          className={`flex min-h-0 flex-1 flex-col${fixedH ? '[&>div]:min-h-full' : ''}${onTap ? ' cursor-pointer tap-target' : ''}`}
+          style={onTap ? { width: '100%' } : undefined}
           onClick={onTap}
           role={onTap ? 'button' : undefined}
           aria-label={onTap ? `跳转到 ${targetHint ?? ''}` : undefined}
@@ -191,5 +199,19 @@ export function WidgetInner({
     def.render(merged)
   );
 
-  return def.fullBleed ? <>{body}</> : <div className="px-2.5">{body}</div>;
+  /* 固定高度时启用弹性填充链（配合 Canvas 自由布局包装层的 flex 容器）：
+     内容不足 → 卡片根节点撑满容器不留白；超出 → 在本层被 overflow hidden 裁剪。
+     裁剪层不在包装层的原因：包装层若裁剪，伸出边缘的 8 向缩放手柄也会被裁掉，导致拖拽失效。
+     自动高度保持原始 block 结构（零回归）。 */
+  const stretch = typeof w.h === 'number';
+  if (def.fullBleed) {
+    return stretch ? (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:shrink-0">{body}</div>
+    ) : (
+      <>{body}</>
+    );
+  }
+  return (
+    <div className={`px-2.5${stretch ? ' flex min-h-0 flex-1 flex-col overflow-hidden [&>div]:min-h-full' : ''}`}>{body}</div>
+  );
 }

@@ -4,26 +4,26 @@ import { p } from './types';
 /**
  * food 类目精选预设（70 个，覆盖 food.tsx 全部 9 个基础组件）
  * props 字段逐字对照 food.tsx 的 defaultProps/fields：
- * banner(name/sales/fee/time/notice)、coupon-row(coupons)、category-sidebar(cats/active 0-8)、
+ * banner(name/sales/fee/time/notice)、coupon-row(coupons)、category-sidebar(cats/active 0-8/items 菜品)、
  * dish-card(name/desc/price/sales)、dish-row(items/prices)、cart-bar(total/fee/count)、
  * order-status(status 仅「商家接单中/配送中/已送达」三值/rider)、table-head(no/queue)、rate-tags(total)
  */
 export const foodPresets: PresetDef[] = [
   /* ---------------- food.category-sidebar 点餐分类侧栏（14） ---------------- */
-  p('food.category-sidebar', '奶茶店点餐侧栏', { cats: '人气爆款,当季限定,奶茶,果茶,咖啡,小料加购', active: 0 }, ['奶茶', '点餐', '菜单', '分类']),
-  p('food.category-sidebar', '火锅店点餐侧栏', { cats: '锅底,招牌肉类,海鲜河鲜,丸滑,素菜,蘸料饮品', active: 0 }, ['火锅', '点餐', '菜单', '分类']),
-  p('food.category-sidebar', '快餐店点餐侧栏', { cats: '超值套餐,汉堡,炸鸡小食,米饭套餐,饮品,甜点', active: 0 }, ['快餐', '汉堡', '点餐', '分类']),
-  p('food.category-sidebar', '日料店点餐侧栏', { cats: '刺身寿司,寿喜锅,丼饭,烤物,小食,清酒', active: 0 }, ['日料', '寿司', '点餐', '分类']),
-  p('food.category-sidebar', '烘焙店点餐侧栏', { cats: '今日现烤,吐司,蛋糕,可颂,饼干礼盒,咖啡搭子', active: 1 }, ['烘焙', '面包', '点餐', '分类']),
-  p('food.category-sidebar', '麻辣烫点餐侧栏', { cats: '荤菜,素菜,主食,丸类,蘸料,饮品', active: 0 }, ['麻辣烫', '点餐', '菜单', '分类']),
-  p('food.category-sidebar', '烧烤店点餐侧栏', { cats: '招牌烤串,烤肉,烤蔬菜,烤海鲜,主食,酒水', active: 0 }, ['烧烤', '夜宵', '点餐', '分类']),
-  p('food.category-sidebar', '粤菜馆点餐侧栏', { cats: '招牌烧腊,靓汤,海鲜,小炒,点心,糖水', active: 0 }, ['粤菜', '烧腊', '点餐', '分类']),
-  p('food.category-sidebar', '川菜馆点餐侧栏', { cats: '招牌硬菜,江湖菜,凉菜,下饭菜,汤羹,饮品', active: 0 }, ['川菜', '点餐', '菜单', '分类']),
-  p('food.category-sidebar', '西餐厅点餐侧栏', { cats: '前菜,主菜,意面披萨,汤品,甜品,葡萄酒', active: 0 }, ['西餐', '牛排', '点餐', '分类']),
-  p('food.category-sidebar', '轻食沙拉侧栏', { cats: '低卡轻食,能量碗,沙拉,三明治,鲜榨果蔬汁,代餐', active: 0 }, ['轻食', '沙拉', '健身餐', '分类']),
-  p('food.category-sidebar', '粥粉面店侧栏', { cats: '招牌粥品,汤粉,拌面,浇头小菜,油条点心,饮品', active: 0 }, ['粥粉面', '早餐', '点餐', '分类']),
-  p('food.category-sidebar', '水果店侧栏', { cats: '当季鲜果,进口水果,果切拼盘,鲜榨果汁,果篮礼盒,囤货装', active: 0 }, ['水果', '鲜果', '点餐', '分类']),
-  p('food.category-sidebar', '生鲜超市侧栏', { cats: '蔬菜蛋品,肉禽,海鲜水产,乳品烘焙,粮油调味,酒水饮料', active: 2 }, ['生鲜', '超市', '囤货', '分类']),
+  p('food.category-sidebar', '奶茶店点餐侧栏', { cats: '人气爆款,当季限定,奶茶,果茶,咖啡,小料加购', active: 0, items: [{ name: '芋泥波波奶茶', price: '13' }, { name: '黑糖珍珠鲜奶', price: '16' }] }, ['奶茶', '点餐', '菜单', '分类']),
+  p('food.category-sidebar', '火锅店点餐侧栏', { cats: '锅底,招牌肉类,海鲜河鲜,丸滑,素菜,蘸料饮品', active: 0, items: [{ name: '麻辣牛油锅底', price: '38' }, { name: '精品肥牛卷', price: '42' }] }, ['火锅', '点餐', '菜单', '分类']),
+  p('food.category-sidebar', '快餐店点餐侧栏', { cats: '超值套餐,汉堡,炸鸡小食,米饭套餐,饮品,甜点', active: 0, items: [{ name: '香辣鸡腿堡套餐', price: '26' }, { name: '黄金脆皮炸鸡', price: '33' }] }, ['快餐', '汉堡', '点餐', '分类']),
+  p('food.category-sidebar', '日料店点餐侧栏', { cats: '刺身寿司,寿喜锅,丼饭,烤物,小食,清酒', active: 0, items: [{ name: '厚切三文鱼刺身', price: '68' }, { name: '金枪鱼寿司拼盘', price: '58' }] }, ['日料', '寿司', '点餐', '分类']),
+  p('food.category-sidebar', '烘焙店点餐侧栏', { cats: '今日现烤,吐司,蛋糕,可颂,饼干礼盒,咖啡搭子', active: 1, items: [{ name: '生吐司原味切片', price: '18' }, { name: '法式黄油可颂', price: '12' }] }, ['烘焙', '面包', '点餐', '分类']),
+  p('food.category-sidebar', '麻辣烫点餐侧栏', { cats: '荤菜,素菜,主食,丸类,蘸料,饮品', active: 0, items: [{ name: '秘制麻辣牛肉', price: '22' }, { name: '手打虾滑', price: '18' }] }, ['麻辣烫', '点餐', '菜单', '分类']),
+  p('food.category-sidebar', '烧烤店点餐侧栏', { cats: '招牌烤串,烤肉,烤蔬菜,烤海鲜,主食,酒水', active: 0, items: [{ name: '炭烤羊肉串', price: '6' }, { name: '蒜蓉烤生蠔', price: '12' }] }, ['烧烤', '夜宵', '点餐', '分类']),
+  p('food.category-sidebar', '粤菜馆点餐侧栏', { cats: '招牌烧腊,靓汤,海鲜,小炒,点心,糖水', active: 0, items: [{ name: '脆皮烧鹅例牌', price: '68' }, { name: '虾鲛烧卖皇', price: '28' }] }, ['粤菜', '烧腊', '点餐', '分类']),
+  p('food.category-sidebar', '川菜馆点餐侧栏', { cats: '招牌硬菜,江湖菜,凉菜,下饭菜,汤羹,饮品', active: 0, items: [{ name: '香锅旺辣牛肉', price: '52' }, { name: '麻婆豆腐', price: '22' }] }, ['川菜', '点餐', '菜单', '分类']),
+  p('food.category-sidebar', '西餐厅点餐侧栏', { cats: '前菜,主菜,意面披萨,汤品,甜品,葡萄酒', active: 0, items: [{ name: '经典菲力牛排', price: '128' }, { name: '奶油蘑菇汤', price: '26' }] }, ['西餐', '牛排', '点餐', '分类']),
+  p('food.category-sidebar', '轻食沙拉侧栏', { cats: '低卡轻食,能量碗,沙拉,三明治,鲜榨果蔬汁,代餐', active: 0, items: [{ name: '牛油果鸡胸沙拉', price: '26' }, { name: '藜麦虾仁能量碗', price: '32' }] }, ['轻食', '沙拉', '健身餐', '分类']),
+  p('food.category-sidebar', '粥粉面店侧栏', { cats: '招牌粥品,汤粉,拌面,浇头小菜,油条点心,饮品', active: 0, items: [{ name: '招牌皮蛋瘦肉粥', price: '12' }, { name: '红烧牛肉面', price: '22' }] }, ['粥粉面', '早餐', '点餐', '分类']),
+  p('food.category-sidebar', '水果店侧栏', { cats: '当季鲜果,进口水果,果切拼盘,鲜榨果汁,果篮礼盒,囤货装', active: 0, items: [{ name: '突尼斯软籽石榴', price: '29' }, { name: '海南金钻凤梨', price: '19' }] }, ['水果', '鲜果', '点餐', '分类']),
+  p('food.category-sidebar', '生鲜超市侧栏', { cats: '蔬菜蛋品,肉禽,海鲜水产,乳品烘焙,粮油调味,酒水饮料', active: 2, items: [{ name: '谷饲西冷牛排', price: '49' }, { name: '冷鲜初生蛋 30 枚', price: '32' }] }, ['生鲜', '超市', '囤货', '分类']),
 
   /* ---------------- food.dish-card 菜品卡（15） ---------------- */
   p('food.dish-card', '宫保鸡丁菜品卡', { name: '宫保鸡丁', desc: '鸡丁滑嫩花生香脆，微微辣很下饭', price: 23.9, sales: '356' }, ['川菜', '下饭菜', '菜品']),

@@ -176,7 +176,23 @@ export function Canvas() {
   const resizeRef = useRef<null | {
     id: string; dir: string; startX: number; startY: number;
     rect: { x: number; y: number; w: number; h: number };
+    /** 拖拽开始时高度是否为「自动」（h 未设）：纯东西向拖拽时保持自动，不再固化实测高度 */
+    autoH: boolean;
+    /** 拖拽开始时的基线裁剪量：组件固有 overflow-hidden 装饰不算在内，只提示本次拖矮新增的裁剪 */
+    baselineClipped: number;
   }>(null);
+
+  /** 测量组件内最大垂直裁剪量（含内部 overflow-hidden 层，如卡片根自身裁内容） */
+  const measureClipped = useCallback((id: string) => {
+    const el = itemRefs.current.get(id);
+    if (!el) return 0;
+    let m = el.scrollHeight - el.clientHeight;
+    el.querySelectorAll<HTMLElement>('*').forEach((n) => {
+      const d = n.scrollHeight - n.clientHeight;
+      if (d > m) m = d;
+    });
+    return m;
+  }, []);
   const freePreviewRef = useRef<{ x: number; y: number; w: number } | null>(null);
   const isFreeRef = useRef(false);
 
@@ -345,6 +361,7 @@ export function Canvas() {
       setPosBadge(null);
       const dx = (clientX - r.startX) / zoomRef.current;
       const dy = (clientY - r.startY) / zoomRef.current;
+      const vertical = r.dir.includes('n') || r.dir.includes('s');
       let { x, y, w, h } = r.rect;
       if (r.dir.includes('e')) w = r.rect.w + dx;
       if (r.dir.includes('s')) h = r.rect.h + dy;
@@ -359,10 +376,19 @@ export function Canvas() {
         x = Math.round(x / SNAP) * SNAP;
         y = Math.round(Math.max(0, y) / SNAP) * SNAP;
         w = Math.round(w / SNAP) * SNAP;
-        h = Math.round(h / SNAP) * SNAP;
+        if (vertical) h = Math.round(h / SNAP) * SNAP;
       }
-      useBuilder.getState().setWidgetRect(r.id, { x, y, w, h }, true);
-      setSizeBadge(`${w} × ${h}`);
+      /* 自适应关键：纯东西向拖拽只改宽度，高度语义保持原样 ——
+         原本「自动高度」的组件绝不写 h（此前会把实测高度固化成固定值，
+         导致之后内容增减/字号变化时组件被 overflow 裁剪、不再自适应）；
+         南北向/对角拖拽 = 用户显式设定高度，允许固化 h（含原固定值保持） */
+      const patch = vertical
+        ? { x, y, w, h }
+        : r.autoH
+          ? { x, y, w }
+          : { x, y, w, h: r.rect.h };
+      useBuilder.getState().setWidgetRect(r.id, patch, true);
+      setSizeBadge(vertical ? `${Math.round(w)} × ${Math.round(h)}` : `${Math.round(w)} × 自动`);
       return;
     }
 
@@ -495,11 +521,23 @@ export function Canvas() {
 
     /* 缩放结束：合并历史 */
     if (resizeRef.current) {
+      const r = resizeRef.current;
       if (dragMetaRef.current.batch) b.endBatch();
       resizeRef.current = null;
       setSizeBadge(null);
       dragMetaRef.current = { offX: 0, offY: 0, batch: false };
       useDnd.getState().end();
+      /* 南北向/对角拖拽会固化高度：若本次拖拽新增内容裁剪（组件内部 overflow-hidden 层也算），
+         提示恢复自适应的路径；与拖拽开始时的基线比较，固有装饰性裁剪不误报 */
+      if (r.dir.includes('n') || r.dir.includes('s')) {
+        requestAnimationFrame(() => {
+          if (measureClipped(r.id) - r.baselineClipped > 8) {
+            toast('组件高度小于内容，超出部分被隐藏', {
+              description: '拖动手柄调高，或在右侧「布局」面板点「恢复自动高度」让内容自适应',
+            });
+          }
+        });
+      }
       return;
     }
 
@@ -1048,7 +1086,9 @@ export function Canvas() {
                           if (suppressClickRef.current || useDnd.getState().suppressNextClick) return;
                           if (!e.shiftKey) selectGroupAware(w.id);
                         }}
-                        className={`group absolute rounded-xl ${
+                        className={`group absolute rounded-xl${
+                          typeof w.h === 'number' ? ' flex flex-col' : ''
+                        } ${
                           selected ? 'z-20 ring-2' : selectedIds.includes(w.id) ? 'z-20 ring-2 ring-dashed' : 'z-10 hover:ring-1'
                         }`}
                         style={{
@@ -1056,7 +1096,6 @@ export function Canvas() {
                           top: w.y ?? 0,
                           width: w.w ?? 355,
                           height: w.h,
-                          overflow: typeof w.h === 'number' ? 'hidden' : undefined,
                           opacity: w.opacity ?? 1,
                           filter: w.shadow ? SHADOW_FILTER[w.shadow] : undefined,
                           cursor: 'grab',
@@ -1140,6 +1179,8 @@ export function Canvas() {
                                     dir,
                                     startX: e.clientX,
                                     startY: e.clientY,
+                                    autoH: w.h == null,
+                                    baselineClipped: measureClipped(w.id),
                                     rect: {
                                       x: w.x ?? 0,
                                       y: w.y ?? 0,

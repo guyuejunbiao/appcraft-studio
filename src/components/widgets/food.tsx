@@ -8,6 +8,7 @@ import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
 import { useBusScope } from '@/lib/interaction-bus';
 import { fireToast } from '@/lib/widget-toast';
 import { stopAct, useAction } from './action-kit';
+import { normalizeProducts } from './grid-kit';
 
 /**
  * 外卖点餐 组件库（目录：food）
@@ -69,7 +70,7 @@ function CouponRowInteractive({ props }: InteractiveCtx) {
   );
 }
 
-/** 分类侧栏交互：左侧行原地切换选中高亮（useState）；右侧「+」加购 toast（分流） */
+/** 分类侧栏交互：左侧行原地切换选中高亮（useState）；右侧真实菜品行（+ 加购 toast 分流） */
 function CategorySidebarInteractive({ props }: InteractiveCtx) {
   const { toast } = useAction();
   const raw = splitList(props.cats);
@@ -77,7 +78,7 @@ function CategorySidebarInteractive({ props }: InteractiveCtx) {
   const [active, setActive] = useState(() =>
     Math.min(Math.max(0, Math.floor(Number(props.active) || 0)), cats.length - 1)
   );
-  const dishNames = ['招牌菜', '人气菜'];
+  const dishes = normalizeProducts(props.items);
   return (
     <div className="w-card flex overflow-hidden">
       <div className="w-chip w-[76px] shrink-0 py-1">
@@ -99,22 +100,24 @@ function CategorySidebarInteractive({ props }: InteractiveCtx) {
         ))}
       </div>
       <div className="min-w-0 flex-1 space-y-3 p-3">
-        {[0, 1].map((i) => (
-          <div key={i} className="flex items-center gap-2.5">
+        {dishes.map((d, i) => (
+          <div key={i} data-item-index={i} className="flex items-center gap-2.5">
             <div
               className="flex size-12 shrink-0 items-center justify-center"
               style={{ borderRadius: 'calc(var(--pr) - 2px)', background: DISH_GRAD }}
             >
               <UtensilsCrossed className="size-5 text-white/85" />
             </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <span className="block h-2 w-3/4 rounded-full bg-current opacity-15" />
-              <span className="block h-2 w-1/2 rounded-full bg-current opacity-10" />
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-bold leading-tight">{d.name || `菜品 ${i + 1}`}</span>
+              <span className="mt-1 block text-xs font-bold leading-none" style={{ color: 'var(--p)' }}>
+                <span className="text-[10px]">¥</span>{d.price || '0'}
+              </span>
             </div>
             <button
               type="button"
-              aria-label="加入购物车"
-              onClick={(e) => { stopAct(e); toast(`已加入购物车：${cats[active]}·${dishNames[i]}`, 'success'); }}
+              aria-label={`加入购物车：${d.name}`}
+              onClick={(e) => { stopAct(e); toast(`已加入购物车：${cats[active]}·${d.name}`, 'success'); }}
               className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-90"
               style={{ background: 'var(--p)', color: 'var(--pf)' }}
             >
@@ -473,18 +476,32 @@ export const widgets: WidgetDef[] = [
     type: 'food.category-sidebar',
     category: 'food',
     name: '点餐分类侧栏',
-    desc: '左分类右菜品骨架的模拟效果',
+    desc: '左分类右菜品列表，菜品逐个可编辑名称价格，可分别绑定跳转页面',
     icon: ListTree,
-    defaultProps: { cats: '热销,优惠,主食,饮品,小吃', active: 0 },
+    defaultProps: {
+      cats: '热销,优惠,主食,饮品,小吃',
+      active: 0,
+      items: [
+        { name: '招牌手打柠檬茶', price: '12' },
+        { name: '芝士莓莓奶盖', price: '18' },
+      ],
+    },
     fields: [
       { key: 'cats', label: '分类（逗号分隔）', type: 'text' },
       { key: 'active', label: '激活分类序号', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'items', label: '菜品（逐个编辑）', type: 'products', max: 6 },
     ],
+    slots: (p) =>
+      normalizeProducts(p.items).map((it, i) => ({
+        key: String(i),
+        label: it.name ? it.name.slice(0, 10) : `菜品 ${i + 1}`,
+      })),
     Interactive: CategorySidebarInteractive,
     render: (p) => {
       const raw = splitList(p.cats);
       const cats = raw.length ? raw : ['热销'];
       const active = Math.min(Math.max(0, Math.floor(Number(p.active) || 0)), cats.length - 1);
+      const dishes = normalizeProducts(p.items);
       return (
         <div className="w-card flex overflow-hidden">
           <div className="w-chip w-[76px] shrink-0 py-1">
@@ -503,17 +520,19 @@ export const widgets: WidgetDef[] = [
             ))}
           </div>
           <div className="min-w-0 flex-1 space-y-3 p-3">
-            {[0, 1].map((i) => (
-              <div key={i} className="flex items-center gap-2.5">
+            {dishes.map((d, i) => (
+              <div key={i} data-item-index={i} className="flex items-center gap-2.5">
                 <div
                   className="flex size-12 shrink-0 items-center justify-center"
                   style={{ borderRadius: 'calc(var(--pr) - 2px)', background: DISH_GRAD }}
                 >
                   <UtensilsCrossed className="size-5 text-white/85" />
                 </div>
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <span className="block h-2 w-3/4 rounded-full bg-current opacity-15" />
-                  <span className="block h-2 w-1/2 rounded-full bg-current opacity-10" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-bold leading-tight">{d.name || `菜品 ${i + 1}`}</span>
+                  <span className="mt-1 block text-xs font-bold leading-none" style={{ color: 'var(--p)' }}>
+                    <span className="text-[10px]">¥</span>{d.price || '0'}
+                  </span>
                 </div>
                 <span
                   className="flex size-5 shrink-0 items-center justify-center rounded-full"
