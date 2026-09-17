@@ -940,6 +940,7 @@ export const widgets: WidgetDef[] = [
         {splitList(p.brands).slice(0, 3).map((brand, i) => (
           <div
             key={`${brand}-${i}`}
+            data-item-index={i}
             className="flex h-20 w-[32%] shrink-0 flex-col justify-end gap-1 overflow-hidden p-2.5"
             style={{
               borderRadius: 'var(--pr)',

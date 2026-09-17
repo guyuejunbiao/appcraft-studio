@@ -18,6 +18,10 @@ import { PageManagerDialog } from './PageManager';
 import { TabManagerDialog } from './TabManager';
 import { ProductsEditor } from './ProductsEditor';
 import { CellsEditor, cellsFieldValue, productsFieldValue } from './InspectorPanel';
+import {
+  resolveHitAt, markerInfo, commitTextHit, textLeafOf, listSegments, joinSegments, primaryListField,
+  type TextHit,
+} from '@/lib/text-parts';
 import type { PropField } from '@/lib/widget-types';
 import { normalizeProducts } from '@/components/widgets/grid-kit';
 import { Button } from '@/components/ui/button';
@@ -44,6 +48,20 @@ const CHROME_H = 40;
 const CARD_H = CHROME_H + AB_H;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 1.6;
+
+/** 双击内联改字状态：命中数据位置 + 原文字屏幕几何（输入框原位覆盖、零弹窗） */
+interface InlineEditState {
+  pageId: string;
+  widgetId: string;
+  hit: TextHit;
+  rect: { left: number; top: number; width: number; height: number };
+  fontSize: number;
+  fontWeight: string;
+  color: string;
+  textAlign: string;
+  value: string;
+  nonce: number;
+}
 
 /** 页面画板默认网格位置 */
 const defaultPos = (i: number) => ({ x: 80 + (i % 4) * 260, y: 80 + Math.floor(i / 4) * 470 });
@@ -125,9 +143,79 @@ function WidgetPickerPopover({ pageId, children }: { pageId: string; children: R
   );
 }
 
+/* ==================== 单件分段编辑器（右键逗号列表的某一项） ==================== */
+/** SegmentEditor：右键「点餐分类侧栏/领券/榜单/推荐横滑」等列表的某一项时，只编辑那一项（点谁编谁） */
+function SegmentEditor({ widget, field, index, onFocusIndex, onDone }: {
+  widget: WidgetInstance;
+  field: PropField;
+  index: number;
+  onFocusIndex: (i: number | null) => void;
+  onDone: () => void;
+}) {
+  const def = getWidget(widget.type);
+  const updateWidgetProps = useBuilder((s) => s.updateWidgetProps);
+  if (!def) return null;
+  const merged = { ...def.defaultProps, ...widget.props };
+  const raw = String(merged[field.key] ?? '');
+  const segs = listSegments(raw);
+  const idx = Math.min(Math.max(0, index), segs.length - 1);
+  const commit = (next: string[]) => updateWidgetProps(widget.id, { [field.key]: joinSegments(next, raw) });
+  return (
+    <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50/50 p-2.5">
+      <div className="mb-1.5 flex items-center gap-1">
+        <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+          <Type className="size-3" /> {field.label}
+        </span>
+        <span className="ml-auto text-[10px] font-semibold tabular-nums text-zinc-400">第 {idx + 1} 项 / 共 {segs.length} 项</span>
+      </div>
+      <Input
+        value={segs[idx] ?? ''}
+        onChange={(e) => { const next = [...segs]; next[idx] = e.target.value; commit(next); }}
+        className="h-8 border-emerald-300 bg-white text-xs"
+        autoFocus
+      />
+      <div className="mt-2 flex items-center gap-1">
+        <Button variant="outline" size="sm" className="h-7 flex-1 text-[11px]" disabled={idx <= 0} onClick={() => onFocusIndex(idx - 1)}>
+          上一项
+        </Button>
+        <Button variant="outline" size="sm" className="h-7 flex-1 text-[11px]" disabled={idx >= segs.length - 1} onClick={() => onFocusIndex(idx + 1)}>
+          下一项
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+          disabled={segs.length <= 1}
+          title="删除这一项"
+          onClick={() => {
+            const next = segs.filter((_, i) => i !== idx);
+            commit(next);
+            onFocusIndex(Math.max(0, Math.min(idx, next.length - 1)));
+          }}
+        >
+          <Trash2 className="size-3" />
+        </Button>
+      </div>
+      <button
+        className="mt-1.5 w-full text-center text-[10px] font-semibold text-zinc-400 transition-colors hover:text-violet-500"
+        onClick={() => onFocusIndex(null)}
+      >
+        查看全部 {segs.length} 项（管理列表）
+      </button>
+    </div>
+  );
+}
+
 /* ==================== 选中组件快捷编辑（文字就地 / 间距 / 布局） ==================== */
-/** focusItem：画布上点击的具体条目索引（商品/格子）——点谁编谁，弹窗只呈现那一个个体 */
-function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; onDone: () => void; focusItem: number | null }) {
+/** focusItem：画布上点击的具体条目索引（商品/格子）——点谁编谁，弹窗只呈现那一个个体；
+ *  focusField：命中的逗号列表字段（右键列表某一项 → SegmentEditor 单件分段） */
+function QuickEditor({ widget, onDone, focusItem, focusField, onFocusItem }: {
+  widget: WidgetInstance;
+  onDone: () => void;
+  focusItem: number | null;
+  focusField?: string | null;
+  onFocusItem?: (i: number | null) => void;
+}) {
   const def = getWidget(widget.type);
   const updateWidgetProps = useBuilder((s) => s.updateWidgetProps);
   const updateWidget = useBuilder((s) => s.updateWidget);
@@ -136,8 +224,10 @@ function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; on
   const textFields = def.fields.filter((f) => f.type === 'text' || f.type === 'textarea');
   const productFields = def.fields.filter((f) => f.type === 'products');
   const cellFields = def.fields.filter((f) => f.type === 'cells');
+  /* 单件分段模式：右键/点中逗号列表的某一段 → 只编辑那一项（其余项不出现） */
+  const segField = focusItem != null && focusField ? textFields.find((f) => f.key === focusField) ?? null : null;
   /* 单件模式（点中具体条目）时隐藏普通文字区，只保留该条目——「单个」语义不掺其他内容 */
-  const showText = textFields.length > 0 && (focusItem == null || (productFields.length === 0 && cellFields.length === 0));
+  const showText = !segField && textFields.length > 0 && (focusItem == null || (productFields.length === 0 && cellFields.length === 0));
 
   return (
     <div className="w-64 space-y-3 p-3">
@@ -147,11 +237,24 @@ function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; on
         </span>
         <span className="text-xs font-bold">{def.name}</span>
         {focusItem != null ? (
-          <span className="ml-auto rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">单件编辑 · 第 {focusItem + 1} 个</span>
+          <span className="ml-auto rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">
+            {segField ? `单件编辑 · 第 ${focusItem + 1} 项` : `单件编辑 · 第 ${focusItem + 1} 个`}
+          </span>
         ) : (
           <span className="ml-auto rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-500">就地编辑</span>
         )}
       </div>
+
+      {/* 逗号列表单件分段：右键列表某一项 → 只编辑那一项（点谁编谁，不摊开全部） */}
+      {segField && focusItem != null && (
+        <SegmentEditor
+          widget={widget}
+          field={segField}
+          index={focusItem}
+          onFocusIndex={(i) => onFocusItem?.(i)}
+          onDone={onDone}
+        />
+      )}
 
       {/* 文字内容就地编辑（实时生效，无需跳回编辑器）；单件模式且有条目编辑时让位给条目 */}
       {showText && textFields.slice(0, 3).map((f) => (
@@ -187,7 +290,7 @@ function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; on
 
       {/* 商品逐个就地编辑：点中具体商品 → 只编辑那一件（单件模式）；点组件整体 → 全列表管理。
           key 含 focusItem：点击另一个商品时组件重挂载，单件/全列表视图自动归位 */}
-      {productFields.slice(0, 1).map((f) => (
+      {!segField && productFields.slice(0, 1).map((f) => (
         <ProductsEditor
           key={`${f.key}-${focusItem ?? 'all'}`}
           value={productsFieldValue(f as PropField, widget, def)}
@@ -199,7 +302,7 @@ function QuickEditor({ widget, onDone, focusItem }: { widget: WidgetInstance; on
 
       {/* 宫格逐格就地编辑：点中具体格子 → 只编辑那一格（金刚区/设置行/个人页宫格）。
           key 含 focusItem：点击另一个格子时组件重挂载，单格/全列表视图自动归位 */}
-      {cellFields.slice(0, 1).map((f) => (
+      {!segField && cellFields.slice(0, 1).map((f) => (
         <CellsEditor
           key={`${f.key}-${focusItem ?? 'all'}`}
           value={cellsFieldValue(f as PropField, widget, def)}
@@ -279,6 +382,8 @@ function Artboard({
   selWidgetId,
   linkDragging,
   onWidgetPointerDown,
+  onWidgetDoubleClick,
+  onWidgetContextMenu,
   onBodyPointerDown,
   onOpenEditor,
   onLinkStart,
@@ -292,6 +397,10 @@ function Artboard({
   linkDragging: boolean;
   /** 点击组件：选中（pageId, widgetId）；widgetId 为空 = 清除选择 */
   onWidgetPointerDown: (pageId: string, widgetId: string, e?: React.PointerEvent) => void;
+  /** 双击组件：文字 → 画布原位改字（零弹窗）；条目非文字区 → 打开该件的单件编辑面板 */
+  onWidgetDoubleClick: (pageId: string, widgetId: string, e: React.MouseEvent) => void;
+  /** 右键组件：打开单件编辑面板（命中条目 = 只编辑那一件） */
+  onWidgetContextMenu: (pageId: string, widgetId: string, e: React.MouseEvent) => void;
   onBodyPointerDown: (pageId: string) => void;
   onOpenEditor: (pageId: string) => void;
   onLinkStart: (pageId: string, e: React.PointerEvent) => void;
@@ -447,6 +556,8 @@ function Artboard({
                         className="absolute"
                         style={{ left: w.x ?? 0, top: w.y ?? 0, width: w.w ?? 355 }}
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
+                        onDoubleClick={(e) => onWidgetDoubleClick(page.id, w.id, e)}
+                        onContextMenu={(e) => onWidgetContextMenu(page.id, w.id, e)}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-1 outline-violet-500' : 'rounded hover:outline hover:outline-1 hover:outline-violet-300'}>
                           <WidgetRenderer w={w} canvasLive />
@@ -467,6 +578,8 @@ function Artboard({
                         key={w.id}
                         data-widget-host={w.id}
                         onPointerDown={(e) => { e.stopPropagation(); onWidgetPointerDown(page.id, w.id, e); }}
+                        onDoubleClick={(e) => onWidgetDoubleClick(page.id, w.id, e)}
+                        onContextMenu={(e) => onWidgetContextMenu(page.id, w.id, e)}
                       >
                         <div className={selWidgetId === w.id ? 'rounded outline outline-2 outline-offset-[-1px] outline-violet-500' : ''}>
                           <WidgetRenderer w={w} canvasLive />
@@ -552,6 +665,14 @@ export function InfiniteCanvas() {
   const [editing, setEditing] = useState(false);
   const [focusItem, setFocusItem] = useState<number | null>(null);
   const focusItemRef = useRef<number | null>(null);
+  /* focusField = 命中的逗号列表字段（右键列表某一项 → 单件分段编辑） */
+  const [focusField, setFocusField] = useState<string | null>(null);
+  /* 双击内联改字（零弹窗）：输入框与原文字同位同款，直接在画布上改 */
+  const [inline, setInline] = useState<InlineEditState | null>(null);
+  const inlineRef = useRef<InlineEditState | null>(null);
+  const inlineValRef = useRef('');
+  const inlineCancelRef = useRef(false);
+  const inlineNonceRef = useRef(0);
 
   /* 连线 */
   const [linkDrag, setLinkDrag] = useState<{ fromPageId: string; x: number; y: number } | null>(null);
@@ -593,44 +714,174 @@ export function InfiniteCanvas() {
   }, [sel, pages]);
 
   const selRef = useRef<{ pageId: string; widgetId: string } | null>(null);
-  /** 从 pointerdown 目标向上找条目标记（data-item-index / data-cell-index），提取单件索引 */
-  const hitItemIndex = (e?: React.PointerEvent): number | null => {
-    const el = e?.target as HTMLElement | null | undefined;
-    const marker = el?.closest?.('[data-item-index],[data-cell-index]');
-    if (!marker) return null;
-    const v = marker.getAttribute('data-item-index') ?? marker.getAttribute('data-cell-index');
-    const n = Number(v);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
-  const setFocus = (i: number | null) => {
+  const setFocus = useCallback((i: number | null) => {
     focusItemRef.current = i;
     setFocusItem(i);
-  };
+  }, []);
+  /** 从 store 取组件实例与定义（命中解析需要最新数据） */
+  const widgetContextOf = useCallback((pageId: string, widgetId: string) => {
+    const st = useBuilder.getState();
+    const page = st.pages.find((p) => p.id === pageId);
+    const w = page?.components.find((c) => c.id === widgetId);
+    const def = w ? getWidget(w.type) : null;
+    return w && def ? { widget: w, def } : null;
+  }, []);
+  /** 点击命中解析：条目标记（data-*）优先，其次叶子文字全局匹配字段值（零标记组件也支持点谁编谁） */
+  const applyFocusFromHit = useCallback((pageId: string, widgetId: string, e?: { target?: EventTarget | null }) => {
+    const ctx = widgetContextOf(pageId, widgetId);
+    const hit = ctx && e ? resolveHitAt(ctx.def, ctx.widget, e.target ?? null).hit : null;
+    if (hit) {
+      setFocus(hit.index);
+      setFocusField(hit.kind === 'list' ? hit.fieldKey : null);
+    } else {
+      setFocus(null);
+      setFocusField(null);
+    }
+  }, [widgetContextOf, setFocus]);
+
+  /* ======= 双击内联改字（零弹窗）：输入框原位覆盖被点击的文字 ======= */
+  const openInline = useCallback((pageId: string, widget: WidgetInstance, hit: TextHit) => {
+    const leaf = hit.posEl;
+    const rect = leaf.getBoundingClientRect();
+    const cs = window.getComputedStyle(leaf);
+    /* 画板内 scale(AB_SCALE) × 画布 scale(zoom) —— CSS 字号按总变换比放大到屏幕尺寸 */
+    const scale = AB_SCALE * zoom;
+    const st: InlineEditState = {
+      pageId,
+      widgetId: widget.id,
+      hit,
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      fontSize: Math.max(9, (parseFloat(cs.fontSize) || 12) * scale),
+      fontWeight: cs.fontWeight,
+      color: cs.color,
+      textAlign: cs.textAlign,
+      value: hit.seg,
+      nonce: ++inlineNonceRef.current,
+    };
+    inlineValRef.current = hit.seg;
+    inlineCancelRef.current = false;
+    inlineRef.current = st;
+    setInline(st);
+  }, [zoom]);
+
+  /** 提交内联改字：按命中位置把新文字写回组件数据（指针路径先于 setCurrentPage 调用，不串页） */
+  const commitInline = useCallback(() => {
+    const st = inlineRef.current;
+    if (!st) return;
+    inlineRef.current = null;
+    setInline(null);
+    const ctx = widgetContextOf(st.pageId, st.widgetId);
+    if (!ctx) return;
+    const patch = commitTextHit(ctx.def, ctx.widget, st.hit, inlineValRef.current);
+    if (patch && Object.keys(patch).length) useBuilder.getState().updateWidgetProps(st.widgetId, patch);
+  }, [widgetContextOf]);
+
+  const cancelInline = useCallback(() => {
+    inlineRef.current = null;
+    setInline(null);
+  }, []);
+
   const handleWidgetPointerDown = useCallback((pageId: string, widgetId: string, e?: React.PointerEvent) => {
+    /* 任何指针操作前先落盘内联编辑（blur 只能兜底同页场景，跨页点击靠这里保证不丢字） */
+    if (inlineRef.current) commitInline();
     if (!widgetId) {
       selRef.current = null;
       setSel(null);
       setEditing(false);
       setFocus(null);
+      setFocusField(null);
       return;
     }
     setCurrentPage(pageId); /* store 的 update/remove API 作用于 currentPage */
     useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
-    const itemIdx = hitItemIndex(e);
     if (selRef.current?.pageId === pageId && selRef.current.widgetId === widgetId) {
-      /* 再点已选中的组件 = 打开就地编辑；命中具体条目则弹窗内直接切到那一个个体（点谁编谁）。
+      /* 已选中组件上的点击：仅更新命中目标（弹窗开着时切换单件个体，点谁编谁）。
          preventDefault 阻止浏览器把焦点抢给画布内按钮（focusin 落在弹层外会触发
          Radix DismissableLayer 的 onFocusOutside 自动关闭弹层 → 弹窗一闪而过） */
       e?.preventDefault();
-      setFocus(itemIdx);
-      setEditing(true);
+      applyFocusFromHit(pageId, widgetId, e);
       return;
     }
     selRef.current = { pageId, widgetId };
-    setFocus(itemIdx); /* 首次选中也记录命中的条目，下一次点击打开时即单件模式 */
+    applyFocusFromHit(pageId, widgetId, e); /* 首次选中也记录命中的条目，下一次打开即单件模式 */
     setEditing(false);
     setSel({ pageId, widgetId });
-  }, [setCurrentPage]);
+  }, [setCurrentPage, commitInline, applyFocusFromHit]);
+
+  /* 双击：文字 → 画布原位改字（零弹窗）；条目非文字区（图片/图标）→ 打开该件的单件编辑面板 */
+  const handleWidgetDoubleClick = useCallback((pageId: string, widgetId: string, e: React.MouseEvent) => {
+    if (inlineRef.current) commitInline();
+    const ctx = widgetContextOf(pageId, widgetId);
+    if (!ctx) return;
+    const el = e.target as HTMLElement;
+    if (textLeafOf(el)) {
+      const { hit } = resolveHitAt(ctx.def, ctx.widget, el);
+      if (hit) {
+        e.preventDefault();
+        setCurrentPage(pageId);
+        useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
+        selRef.current = { pageId, widgetId };
+        setSel({ pageId, widgetId });
+        setFocus(hit.index);
+        setFocusField(hit.kind === 'list' ? hit.fieldKey : null);
+        setEditing(false);
+        openInline(pageId, ctx.widget, hit);
+        return;
+      }
+    }
+    const info = markerInfo(el.closest?.('[data-item-index],[data-cell-index]') as HTMLElement | null);
+    if (info) {
+      setCurrentPage(pageId);
+      useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
+      selRef.current = { pageId, widgetId };
+      setSel({ pageId, widgetId });
+      /* 纯条目标记组件（商品/宫格）→ 单件面板；纯文本列表组件 → 主列表字段的分段单件 */
+      const hasItemFields = ctx.def.fields.some((f) => f.type === 'products' || f.type === 'cells');
+      if (hasItemFields) {
+        setFocus(info.index);
+        setFocusField(null);
+      } else {
+        const pf = primaryListField(ctx.def, ctx.widget);
+        setFocus(info.index);
+        setFocusField(pf?.key ?? null);
+      }
+      setEditing(true);
+    }
+  }, [setCurrentPage, commitInline, widgetContextOf, openInline, setFocus]);
+
+  /* 右键：命中条目 → 单件编辑面板（只显示那一件）；否则 → 组件整体编辑面板 */
+  const handleWidgetContextMenu = useCallback((pageId: string, widgetId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (inlineRef.current) commitInline();
+    const ctx = widgetContextOf(pageId, widgetId);
+    if (!ctx) return;
+    setCurrentPage(pageId);
+    useBuilder.setState({ selectedWidgetId: widgetId, selectedIds: [widgetId] });
+    if (selRef.current?.pageId !== pageId || selRef.current?.widgetId !== widgetId) {
+      selRef.current = { pageId, widgetId };
+      setSel({ pageId, widgetId });
+    }
+    const { hit, marker } = resolveHitAt(ctx.def, ctx.widget, e.target);
+    const info = markerInfo(marker);
+    if (hit) {
+      setFocus(hit.index);
+      setFocusField(hit.kind === 'list' ? hit.fieldKey : null);
+    } else if (info) {
+      const hasItemFields = ctx.def.fields.some((f) => f.type === 'products' || f.type === 'cells');
+      if (hasItemFields) {
+        setFocus(info.index);
+        setFocusField(null);
+      } else {
+        const pf = primaryListField(ctx.def, ctx.widget);
+        setFocus(info.index);
+        setFocusField(pf?.key ?? null);
+      }
+    } else {
+      setFocus(null);
+      setFocusField(null);
+    }
+    setEditing(true);
+  }, [setCurrentPage, commitInline, widgetContextOf, setFocus]);
 
   /* 关闭编辑弹层时同步清除 store 选中 */
   const clearSel = useCallback(() => {
@@ -638,12 +889,14 @@ export function InfiniteCanvas() {
     setSel(null);
     setEditing(false);
     setFocus(null);
+    setFocusField(null);
     useBuilder.setState({ selectedWidgetId: null, selectedIds: [] });
-  }, []);
+  }, [setFocus]);
 
   /* ======= 平移 / 缩放 ======= */
   const onBoardPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
+    if (inlineRef.current) commitInline();
     clearSel();
     setPanning({ sx: e.clientX, sy: e.clientY, ox: offset.x, oy: offset.y });
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
@@ -668,6 +921,8 @@ export function InfiniteCanvas() {
     if (!board) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      /* 内联改字期间滚动画布会错位 → 先提交再平移/缩放 */
+      commitInline();
       if (e.ctrlKey || e.metaKey) {
         setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z - e.deltaY * 0.0022)));
       } else {
@@ -676,7 +931,7 @@ export function InfiniteCanvas() {
     };
     board.addEventListener('wheel', onWheel, { passive: false });
     return () => board.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [commitInline]);
 
   /* 缩放到适合全部画板 */
   const fitView = useCallback(() => {
@@ -796,7 +1051,7 @@ export function InfiniteCanvas() {
         <div className="min-w-0">
           <h1 className="truncate text-sm font-bold leading-4">无限画布</h1>
           <p className="truncate text-[10px] text-zinc-400">
-            画板内点击组件就地编辑 · 点 + 添加组件 · 右侧圆点拖拽连线 · 空白处拖动平移 · Ctrl+滚轮缩放
+            画板内双击文字直接改 · 右键编辑该件 · 点 + 添加组件 · 右侧圆点拖拽连线 · 空白处拖动平移 · Ctrl+滚轮缩放
           </p>
         </div>
 
@@ -967,6 +1222,8 @@ export function InfiniteCanvas() {
               selWidgetId={sel?.pageId === p.id ? sel.widgetId : null}
               linkDragging={!!linkDrag}
               onWidgetPointerDown={handleWidgetPointerDown}
+              onWidgetDoubleClick={handleWidgetDoubleClick}
+              onWidgetContextMenu={handleWidgetContextMenu}
               onBodyPointerDown={focusPage}
               onOpenEditor={openEditor}
               onLinkStart={onLinkStart}
@@ -1020,7 +1277,13 @@ export function InfiniteCanvas() {
                   if (wid && t?.closest?.(`[data-widget-host="${wid}"]`)) e.preventDefault();
                 }}
               >
-                <QuickEditor widget={selWidget.widget} onDone={() => setEditing(false)} focusItem={focusItem} />
+                <QuickEditor
+                  widget={selWidget.widget}
+                  onDone={() => setEditing(false)}
+                  focusItem={focusItem}
+                  focusField={focusField}
+                  onFocusItem={setFocus}
+                />
               </PopoverContent>
             </Popover>
             {/* 上移 / 下移 */}
@@ -1054,6 +1317,51 @@ export function InfiniteCanvas() {
               <Trash2 className="size-3.5" />
             </button>
           </div>
+        )}
+
+        {/* 双击内联改字：与原文字同位同款的悬浮输入框（屏幕坐标定位，不随画布变换） */}
+        {inline && (
+          <input
+            key={inline.nonce}
+            defaultValue={inline.value}
+            aria-label="编辑组件文字"
+            className="fixed z-[70] rounded-md border-2 border-violet-500 bg-white shadow-xl outline-none ring-4 ring-violet-100"
+            style={{
+              left: inline.rect.left - 6,
+              top: inline.rect.top - 3,
+              width: Math.max(inline.rect.width + 12, 56),
+              height: Math.max(inline.rect.height + 6, inline.fontSize + 10),
+              fontSize: inline.fontSize,
+              fontWeight: inline.fontWeight as React.CSSProperties['fontWeight'],
+              color: inline.color,
+              textAlign: inline.textAlign as React.CSSProperties['textAlign'],
+              lineHeight: `${Math.max(inline.rect.height, inline.fontSize + 4)}px`,
+              padding: '0 4px',
+            }}
+            ref={(el) => { if (el) { el.focus(); el.select(); } }}
+            onChange={(e) => { inlineValRef.current = e.target.value; }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => { e.stopPropagation(); e.preventDefault(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitInline(); }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                inlineCancelRef.current = true;
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            onBlur={() => {
+              if (inlineCancelRef.current) {
+                inlineCancelRef.current = false;
+                cancelInline();
+                return;
+              }
+              commitInline();
+            }}
+          />
         )}
 
         {/* TabBar 空提示（右下） */}

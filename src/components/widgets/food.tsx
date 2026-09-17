@@ -86,6 +86,7 @@ function CategorySidebarInteractive({ props }: InteractiveCtx) {
             key={i}
             role="button"
             aria-label={`切换分类：${c}`}
+            data-cell-index={i}
             className="relative cursor-pointer py-2.5 text-center text-xs transition-transform active:scale-[0.97]"
             style={i === active ? { color: 'var(--p)', fontWeight: 700 } : { opacity: 0.5 }}
             onClick={(e) => { stopAct(e); setActive(i); }}
@@ -450,6 +451,7 @@ export const widgets: WidgetDef[] = [
             {list.map((c, i) => (
               <span
                 key={i}
+                data-cell-index={i}
                 className={`shrink-0 border border-dashed px-2 py-1 text-[11px] font-semibold ${i % 2 === 1 ? '' : 'border-rose-500/45 bg-rose-500/10 text-rose-500'}`}
                 style={{
                   borderRadius: 'calc(var(--pr) - 3px)',
@@ -489,6 +491,7 @@ export const widgets: WidgetDef[] = [
             {cats.map((c, i) => (
               <div
                 key={i}
+                data-cell-index={i}
                 className="relative py-2.5 text-center text-xs"
                 style={i === active ? { color: 'var(--p)', fontWeight: 700 } : { opacity: 0.5 }}
               >
@@ -593,7 +596,7 @@ export const widgets: WidgetDef[] = [
           {names.map((n, i) => {
             const Icon = DISH_ICONS[i % DISH_ICONS.length];
             return (
-              <div key={i} className="w-chip min-w-0 flex-1 p-1.5" style={{ borderRadius: 'var(--pr)' }}>
+              <div key={i} data-item-index={i} className="w-chip min-w-0 flex-1 p-1.5" style={{ borderRadius: 'var(--pr)' }}>
                 <div
                   className="flex h-14 items-center justify-center"
                   style={{ borderRadius: 'calc(var(--pr) - 4px)', background: DISH_GRAD }}
