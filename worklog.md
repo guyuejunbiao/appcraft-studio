@@ -1193,3 +1193,16 @@ Stage Summary:
 - 预览语义闭环：条目绑定=仅点击该条目跳转（压栈可返回），未绑定条目不触发；整组件=任意位置点击跳转
 - 测试副作用已还原，用户项目「1」数据保持原状
 - 待办：推送 GitHub 需用户新 token；编辑器（非画布）视图交互对齐；商品图 emoji 自定义；热榜逐条绑页
+---
+Task ID: 43-P（补记）
+Agent: main (Z.ai Code)
+Task: 用户提供新 token，同步 Task 41-43 全部提交到 GitHub
+
+Work Log:
+- 推送前校验：merge-base 确认远程 main（8acec1b）为本地祖先 → 纯 fast-forward；worklog Task 43 已随 7948c7a 入库
+- git push 一次性凭据（仅命令行传入，不落盘）：8acec1b..7948c7a main -> main 成功，4 提交（02c0515 Turso+README / cc15025 双击改字+右键单件 / 3e51136 触发组件条目级下拉 / 7948c7a worklog）
+- git fetch 修正过期 origin/main 跟踪引用（此前直推不更新 tracking ref 显示落后 36）；复核 HEAD...origin/main = 0/0 完全同步
+
+Stage Summary:
+- github.com/guyuejunbiao/appcraft-studio main = 本地 7948c7a，包含全部 36 提交（1114 组件模块库、无限画布、双击就地改字、右键单件编辑、条目级连接触发、Turso 就绪）
+- 安全提醒已发：对话中出现的两个 token 均建议用户到 GitHub Settings → Developer settings 删除
