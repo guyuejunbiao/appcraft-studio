@@ -1118,3 +1118,20 @@ Stage Summary:
 - "独立=单一个体"的交互语义终于完整：现在画布上点哪个商品/格子，弹窗里就只有那一个个体——单件编辑（翡翠绿视觉标识）+ 无缝切换 + 全列表管理三态齐备；金刚区/订单宫格/服务九宫格/设置行首次获得画布就地编辑能力
 - 关键技术沉淀：Radix 受控弹层的 dismiss 是 flushSync 同步 CustomEvent 链，宿主 pointerdown 的 preventDefault 拦不住 pointerdown-outside——必须在 onPointerDownOutside 的自定义事件上判定后 preventDefault
 - 建议下一阶段：①profile/functional 其余列表型组件（热榜/动态等）按同一模式补 data-* 标记与单件模式 ②商品图 emoji/图标自定义（Task 37 遗留）③git push 仍需用户新 token（旧 ghp_U7LA 已泄露须删除）
+---
+Task ID: 40
+Agent: main (Z.ai Code)
+Task: 部署到 GitHub——全部代码推送到 github.com/guyuejunbiao/appcraft-studio
+
+Work Log:
+- 推送前巡检：工作区出现 19 个文件的 mode 变化（100644→100755，非代码改动），git checkout 还原
+- 凭据排查：无 .git-credentials/.netrc/gh CLI/GITHUB_TOKEN 环境变量/credential helper；远程为公开仓库可读（ls-remote 成功），push 必须凭据
+- 远程状态分析：origin/main = 09ea1ca（恰为本地历史首个提交，merge-base 证实），本地 main 领先 31 个提交、落后 0 → 纯 fast-forward 无冲突
+- 用户提供新 fine-grained token 后执行 git push（token 仅用于本次推送命令，未写入 .git/config、未落盘、未进 worklog）：09ea1ca..569080b main -> main 成功
+- 远程仓库现包含全部 32 个提交：Task 1-39 全部成果（144 组件+1114 模块库、无限画布+就地编辑、逐条目独立编辑+独立跳转、多对一连接可视化、点谁编谁单件编辑、产品体验重设计等）
+- 提醒用户：旧 token ghp_U7LA... 已在历史对话泄露须立即 Revoke；本次新 token 已出现在对话中，推送完成即建议删除
+
+Stage Summary:
+- GitHub 部署完成：github.com/guyuejunbiao/appcraft-studio main 分支 = 本地 569080b（32 提交全量）
+- 安全惯例落定：token 使用"仅命令行一次性传入"模式，任何凭据不落盘不进仓库
+- 建议下一阶段：①可在 GitHub 仓库页添加 README 徽章/截图 ②如需在线可访问部署（Vercel 等）需注意 SQLite/Prisma 需换托管数据库 ③后续代码变更继续用新 token 或让用户生成更短有效期 token
