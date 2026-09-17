@@ -1269,3 +1269,24 @@ Stage Summary:
 - 用户三大诉求闭环：①SKU 选项可直接导入图片/效果图（本地上传自动压缩/外链/表情三通道，chips 内嵌缩略圆片）②点击选项主图原地 crossfade 切换对应效果图（交互总线 :img 子频道联动，全程不跳页、已选浮层滑入反馈、指示点可退出）③放大缩小双向自适应（fullBleed 弹性链 flex-1 升级，18 个通栏组件拉伸/压缩/任意宽高比全跟随）
 - 图片三形态约定沉淀 image-value.ts（dataURL/链接/≤4 字符表情），后续商品图 emoji 自定义（Task 37 遗留）可直接复用 ImagePicker/ImagesEditor
 - 未推送 GitHub（需用户新 token）；待办：编辑器（非画布）交互对齐、热榜逐条绑页、登录页重设计、全站 QA
+---
+Task ID: 47
+Agent: main (Z.ai Code)
+Task: 用户明确需求——「双击月光白 → 弹窗（名称/价格/图像），上传的图直接在商品主图位置显示，支持左右滑动观看；点击自动切换对应效果图，不用新页面」
+
+Work Log:
+- 新建 SwipeDeck（src/components/widgets/swipe-deck.tsx）：通用可滑动图组——framer-motion drag 横向拖拽弹簧翻页、圆点指示、桌面悬停箭头、干净点击回调（拖动>8px 抑制点击防误触）、touch-action: pan-y 纵向滚动放行
+- 新建 SkuOptionDialog（src/components/builder/SkuOptionDialog.tsx）：双击 SKU 选项弹出的编辑弹窗——顶部「商品主图」位置（上传的图立即显示+左右滑动+计数角标）、缩略图条（点选查看/设为主图/删除/主图徽标）、多选本地上传（自动压缩）/链接/表情三通道、名称+价格输入、保存一次性写回 props、spring 弹入动画、portal 到 body（画布 transform 下 fixed 定位必须）
+- 数据模型升级 image-value.ts：图组 string[][]（每选项多图），toGalleryList/toGalleryListMain/parseGalleryValue/serializeGalleryValue 全链路兼容旧单图 string[]；新增 toStringList
+- shopping.tsx：sku-select 选项 chip 加 data-sku-row/data-sku-index/data-sku-name 标记+价格小字显示；DetailHeroInteractive 重写——主图变 SwipeDeck（SKU 效果图组/自身轮播统一滑动）、图组位置纯派生状态（deckKey 变化自动归零，规避 effect setState 与 ref 渲染期访问两条 lint 铁律）、点击主图打开 HeroLightbox 原位大图弹层（portal 到 #phone-screen、黑底 contain、计数/圆点/关闭）、已选浮层加 × 退出效果图、指示点导航当前图组
+- interactive.tsx SkuSelectInteractive：pick 写入 serializeGalleryValue（JSON 图组串）到总线 :img 子频道；useChannelDefault 初始写第一组；价格/图组 memo 解析
+- 双画布双击接入：InfiniteCanvas.handleWidgetDoubleClick 优先检查 [data-sku-row]（先于内联改字）；Canvas.tsx 组件容器新增 onDoubleClick（该画布此前无双击交互）；两处共用 SkuOptionDialog，打开前同步 setCurrentPage/选中态
+- ImagesEditor 对齐模式兼容图组：行内编辑主图（保留其余图）、多图行显 +N 徽标、提示文案加「双击选项可传多图」引导（editor-only 不泄漏到导出 HTML）
+- **调试教训（重要）**：①AnimatePresence 包 createPortal 会吞掉全部内容（弹窗渲染空白）——条件挂载+直接 portal 修复；②framer-motion drag 不响应 JS 合成 PointerEvent（需 CDP 真实指针），agent-browser 实测滑动用 drag <src> <dst> 命令+临时探针元素；③element.click() 派发的 click 坐标为 (0,0) 会被 SwipeDeck 的 8px 防误触 guard 挡掉，测干净点击需 deck.click() 或真实坐标事件
+- agent-browser 端到端实测全过（临时项目「巡检临时-SKU弹窗测试」mall-demo 模板，已删零残留）：编辑器双击月光白→弹窗（标题/主图区/上传/名称/价格全渲染）→upload 3 张 SVG→主图立即显示+计数 1/1→2/3→缩略图×3→CDP 拖拽滑动 3/3→2/3→填价格 1299→保存→chip 缩略图+¥1299+弹窗关；API 复核 colorImages=string[3][3 图组]、colorPrices=['1299','',''] 落盘；预览：初始主图即月光白效果图+「已选」浮层→点主图开大图弹层(1/3)→圆点直达 3/3→关闭→点曜石黑(无图)退出效果图回占位→点月光白切回+浮层复现（全程同页不跳转）；无限画布：双击月光白弹窗同款 ✓ chip 缩略图+价格 ✓；属性面板对齐编辑器渲染+引导文案 ✓
+- 测试项目 2 个（含首个用错模板 ID 的废弃项）全部 DELETE 清理，项目列表仅剩用户项目「1」；tsc 0 错（仅 examples/skills 历史遗留）、lint 0 错、dev.log 无错误
+
+Stage Summary:
+- 用户点名的交互模型完整落地：双击选项=弹窗编辑（名称/价格/图像），上传的图直接显示在弹窗「商品主图位置」且支持左右滑动；预览中点击选项主图原地切换对应效果图组（不跳页）、主图可滑动、点击主图原位大图查看
+- 每选项多图（图组）成为基础设施，旧单图数据零迁移自动兼容；价格 per-option 选填
+- 未推送 GitHub（需用户新 token）；待办：编辑器（非画布）其他列表类组件的同款「双击单件弹窗」泛化、商品图 emoji 自定义（Task 37）、热榜逐条绑页、登录页重设计、全站 QA
