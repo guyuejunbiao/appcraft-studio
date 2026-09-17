@@ -4,7 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 export type WidgetProps = Record<string, any>;
 
 /** 属性面板控件类型 */
-export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch' | 'cells' | 'products';
+export type PropFieldType = 'text' | 'textarea' | 'select' | 'color' | 'number' | 'switch' | 'cells' | 'products' | 'images';
 
 /** 交互组件共享的运行时上下文（仅在预览模式传入） */
 export interface InteractiveCtx {
@@ -55,6 +55,9 @@ export interface PropField {
   withBadge?: boolean;
   /** cells 类型：每格是否含「默认开启」开关（设置分组的开关型行） */
   withOn?: boolean;
+  /** images 类型（图片列表）：与哪个逗号列表字段按序对齐（如 sku 的 colors/versions）——
+   *  编辑器按对齐字段的选项名逐行展示，行数随选项自动对齐；不设则为自由增删的轮播模式 */
+  alignTo?: string;
 }
 
 /** 组件大类 */

@@ -1,10 +1,14 @@
 'use client';
 
+import { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Image as ImageIcon, Heart, JapaneseYen, Palette, Minus, Plus, ShieldCheck, Truck,
   RotateCcw, Star, MapPin, ChevronRight, ShoppingCart, MessageCircle, ReceiptText,
 } from 'lucide-react';
 import type { WidgetDef, InteractiveCtx } from '@/lib/widget-types';
+import { useChannelSetter, useChannelValue } from '@/lib/interaction-bus';
+import { imageSrcOf, isInlineEmoji } from '@/lib/image-value';
 import { QtyStepperInteractive, SkuSelectInteractive } from './interactive';
 import { stopAct, useAction, useLocalToggle, ActStatusIcon } from './action-kit';
 
@@ -24,19 +28,71 @@ const splitList = (raw: unknown): string[] =>
 /* Interactive 实现（仅预览模式挂载）：预览中按钮/开关原地生效，杜绝死按钮 */
 /* ------------------------------------------------------------------ */
 
-/** 商品主图：右上角收藏心形原地翻转（白描边 ⇄ 红色填充）+ toast 反馈 */
-function DetailHeroInteractive({ props }: InteractiveCtx) {
-  const [fav, toggleFav] = useLocalToggle(false);
-  const { toast } = useAction();
+/** SKU 缩略圆片：chips 内的效果图小圆点（图片/表情），无图返回 null */
+export function SkuThumb({ value }: { value: unknown }) {
+  const src = imageSrcOf(value);
+  const emoji = !src && isInlineEmoji(value) ? String(value).trim() : '';
+  if (!src && !emoji) return null;
+  return src ? (
+     
+    <img src={src} alt="" draggable={false} className="size-4 shrink-0 rounded-full object-cover shadow-sm" />
+  ) : (
+    <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-black/5 text-[9px] leading-none">{emoji}</span>
+  );
+}
+
+/** 主图媒体层：dataURL/链接 → 真实图片（object-cover 自适应任意尺寸）；
+ *  表情 → 渐变底大表情；空 → 主题色渐变占位。值切换时 crossfade 丝滑过渡 */
+function HeroMediaLayer({ value }: { value: string }) {
+  const src = imageSrcOf(value);
+  const emoji = !src && isInlineEmoji(value) ? value.trim() : '';
   return (
-    <div className="relative h-[260px] w-full">
-      {/* 渐变图片占位 */}
-      <div
+    <AnimatePresence initial={false}>
+      <motion.div
+        key={src || emoji || 'ph'}
+        initial={{ opacity: 0, scale: 1.04 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.32, ease: 'easeOut' }}
         className="absolute inset-0 flex items-center justify-center"
         style={{ background: 'linear-gradient(160deg, color-mix(in srgb, var(--p) 22%, transparent), color-mix(in srgb, var(--p) 52%, transparent))' }}
       >
-        <ImageIcon className="size-14 opacity-30" />
-      </div>
+        {src ? (
+           
+          <img src={src} alt="商品图片" draggable={false} className="size-full object-cover" />
+        ) : emoji ? (
+          <span className="text-6xl leading-none drop-shadow-sm">{emoji}</span>
+        ) : (
+          <ImageIcon className="size-14 opacity-30" />
+        )}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/** 图片列表属性 → 干净的字符串数组（过滤空项；兼容旧存档非数组值） */
+const toImageList = (raw: unknown): string[] =>
+  (Array.isArray(raw) ? raw : []).map((s) => String(s ?? '')).filter(Boolean);
+
+/** 商品主图：轮播图片（可上传）+ 收藏心形原地翻转 + SKU 选中自动切换效果图 */
+function DetailHeroInteractive({ props }: InteractiveCtx) {
+  const [fav, toggleFav] = useLocalToggle(false);
+  const { toast } = useAction();
+  const setBus = useChannelSetter();
+  const images = useMemo(() => toImageList(props.images), [props.images]);
+  const linkChannel = String(props.linkChannel || 'sku');
+  /* 订阅 SKU 选择器写入的频道：:img = 当前效果图，:主频道 = 已选规格文案 */
+  const skuImg = useChannelValue(`${linkChannel}:img`);
+  const skuLabel = useChannelValue(linkChannel);
+  const [idx, setIdx] = useState(0);
+  const safeIdx = Math.min(idx, Math.max(0, images.length - 1));
+  const showingSku = !!skuImg;
+  const cur = showingSku ? skuImg! : images[safeIdx] ?? '';
+
+  return (
+    <div className="relative h-[260px] w-full">
+      {/* 媒体层：SKU 效果图 / 自身轮播 / 渐变占位，crossfade 切换 */}
+      <HeroMediaLayer value={cur} />
       {/* 右上角收藏心形：点击原地翻转 */}
       {props.fav !== false && (
         <button
@@ -47,7 +103,7 @@ function DetailHeroInteractive({ props }: InteractiveCtx) {
             toggleFav();
             toast(fav ? '已取消收藏' : '已收藏', 'success');
           }}
-          className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/25 transition-transform active:scale-[0.88]"
+          className="absolute right-3 top-3 z-10 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/25 transition-transform active:scale-[0.88]"
         >
           <Heart
             className="size-4 text-white transition-colors"
@@ -55,15 +111,48 @@ function DetailHeroInteractive({ props }: InteractiveCtx) {
           />
         </button>
       )}
-      {/* 底部指示点 */}
-      <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <span
-            key={i}
-            className="size-1.5 rounded-full"
-            style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
-          />
-        ))}
+      {/* 已选规格浮层：SKU 触发效果图切换时滑入提示（不跳页、原地联动） */}
+      <AnimatePresence>
+        {showingSku && skuLabel && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="absolute bottom-3 left-3 z-10 flex max-w-[60%] items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 backdrop-blur-sm"
+          >
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: 'var(--p)' }} />
+            <span className="truncate text-[10px] font-semibold text-white">已选 · {skuLabel}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* 底部指示点：配置了轮播图 → 真实可点按钮（点击退出 SKU 效果图回到轮播）；未配置 → 装饰点 */}
+      <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
+        {images.length > 0
+          ? images.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={`切换到第 ${i + 1} 张图`}
+                onClick={(e) => {
+                  stopAct(e);
+                  setIdx(i);
+                  if (showingSku) setBus(`${linkChannel}:img`, '');
+                }}
+                className="h-1.5 cursor-pointer rounded-full transition-all duration-300"
+                style={{
+                  width: !showingSku && i === safeIdx ? 12 : 6,
+                  background: !showingSku && i === safeIdx ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)',
+                }}
+              />
+            ))
+          : Array.from({ length: 5 }).map((_, i) => (
+              <span
+                key={i}
+                className="size-1.5 rounded-full"
+                style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
+              />
+            ))}
       </div>
     </div>
   );
@@ -191,41 +280,48 @@ export const widgets: WidgetDef[] = [
     type: 'shop.detail-hero',
     category: 'shopping',
     name: '商品主图',
-    desc: '通栏主图轮播占位 + 收藏按钮',
+    desc: '轮播图片（可上传）+ SKU 选中自动切效果图',
     icon: ImageIcon,
     fullBleed: true,
-    defaultProps: { fav: true },
+    defaultProps: { fav: true, images: [], linkChannel: 'sku' },
     fields: [
+      { key: 'images', label: '轮播图片', type: 'images', max: 6 },
       { key: 'fav', label: '显示收藏按钮', type: 'switch' },
+      { key: 'linkChannel', label: '联动频道（高级）', type: 'text', placeholder: '读取 SKU 选择的效果图，如 sku' },
     ],
     Interactive: DetailHeroInteractive,
-    render: (p) => (
-      <div className="relative h-[260px] w-full">
-        {/* 渐变图片占位 */}
-        <div
-          className="absolute inset-0 flex items-center justify-center"
-          style={{ background: 'linear-gradient(160deg, color-mix(in srgb, var(--p) 22%, transparent), color-mix(in srgb, var(--p) 52%, transparent))' }}
-        >
-          <ImageIcon className="size-14 opacity-30" />
+    render: (p) => {
+      const images = toImageList(p.images);
+      return (
+        <div className="relative h-[260px] w-full">
+          <HeroMediaLayer value={images[0] ?? ''} />
+          {/* 右上角收藏心形 */}
+          {p.fav !== false && (
+            <span className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full bg-black/25">
+              <Heart className="size-4 text-white" />
+            </span>
+          )}
+          {/* 底部指示点：有真实图 → 真实数量长点；无图 → 装饰点 */}
+          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
+            {images.length > 0
+              ? images.map((_, i) => (
+                  <span
+                    key={i}
+                    className="h-1.5 rounded-full transition-all"
+                    style={{ width: i === 0 ? 12 : 6, background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
+                  />
+                ))
+              : Array.from({ length: 5 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="size-1.5 rounded-full"
+                    style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
+                  />
+                ))}
+          </div>
         </div>
-        {/* 右上角收藏心形 */}
-        {p.fav !== false && (
-          <span className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-black/25">
-            <Heart className="size-4 text-white" />
-          </span>
-        )}
-        {/* 底部指示点 */}
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <span
-              key={i}
-              className="size-1.5 rounded-full"
-              style={{ background: i === 0 ? '#fff' : 'color-mix(in srgb, #fff 45%, transparent)' }}
-            />
-          ))}
-        </div>
-      </div>
-    ),
+      );
+    },
   },
   {
     type: 'shop.price-row',
@@ -266,50 +362,66 @@ export const widgets: WidgetDef[] = [
     type: 'shop.sku-select',
     category: 'shopping',
     name: 'SKU 选择',
-    desc: '颜色 / 版本规格 chips',
+    desc: '颜色/版本 chips（可配效果图，选中联动主图）',
     icon: Palette,
-    defaultProps: { colors: '月光白,曜石黑,晨曦粉', versions: '标准版,高配版', channel: 'sku' },
+    defaultProps: {
+      colors: '月光白,曜石黑,晨曦粉',
+      versions: '标准版,高配版',
+      channel: 'sku',
+      colorImages: [],
+      versionImages: [],
+    },
     fields: [
       { key: 'colors', label: '颜色', type: 'textarea', placeholder: '逗号分隔' },
       { key: 'versions', label: '版本', type: 'textarea', placeholder: '逗号分隔' },
-      { key: 'channel', label: '联动频道（高级）', type: 'text', placeholder: '写入已选规格，如 sku' },
+      { key: 'colorImages', label: '颜色效果图', type: 'images', alignTo: 'colors' },
+      { key: 'versionImages', label: '版本效果图', type: 'images', alignTo: 'versions' },
+      { key: 'channel', label: '联动频道（高级）', type: 'text', placeholder: '写入已选规格与效果图，如 sku' },
     ],
     Interactive: SkuSelectInteractive,
-    render: (p) => (
-      <div className="w-card space-y-3.5 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
-        {[
-          { label: '颜色', items: splitList(p.colors) },
-          { label: '版本', items: splitList(p.versions) },
-        ].filter((row) => row.items.length > 0).map((row) => (
-          <div key={row.label} className="flex items-start gap-3">
-            <span className="w-7 shrink-0 pt-0.5 text-xs opacity-50">{row.label}</span>
-            <div className="flex flex-wrap gap-1.5">
-              {row.items.map((item, i) => {
-                const active = i === 0; // 默认选中第一项
-                return active ? (
-                  <span
-                    key={item}
-                    className="px-2.5 py-1 text-xs font-semibold"
-                    style={{
-                      borderRadius: 'calc(var(--pr) - 6px)',
-                      border: '1px solid var(--p)',
-                      background: 'color-mix(in srgb, var(--p) 10%, transparent)',
-                      color: 'var(--p)',
-                    }}
-                  >
-                    {item}
-                  </span>
-                ) : (
-                  <span key={item} className="w-chip px-2.5 py-1 text-xs opacity-65" style={{ borderRadius: 'calc(var(--pr) - 6px)' }}>
-                    {item}
-                  </span>
-                );
-              })}
+    render: (p) => {
+      const colorImages = toImageList(p.colorImages);
+      const versionImages = toImageList(p.versionImages);
+      return (
+        <div className="w-card space-y-3.5 p-3.5" style={{ borderRadius: 'var(--pr)' }}>
+          {[
+            { label: '颜色', items: splitList(p.colors), imgs: colorImages },
+            { label: '版本', items: splitList(p.versions), imgs: versionImages },
+          ].filter((row) => row.items.length > 0).map((row) => (
+            <div key={row.label} className="flex items-start gap-3">
+              <span className="w-7 shrink-0 pt-0.5 text-xs opacity-50">{row.label}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {row.items.map((item, i) => {
+                  const active = i === 0; // 默认选中第一项
+                  const img = row.imgs[i] ?? '';
+                  const hasThumb = !!imageSrcOf(img) || !!isInlineEmoji(img);
+                  return active ? (
+                    <span
+                      key={item}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold"
+                      style={{
+                        borderRadius: 'calc(var(--pr) - 6px)',
+                        border: '1px solid var(--p)',
+                        background: 'color-mix(in srgb, var(--p) 10%, transparent)',
+                        color: 'var(--p)',
+                      }}
+                    >
+                      <SkuThumb value={img} />
+                      {item}
+                    </span>
+                  ) : (
+                    <span key={item} className="w-chip flex items-center gap-1.5 px-2 py-1 text-xs opacity-65" style={{ borderRadius: 'calc(var(--pr) - 6px)' }}>
+                      {hasThumb && <SkuThumb value={img} />}
+                      {item}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-    ),
+          ))}
+        </div>
+      );
+    },
   },
   {
     type: 'shop.qty-stepper',

@@ -88,11 +88,13 @@ export function WidgetRenderer({
   );
 
   /* 固定高度（自由布局 h 已设）时启用弹性填充链：
-     内容不足时卡片根节点 min-h-full 撑满容器（不留白），超出时在本层被 overflow hidden 裁剪；
+     内容子元素 flex-1 拉伸填满容器（不留白）且 min-h-0 可被压缩——
+     放大/缩小双向自适应（fullBleed 根节点自身的固定高被 flex-basis:0 覆盖，
+     图片类内容 object-cover 跟随任意尺寸）；
      自动高度/流式布局保持原始 block 结构（零回归） */
   const stretch = typeof w.h === 'number';
   const inner = def.fullBleed ? (
-    stretch ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:shrink-0">{body}</div> : body
+    stretch ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">{body}</div> : body
   ) : (
     <div className={`px-2.5${stretch ? ' flex min-h-0 flex-1 flex-col overflow-hidden [&>div]:min-h-full' : ''}`}>{body}</div>
   );
@@ -200,13 +202,14 @@ export function WidgetInner({
   );
 
   /* 固定高度时启用弹性填充链（配合 Canvas 自由布局包装层的 flex 容器）：
-     内容不足 → 卡片根节点撑满容器不留白；超出 → 在本层被 overflow hidden 裁剪。
+     内容子元素 flex-1 + min-h-0：拉伸填满不留白、压缩跟随不裁死——
+     放大/缩小双向自适应；超出内容在本层被 overflow hidden 裁剪。
      裁剪层不在包装层的原因：包装层若裁剪，伸出边缘的 8 向缩放手柄也会被裁掉，导致拖拽失效。
      自动高度保持原始 block 结构（零回归）。 */
   const stretch = typeof w.h === 'number';
   if (def.fullBleed) {
     return stretch ? (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:shrink-0">{body}</div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">{body}</div>
     ) : (
       <>{body}</>
     );

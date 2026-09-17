@@ -30,6 +30,7 @@ import { AppIconPicker } from './AppIconBadge';
 import { IconPicker } from './IconPicker';
 import { sanitizeCells, splitList, CELL_ACT_OPTIONS, normalizeProducts, type GridCell } from '@/components/widgets/grid-kit';
 import { ProductsEditor } from './ProductsEditor';
+import { ImagesEditor } from './ImagesEditor';
 
 const THEME_COLORS = [
   '#f97316', '#f43f5e', '#10b981', '#22c55e', '#8b5cf6',
@@ -119,6 +120,12 @@ export function InspectorPanel() {
                   field={f}
                   value={f.type === 'products' ? productsFieldValue(f, widget, def) : cellsFieldValue(f, widget, def)}
                   onChange={(v) => updateWidgetProps(widget.id, { [f.key]: v })}
+                  alignNames={
+                    f.type === 'images' && f.alignTo
+                      ? String(({ ...def.defaultProps, ...widget.props })[f.alignTo] ?? '')
+                          .split(/[,,]/).map((s) => s.trim()).filter(Boolean)
+                      : undefined
+                  }
                 />
               ))}
               {def.fields.length === 0 && <p className="text-xs text-zinc-400">该组件没有可配置属性</p>}
@@ -841,11 +848,13 @@ export function CellsEditor({
 
 /** 属性字段控件 */
 function FieldControl({
-  field, value, onChange,
+  field, value, onChange, alignNames,
 }: {
   field: PropField;
   value: any;
   onChange: (v: any) => void;
+  /** images 对齐模式：对齐字段的选项名列表 */
+  alignNames?: string[];
 }) {
   if (field.type === 'cells') {
     return (
@@ -860,6 +869,9 @@ function FieldControl({
   }
   if (field.type === 'products') {
     return <ProductsEditor value={value ?? []} onChange={onChange} max={field.max ?? 6} />;
+  }
+  if (field.type === 'images') {
+    return <ImagesEditor value={Array.isArray(value) ? value : []} onChange={onChange} max={field.max ?? 6} alignNames={alignNames} />;
   }
   if (field.type === 'switch') {
     return (

@@ -1251,3 +1251,21 @@ Stage Summary:
 - 用户两大诉求闭环：①侧栏商品从「纯骨架不可编辑」变为真实菜品行——属性面板逐个编辑（名称/价格/原价/已售/增删/排序）、无限画布双击改字+右键单件、逐菜品绑定跳转页面、预览加购反馈，旧实例零操作自动升级 ②resize 自适应体系：横向拖拽保自动高度、固定高弹性填充不留白、手柄不再被裁、拖矮裁剪有提示
 - 两个存量 bug 顺带修复：固定高组件手柄被 wrapper 裁剪（拖拽失效）、sonner Toaster 缺失（全站 toast 静默丢失）
 - 编辑器画布（Canvas.tsx）的「点谁编谁」完整移植（双击内联+右键单件）仍是排队任务——本轮编辑侧靠属性面板 products 编辑器闭环；git 推送需用户新 token（本地领先 1 提交 fbc4796）
+---
+Task ID: 46
+Agent: main (Z.ai Code)
+Task: 用户截图反馈——①放大缩小自适应仍不满意 ②SKU 选项（颜色/版本 chips）要能直接导入图片/商品效果图，点击选项主图原地切换对应效果图（不跳新页）③交互要更流畅丝滑更符合逻辑
+
+Work Log:
+- 新建图片基础设施：src/lib/image-value.ts（isImageSrc/isInlineEmoji 识别 + fileToDataUrl 本地文件导入：≤400KB 原样、更大 canvas 压缩到最长边 1280 JPEG 0.82，透明底垫白）；src/components/builder/ImagePicker.tsx 单图选择器（缩略图点击上传/粘贴链接/≤4 字符表情占位/一键清除，dataURL 不回显进输入框防卡顿）
+- 新建 ImagesEditor（新字段类型 'images' + PropField.alignTo）：轮播模式（自由增删/排序/上限 6）+ 对齐模式（与 colors/versions 逗号列表按序对齐，行首显选项名，行数自动跟随）；InspectorPanel FieldControl 接入并传 alignNames
+- shop.detail-hero 大改：defaultProps + images[]/linkChannel；属性面板「轮播图片」编辑器；HeroMediaLayer 媒体层（dataURL/链接 → <img> object-cover 自适应任意尺寸、表情 → 渐变底大表情、空 → 主题色渐变占位）+ AnimatePresence crossfade（opacity+scale 1.04→1，0.32s）；Interactive 订阅总线 `${linkChannel}:img`（默认 sku:img）——SKU 选中自动切效果图、左下滑入「已选 · 月光白 · 标准版」玻璃浮层、配置了轮播图后指示点变真实可点按钮（点击退出效果图回轮播）
+- shop.sku-select 大改：defaultProps + colorImages[]/versionImages[]；「颜色/版本效果图」逐选项对齐编辑器；chips 内嵌 SkuThumb 效果图小圆片（16px 圆形缩略图/表情）；Interactive 重写——pick() 同时写主频道（已选规格文案）与 :img 子频道（本次点中行自己的图优先，否则另一行当前图兜底），useChannelDefault 初始写第一张效果图；motion.button whileTap 弹性按压反馈（spring 600/28）
+- 系统性放大缩小自适应：WidgetRenderer 两处 fullBleed 固定高弹性链 [&>*]:shrink-0 → [&>*]:min-h-0 [&>*]:flex-1——flex-basis:0 覆盖 fullBleed 根节点自身固定高，拉伸填满不留白、压缩跟随不裁死，图片 object-cover 跟随任意宽高比；全部 18 个 fullBleed 组件（hero/banner/头部图等）固定高场景一次性受益
+- agent-browser 端到端实测（临时项目「巡检临时-SKU联动测试」，商城模板）：①主图属性面板轮播编辑器→添加图片→精确选择器上传 SVG→画布 static 渲染显示真实图（首次 upload 打到页面第一个 file input 失败，改 [aria-label] ~ input[type=file] 精确选择器成功）②SKU 面板逐选项编辑器：月光白上传 SVG、曜石黑填 ⚫、晨曦粉留空→画布 chip 显示黄色缩略图/⚫ ③预览核心联动：初始即显「已选 · 月光白 · 标准版」+月光白效果图（总线默认图生效）；点曜石黑→主图 crossfade 为 ⚫ 大表情+浮层更新；点晨曦粉（无图）→退出效果图模式回退轮播图；点月光白→回月光白图（像素采样 [251,228,167] 暖黄验证）；点高配版→保颜色图、浮层变「月光白 · 高配版」；点指示点→退出 SKU 图回轮播 teal 图 ④自适应：主图 h 260→400 图 375×400 完全填充（修复前留 140px 空白）→160 压缩跟随→500 填满→宽 220×500 object-cover 裁切填充（getBoundingClientRect 136 = 160×85% 画布缩放换算吻合）；首页 mall.banner h=320 渐变层填满 320 ⑤数据复核 API：hero images 1 张 dataURL、sku colorImages [svg,⚫,''] 落盘；恢复 hero 375×自动、banner 自动后「已保存 06:08」⑥清理：浏览器返回首页→DELETE 200→仅剩用户项目「1」零残留；dev.log 尾部无新错误（开头 EADDRINUSE/PrismaClientValidationError 为历史遗留）
+- tsc 0 错（仅 skills 历史遗留）、lint 0 错 0 警（--fix 清掉 4 个无用 eslint-disable）
+
+Stage Summary:
+- 用户三大诉求闭环：①SKU 选项可直接导入图片/效果图（本地上传自动压缩/外链/表情三通道，chips 内嵌缩略圆片）②点击选项主图原地 crossfade 切换对应效果图（交互总线 :img 子频道联动，全程不跳页、已选浮层滑入反馈、指示点可退出）③放大缩小双向自适应（fullBleed 弹性链 flex-1 升级，18 个通栏组件拉伸/压缩/任意宽高比全跟随）
+- 图片三形态约定沉淀 image-value.ts（dataURL/链接/≤4 字符表情），后续商品图 emoji 自定义（Task 37 遗留）可直接复用 ImagePicker/ImagesEditor
+- 未推送 GitHub（需用户新 token）；待办：编辑器（非画布）交互对齐、热榜逐条绑页、登录页重设计、全站 QA
