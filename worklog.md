@@ -1290,3 +1290,19 @@ Stage Summary:
 - 用户点名的交互模型完整落地：双击选项=弹窗编辑（名称/价格/图像），上传的图直接显示在弹窗「商品主图位置」且支持左右滑动；预览中点击选项主图原地切换对应效果图组（不跳页）、主图可滑动、点击主图原位大图查看
 - 每选项多图（图组）成为基础设施，旧单图数据零迁移自动兼容；价格 per-option 选填
 - 未推送 GitHub（需用户新 token）；待办：编辑器（非画布）其他列表类组件的同款「双击单件弹窗」泛化、商品图 emoji 自定义（Task 37）、热榜逐条绑页、登录页重设计、全站 QA
+---
+Task ID: 48
+Agent: main (Z.ai Code)
+Task: 用户指令「上传同步到github」——将本地积压提交推送至 GitHub
+
+Work Log:
+- 开工核查：工作区干净（git status 0 变更），本地 main 领先 origin/main 7 提交、0 落后（Task 44–47 全部工作均在其中）
+- git fetch 刷新远程引用：origin/main = c08e759（上次同步点，与摘要记录一致）
+- 一次性命令行 token 推送：git push https://<token>@github.com/guyuejunbiao/appcraft-studio.git main:main → c08e759..8f0ff0c main -> main
+- 验证：push 后再 fetch，main...origin/main = 0 0，双侧同位 8f0ff0c；git config 确认无 credential.helper、token 未落盘未进配置
+- 巡检 cron 排查：列表仅存 391772(v6)/391620(v5) 且均因 exec limits 被 Disabled（396752 已不存在）；清理两个禁用任务并重建 15 分钟 webDevReview 巡检（v7，上下文更新至 Task 47+同步完成）
+
+Stage Summary:
+- GitHub 全量同步完成：c08e759 → 8f0ff0c，7 提交上线——fb52e31 功能按钮组件库 11 件套、f7b108f Task44 worklog、fbc4796 侧栏商品可编辑+resize 自适应体系、c8c4487 Task45 worklog、9bbbb13 SKU 逐选项效果图导入+主图原地联动+fullBleed 双向弹性链、77f0ed0 双击 SKU 弹窗编辑器（多图上传/主图滑动/大图原位查看）、8f0ff0c Task47 worklog
+- 推送惯例复核：token 仅命令行一次性传入，.git/config 与凭据存储均无残留
+- 本次同步后本地=远程=8f0ff0c（本节 docs 提交随下次同步上线）
